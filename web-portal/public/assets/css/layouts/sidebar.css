@@ -1,0 +1,96 @@
+.sidebar {
+    width: 280px;
+    background: rgba(12, 10, 9, 0.8);
+    /* Dark semi-transparent */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--color-glass-border);
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    color: var(--color-text-light);
+    position: fixed;
+    height: 100vh;
+    overflow-y: auto;
+    z-index: 100;
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--color-glass-border);
+    margin-bottom: 2rem;
+}
+
+.user-avatar {
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, var(--color-accent-gold), #b4942b);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    color: #1a0f00;
+    box-shadow: 0 0 15px rgba(212, 175, 55, 0.3);
+}
+
+.user-info h4 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--color-text-light);
+    font-family: var(--font-display);
+}
+
+.logout-btn {
+    background: transparent;
+    border: 1px solid var(--color-glass-border);
+    color: var(--color-text-muted);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.logout-btn:hover {
+    background: rgba(212, 175, 55, 0.1);
+    color: var(--color-accent-gold);
+    border-color: var(--color-accent-gold);
+}
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.nav-item {
+    padding: 1rem;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 1rem;
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.nav-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--color-text-light);
+}
+
+.nav-item.active {
+    background: linear-gradient(90deg, rgba(212, 175, 55, 0.1), transparent);
+    color: var(--color-accent-gold);
+    font-weight: 600;
+    border-left: 3px solid var(--color-accent-gold);
+    border-radius: 0 12px 12px 0;
+}

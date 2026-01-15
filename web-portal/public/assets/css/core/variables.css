@@ -1,0 +1,18 @@
+:root {
+    /* Modern Heritage Palette - Premium & Warm */
+    --color-bg-dark: #1c1917;
+    --color-bg-darker: #0c0a09;
+    --color-accent-gold: #d4af37;
+    --color-accent-gold-hover: #f3e5ab;
+    --color-accent-brown: #78350f;
+    --color-text-light: #fafaf9;
+    --color-text-muted: #a8a29e;
+    --color-glass: rgba(28, 25, 23, 0.75);
+    --color-glass-border: rgba(212, 175, 55, 0.15);
+    --shadow-soft: 0 20px 40px -5px rgba(0, 0, 0, 0.6);
+    --shadow-glow: 0 0 30px rgba(212, 175, 55, 0.1);
+
+    /* Typography */
+    --font-primary: 'Inter', sans-serif;
+    --font-display: 'Playfair Display', serif;
+}

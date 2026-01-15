@@ -1,0 +1,141 @@
+/* Table Container */
+.tableContainer {
+    background: var(--color-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--color-glass-border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    overflow-x: auto;
+}
+
+.controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    align-items: center;
+}
+
+.searchBar {
+    background-color: #0a0a0a;
+    border: 1px solid #333;
+    padding: 0.8rem 1.5rem;
+    border-radius: 6px;
+    color: #fff;
+    width: 300px;
+    font-family: var(--font-primary);
+    font-size: 0.9rem;
+}
+
+.searchBar:focus {
+    outline: none;
+    border-color: #C19A4B;
+}
+
+.adminTable {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    color: #fff;
+}
+
+.adminTable th {
+    text-align: left;
+    padding: 1rem;
+    color: #C19A4B;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(193, 154, 75, 0.3);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.adminTable td {
+    padding: 1.2rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.9rem;
+    color: #e5e5e5;
+}
+
+.btnAction {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #ddd;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    margin-right: 0.5rem;
+    transition: all 0.2s;
+    font-weight: 600;
+}
+
+.btnAction:hover {
+    border-color: #C19A4B;
+    color: #000;
+    background: #C19A4B;
+}
+
+.tabBtn {
+    background: transparent;
+    border: 1px solid #C19A4B;
+    color: #C19A4B;
+    padding: 0.6rem 1.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+}
+
+.tabBtn:hover {
+    background: rgba(193, 154, 75, 0.1);
+}
+
+.tabBtnAdminActive {
+    background-color: #C19A4B;
+    color: #000;
+}
+
+.btnGold {
+    background: #fff;
+    border: none;
+    color: #000;
+    padding: 0.8rem 1.5rem;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btnGold:hover {
+    background: #f0f0f0;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+}
+
+.btnAdd {
+    background-color: var(--color-accent-gold);
+    color: #000;
+    border: none;
+    padding: 0.6rem 1.5rem;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btnAdd:hover {
+    background-color: var(--color-accent-gold-hover);
+}

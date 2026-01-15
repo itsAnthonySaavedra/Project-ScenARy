@@ -1,0 +1,46 @@
+@import './variables.css';
+
+/* Reset & Base */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-primary);
+    background-color: var(--color-bg-darker);
+    background-image: radial-gradient(circle at 80% 20%, #292524, transparent 40%),
+        radial-gradient(circle at 20% 80%, #292524, transparent 40%);
+    color: var(--color-text-light);
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+}
+
+a {
+    text-decoration: none;
+    color: inherit;
+    transition: color 0.3s ease;
+}
+
+/* Typography */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: var(--font-display);
+    color: var(--color-accent-gold);
+}
+
+/* 
+   Note: All component styles have been moved to their respective *.module.css files:
+   - Pages: Login.module.css, Landing.module.css
+   - Layout: Layout.module.css (Sidebar/Header)
+   - Features: Dashboard.module.css
+   - Common: Common.module.css (Buttons, Forms, Modals), Tables.module.css
+   
+   This file is now STRICTLY for Global Resets and Variables.
+*/

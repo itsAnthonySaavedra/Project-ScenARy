@@ -1,0 +1,89 @@
+.form-group {
+    margin-bottom: 1.75rem;
+    position: relative;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 16px 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    color: var(--color-text-light);
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    font-family: var(--font-primary);
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--color-accent-gold);
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.1);
+}
+
+.form-control::placeholder {
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.form-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2.5rem;
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.custom-checkbox {
+    accent-color: var(--color-accent-gold);
+    width: 16px;
+    height: 16px;
+}
+
+.form-options a {
+    color: var(--color-accent-gold);
+    font-weight: 500;
+}
+
+.form-options a:hover {
+    color: var(--color-accent-gold-hover);
+    text-decoration: underline;
+}
+
+.form-section-title {
+    text-align: center;
+    font-size: 1rem;
+    margin-bottom: 1.5rem;
+    color: var(--color-text-light);
+    font-weight: 600;
+}
+
+.form-actions {
+    text-align: center;
+    margin-top: 2rem;
+}
+
+.char-count {
+    text-align: right;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    margin-top: 0.5rem;
+}
