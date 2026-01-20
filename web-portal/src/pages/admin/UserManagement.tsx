@@ -18,15 +18,15 @@ interface UserType {
   id: string;
   name: string;
   email: string;
-  role: "Super Admin" | "Admin" | "Institution" | "User";
+  role: "super admin" | "admin" | "institution" | "user";
   status: "Active" | "Inactive";
 }
 
 const roles: UserType["role"][] = [
-  "Super Admin",
-  "Admin",
-  "Institution",
-  "User",
+  "super admin",
+  "admin",
+  "institution",
+  "user",
 ];
 
 const UserManagement: React.FC = () => {
@@ -94,12 +94,12 @@ const UserManagement: React.FC = () => {
     const form = e.target as typeof e.target & {
       name: { value: string };
       email: { value: string };
-      role: { value: UserType["role"] };
+      role: { value: string };
     };
 
-    const name = form.name.value;
-    const email = form.email.value;
-    const role = form.role.value as UserType["role"];
+    const name = form.name.value.trim();
+    const email = form.email.value.trim();
+    const role = form.role.value.toLowerCase() as UserType["role"]; // lowercase role
 
     setLoading(true);
 
@@ -158,8 +158,8 @@ const UserManagement: React.FC = () => {
         Cancel
       </button>
       <button
-        type="submit" // submit the form instead of onClick
-        form="userForm" // link to the form id
+        type="submit"
+        form="userForm"
         className={commonStyles.btnUpdate}
         disabled={loading}
       >
@@ -205,11 +205,11 @@ const UserManagement: React.FC = () => {
                       padding: "0.25rem 0.8rem",
                       borderRadius: "12px",
                       background:
-                        user.role === "Super Admin"
+                        user.role === "super admin"
                           ? "rgba(212, 175, 55, 0.2)"
                           : "rgba(255, 255, 255, 0.05)",
                       color:
-                        user.role === "Super Admin" ? "#d4af37" : "#a8a29e",
+                        user.role === "super admin" ? "#d4af37" : "#a8a29e",
                       fontSize: "0.75rem",
                     }}
                   >
@@ -284,6 +284,7 @@ const UserManagement: React.FC = () => {
               required
             />
           </div>
+
           <div className={commonStyles.formGroup}>
             <label>Email Address</label>
             <input
@@ -295,12 +296,13 @@ const UserManagement: React.FC = () => {
               required
             />
           </div>
+
           <div className={commonStyles.formGroup}>
             <label>Role</label>
             <select
               name="role"
               className={commonStyles.formControl}
-              defaultValue={currentUser?.role || "User"}
+              defaultValue={currentUser?.role || "user"}
             >
               {roles.map((r) => (
                 <option key={r} value={r}>

@@ -10,7 +10,7 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
 
   // Determine portal type from URL query
-  const loginType = searchParams.get("type") || "institute";
+  const loginType = (searchParams.get("type") || "institute").toLowerCase();
   const isAdmin = loginType === "admin";
 
   const [email, setEmail] = useState<string>("");
@@ -33,17 +33,21 @@ const Login: React.FC = () => {
         return;
       }
 
+      // Normalize role to lowercase to prevent mismatch
+      const role = result.role?.toLowerCase();
+
       // Block login if role doesn't match the portal
-      if (result.role !== loginType) {
+      if (
+        role !== loginType &&
+        !(role === "super admin" && loginType === "admin")
+      ) {
         setError("Access denied: wrong portal for this account.");
         setLoading(false);
         return;
       }
 
       // Redirect based on role
-      navigate(
-        result.role === "admin" ? "/admin/dashboard" : "/institute/dashboard",
-      );
+      navigate(role === "admin" ? "/admin/dashboard" : "/institute/dashboard");
       setLoading(false);
     } catch (err) {
       console.error(err);
