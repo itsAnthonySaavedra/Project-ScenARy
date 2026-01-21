@@ -20,6 +20,12 @@ interface UserType {
   email: string;
   role: "super admin" | "admin" | "institution" | "user";
   status: "Active" | "Inactive";
+  institutionId?: string | null;
+}
+
+interface Institution {
+  id: string;
+  name: string;
 }
 
 const roles: UserType["role"][] = [
@@ -31,46 +37,48 @@ const roles: UserType["role"][] = [
 
 const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<UserType[]>([]);
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Load users from Firestore
+  /* =====================
+     LOAD DATA
+  ===================== */
   const fetchUsers = async () => {
-    try {
-      const snapshot = await getDocs(collection(db, "users"));
-      const fetchedUsers: UserType[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Omit<UserType, "id">),
-      }));
-      setUsers(fetchedUsers);
-    } catch (err) {
-      console.error("Error fetching users:", err);
-      alert("Failed to load users.");
-    }
+    const snap = await getDocs(collection(db, "users"));
+    setUsers(
+      snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<UserType, "id">),
+      })),
+    );
+  };
+
+  const fetchInstitutions = async () => {
+    const snap = await getDocs(collection(db, "institutions"));
+    setInstitutions(
+      snap.docs.map((d) => ({
+        id: d.id,
+        name: d.data().name,
+      })),
+    );
   };
 
   useEffect(() => {
     fetchUsers();
+    fetchInstitutions();
   }, []);
 
-  // Delete user
+  /* =====================
+     ACTIONS
+  ===================== */
   const handleDelete = async (user: UserType) => {
     if (!window.confirm(`Are you sure you want to delete ${user.name}?`))
       return;
-
-    try {
-      await deleteDoc(doc(db, "users", user.id));
-      setUsers((prev) => prev.filter((u) => u.id !== user.id));
-    } catch (err) {
-      console.error("Delete error:", err);
-      alert("Error deleting user.");
-    }
-  };
-
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value);
+    await deleteDoc(doc(db, "users", user.id));
+    setUsers((prev) => prev.filter((u) => u.id !== user.id));
   };
 
   const handleEdit = (user: UserType) => {
@@ -88,86 +96,91 @@ const UserManagement: React.FC = () => {
     setCurrentUser(null);
   };
 
-  // Save user (create or update)
+  /* =====================
+     SAVE USER
+  ===================== */
   const handleSave = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.target as typeof e.target & {
       name: { value: string };
       email: { value: string };
-      role: { value: string };
+      role: { value: UserType["role"] };
+      institutionId?: { value: string };
     };
 
     const name = form.name.value.trim();
     const email = form.email.value.trim();
-    const role = form.role.value.toLowerCase() as UserType["role"]; // lowercase role
+    const role = form.role.value;
+    const institutionId =
+      role === "institution" ? form.institutionId?.value || null : null;
 
     setLoading(true);
 
     try {
       if (currentUser) {
-        // Update existing user
         await updateDoc(doc(db, "users", currentUser.id), {
           name,
           email,
           role,
+          institutionId,
         });
+
         setUsers((prev) =>
           prev.map((u) =>
-            u.id === currentUser.id ? { ...u, name, email, role } : u,
+            u.id === currentUser.id
+              ? { ...u, name, email, role, institutionId }
+              : u,
           ),
         );
       } else {
-        // Create new user in Firebase Auth + Firestore
-        const tempPassword = "TempPass123!"; // Or generate dynamically
-        const userCred = await createUserWithEmailAndPassword(
+        const tempPassword = "TempPass123!";
+        const cred = await createUserWithEmailAndPassword(
           auth,
           email,
           tempPassword,
         );
 
-        await setDoc(doc(db, "users", userCred.user.uid), {
+        await setDoc(doc(db, "users", cred.user.uid), {
           name,
           email,
           role,
+          institutionId,
           status: "Active",
         });
 
         setUsers((prev) => [
           ...prev,
-          { id: userCred.user.uid, name, email, role, status: "Active" },
+          {
+            id: cred.user.uid,
+            name,
+            email,
+            role,
+            institutionId,
+            status: "Active",
+          },
         ]);
       }
     } catch (err) {
-      console.error("Error saving user:", err);
-      alert("Error saving user. See console.");
+      console.error("Save error:", err);
+      alert("Error saving user");
     }
 
     setLoading(false);
     handleCloseModal();
   };
 
+  /* =====================
+     FILTER
+  ===================== */
   const filteredUsers = users.filter(
     (u) =>
       u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       u.email.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
-  const modalActions = (
-    <>
-      <button className={commonStyles.btnCancel} onClick={handleCloseModal}>
-        Cancel
-      </button>
-      <button
-        type="submit"
-        form="userForm"
-        className={commonStyles.btnUpdate}
-        disabled={loading}
-      >
-        {currentUser ? "Update User" : "Add User"}
-      </button>
-    </>
-  );
-
+  /* =====================
+     UI
+  ===================== */
   return (
     <div className={tableStyles.tableContainer}>
       <div className={tableStyles.controls}>
@@ -176,7 +189,7 @@ const UserManagement: React.FC = () => {
           className={tableStyles.searchBar}
           placeholder="Search users by name or email..."
           value={searchTerm}
-          onChange={handleSearch}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
         <button className={tableStyles.btnAdd} onClick={handleAdd}>
           <i className="fa-solid fa-plus" style={{ marginRight: "0.5rem" }}></i>
@@ -189,6 +202,7 @@ const UserManagement: React.FC = () => {
           <tr>
             <th>Name</th>
             <th>Role</th>
+            <th>Institution</th>
             <th>Email</th>
             <th>Status</th>
             <th>Actions</th>
@@ -199,22 +213,12 @@ const UserManagement: React.FC = () => {
             filteredUsers.map((user) => (
               <tr key={user.id}>
                 <td style={{ fontWeight: 500, color: "#fff" }}>{user.name}</td>
+                <td>{user.role}</td>
                 <td>
-                  <span
-                    style={{
-                      padding: "0.25rem 0.8rem",
-                      borderRadius: "12px",
-                      background:
-                        user.role === "super admin"
-                          ? "rgba(212, 175, 55, 0.2)"
-                          : "rgba(255, 255, 255, 0.05)",
-                      color:
-                        user.role === "super admin" ? "#d4af37" : "#a8a29e",
-                      fontSize: "0.75rem",
-                    }}
-                  >
-                    {user.role}
-                  </span>
+                  {user.role === "institution"
+                    ? institutions.find((i) => i.id === user.institutionId)
+                        ?.name || "—"
+                    : "—"}
                 </td>
                 <td>{user.email}</td>
                 <td>
@@ -247,14 +251,7 @@ const UserManagement: React.FC = () => {
             ))
           ) : (
             <tr>
-              <td
-                colSpan={5}
-                style={{
-                  textAlign: "center",
-                  padding: "2rem",
-                  color: "#a8a29e",
-                }}
-              >
+              <td colSpan={6} style={{ textAlign: "center", padding: "2rem" }}>
                 No users found
               </td>
             </tr>
@@ -266,13 +263,26 @@ const UserManagement: React.FC = () => {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         title={currentUser ? "Edit User" : "Add New User"}
-        actions={modalActions}
+        actions={
+          <>
+            <button
+              className={commonStyles.btnCancel}
+              onClick={handleCloseModal}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="userForm"
+              className={commonStyles.btnUpdate}
+              disabled={loading}
+            >
+              {currentUser ? "Update User" : "Add User"}
+            </button>
+          </>
+        }
       >
-        <form
-          id="userForm"
-          className={commonStyles.formGroup}
-          onSubmit={handleSave}
-        >
+        <form id="userForm" onSubmit={handleSave}>
           <div className={commonStyles.formGroup}>
             <label>Full Name</label>
             <input
@@ -280,7 +290,6 @@ const UserManagement: React.FC = () => {
               name="name"
               className={commonStyles.formControl}
               defaultValue={currentUser?.name}
-              placeholder="Enter full name"
               required
             />
           </div>
@@ -292,7 +301,6 @@ const UserManagement: React.FC = () => {
               name="email"
               className={commonStyles.formControl}
               defaultValue={currentUser?.email}
-              placeholder="Enter email address"
               required
             />
           </div>
@@ -311,6 +319,24 @@ const UserManagement: React.FC = () => {
               ))}
             </select>
           </div>
+
+          {(currentUser?.role === "institution" || !currentUser) && (
+            <div className={commonStyles.formGroup}>
+              <label>Institution</label>
+              <select
+                name="institutionId"
+                className={commonStyles.formControl}
+                defaultValue={currentUser?.institutionId || ""}
+              >
+                <option value="">Select institution</option>
+                {institutions.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </form>
       </Modal>
     </div>
