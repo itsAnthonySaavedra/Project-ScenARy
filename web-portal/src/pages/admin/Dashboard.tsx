@@ -1,4 +1,3 @@
-// src/pages/admin/Dashboard.tsx
 import React, { useEffect, useState } from "react";
 import StatCard from "../../components/features/dashboard/StatCard";
 import HistoryItem from "../../components/features/dashboard/HistoryItem";
@@ -25,8 +24,8 @@ const Dashboard: React.FC = () => {
     },
     {
       title: "Institutions",
-      value: "45",
-      change: "+5%",
+      value: "0", // initial value 0
+      change: "+0%",
       icon: "fa-university",
       color: "blue",
     },
@@ -70,24 +69,31 @@ const Dashboard: React.FC = () => {
   ]);
 
   useEffect(() => {
-    const fetchUsers = async () => {
+    const fetchStats = async () => {
       try {
+        // Fetch total users
         const usersSnap = await getDocs(collection(db, "users"));
         const totalUsers = usersSnap.docs.length;
 
+        // Fetch total institutions
+        const instSnap = await getDocs(collection(db, "institutions"));
+        const totalInstitutions = instSnap.docs.length;
+
         setStats((prevStats) =>
-          prevStats.map((s) =>
-            s.title === "Total Users"
-              ? { ...s, value: totalUsers.toString() }
-              : s,
-          ),
+          prevStats.map((s) => {
+            if (s.title === "Total Users")
+              return { ...s, value: totalUsers.toString() };
+            if (s.title === "Institutions")
+              return { ...s, value: totalInstitutions.toString() };
+            return s;
+          }),
         );
       } catch (err) {
-        console.error("Error fetching users for dashboard:", err);
+        console.error("Error fetching dashboard stats:", err);
       }
     };
 
-    fetchUsers();
+    fetchStats();
   }, []);
 
   return (
