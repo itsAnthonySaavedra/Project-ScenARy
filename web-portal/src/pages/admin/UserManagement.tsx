@@ -12,7 +12,8 @@ import {
   updateDoc,
   deleteDoc,
 } from "firebase/firestore";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { initializeApp } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
 
 interface UserType {
   id: string;
@@ -34,6 +35,19 @@ const roles: UserType["role"][] = [
   "institution",
   "user",
 ];
+
+// Secondary Firebase app for user creation (won't affect your current session)
+const secondaryApp = initializeApp({
+  apiKey: "AIzaSyAsKAbgKf5xx7dmEVX82yvleRUW6_n1JEs",
+  authDomain: "scenary-4f022.firebaseapp.com",
+  projectId: "scenary-4f022",
+  storageBucket: "scenary-4f022.firebasestorage.app",
+  messagingSenderId: "1053511640232",
+  appId: "1:1053511640232:web:c9919ebc339ca0f03a0e9d",
+  measurementId: "G-9BL059HZEH",
+}, "Secondary");
+
+const secondaryAuth = getAuth(secondaryApp);
 
 const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<UserType[]>([]);
@@ -118,6 +132,7 @@ const UserManagement: React.FC = () => {
 
     try {
       if (currentUser) {
+        // Update existing user
         await updateDoc(doc(db, "users", currentUser.id), {
           name,
           email,
@@ -133,13 +148,15 @@ const UserManagement: React.FC = () => {
           ),
         );
       } else {
+        // Create new user using secondary auth (won't log you out!)
         const tempPassword = "TempPass123!";
         const cred = await createUserWithEmailAndPassword(
-          auth,
+          secondaryAuth,
           email,
           tempPassword,
         );
 
+        // Create user document in Firestore
         await setDoc(doc(db, "users", cred.user.uid), {
           name,
           email,
@@ -148,6 +165,10 @@ const UserManagement: React.FC = () => {
           status: "Active",
         });
 
+        // Sign out from secondary auth immediately (cleanup)
+        await secondaryAuth.signOut();
+
+        // Update local state
         setUsers((prev) => [
           ...prev,
           {
@@ -159,10 +180,22 @@ const UserManagement: React.FC = () => {
             status: "Active",
           },
         ]);
+
+        alert(`User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user.`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Save error:", err);
-      alert("Error saving user");
+      
+      let errorMessage = "Error saving user";
+      if (err.code === "auth/email-already-in-use") {
+        errorMessage = "This email is already registered";
+      } else if (err.code === "auth/invalid-email") {
+        errorMessage = "Invalid email address";
+      } else if (err.code === "auth/weak-password") {
+        errorMessage = "Password is too weak";
+      }
+      
+      alert(errorMessage);
     }
 
     setLoading(false);
