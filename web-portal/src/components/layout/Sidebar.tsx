@@ -58,10 +58,14 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
   ];
 
   const instituteLinks = [
-    { path: "/institute/dashboard", icon: "fa-home", label: "Dashboard" },
-    { path: "/institute/tours", icon: "fa-vr-cardboard", label: "My Tours" },
-    { path: "/institute/analytics", icon: "fa-chart-bar", label: "Analytics" },
-    { path: "/institute/profile", icon: "fa-user", label: "Profile" },
+    { path: "/institution/dashboard", icon: "fa-home", label: "Dashboard" },
+    { path: "/institution/tours", icon: "fa-vr-cardboard", label: "My Tours" },
+    {
+      path: "/institution/analytics",
+      icon: "fa-chart-bar",
+      label: "Analytics",
+    },
+    { path: "/institution/profile", icon: "fa-user", label: "Profile" },
   ];
 
   // Super Admin gets same links as admin

@@ -1,30 +1,30 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 /* Auth Context */
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider } from "./context/AuthContext";
 
 /* Layouts */
 /* Layouts */
-import Layout from './components/layout/Layout';
+import Layout from "./components/layout/Layout";
 
 /* Public Pages */
-import Landing from './pages/Landing';
+import Landing from "./pages/Landing";
 
 /* Auth */
-import Login from './pages/auth/Login';
+import Login from "./pages/auth/Login";
 
 /* Admin Pages */
-import AdminDashboard from './pages/admin/Dashboard';
-import UserManagement from './pages/admin/UserManagement';
-import InstitutionManagement from './pages/admin/InstitutionManagement';
-import ContentManagement from './pages/admin/ContentManagement';
-import AdminAnalytics from './pages/admin/Analytics';
-import Settings from './pages/CommonSettings';
+import AdminDashboard from "./pages/admin/Dashboard";
+import UserManagement from "./pages/admin/UserManagement";
+import InstitutionManagement from "./pages/admin/InstitutionManagement";
+import ContentManagement from "./pages/admin/ContentManagement";
+import AdminAnalytics from "./pages/admin/Analytics";
+import Settings from "./pages/CommonSettings";
 
 /* Institute Pages */
-import InstituteDashboard from './pages/institute/Dashboard';
-import InstituteTours from './pages/institute/MyTours';
-import InstituteAnalytics from './pages/institute/Analytics';
+import InstituteDashboard from "./pages/institution/Dashboard";
+import InstituteTours from "./pages/institution/MyTours";
+import InstituteAnalytics from "./pages/institution/Analytics";
 
 function AppRoutes() {
   return (
@@ -44,7 +44,7 @@ function AppRoutes() {
       </Route>
 
       {/* Institute Routes */}
-      <Route path="/institute" element={<Layout role="institute" />}>
+      <Route path="/institution" element={<Layout role="institution" />}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<InstituteDashboard />} />
         <Route path="tours" element={<InstituteTours />} />

@@ -21,7 +21,7 @@ const Landing = () => {
           ScenARy
         </div>
         <div className="nav-links">
-          <Link to="/login?type=institute" className={styles.btnOutline}>
+          <Link to="/login?type=institution" className={styles.btnOutline}>
             Institute Login
           </Link>
         </div>
@@ -37,7 +37,7 @@ const Landing = () => {
             platform. Build, explore, and learn from historical sites in
             immersive detail.
           </p>
-          <Link to="/login?type=institute" className={styles.btnPrimary}>
+          <Link to="/login?type=institution" className={styles.btnPrimary}>
             Start Building
           </Link>
         </div>

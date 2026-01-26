@@ -10,7 +10,7 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
 
   // Determine portal type from URL query
-  const loginType = (searchParams.get("type") || "institute").toLowerCase();
+  const loginType = (searchParams.get("type") || "institution").toLowerCase();
   const isAdmin = loginType === "admin";
 
   const [email, setEmail] = useState<string>("");
@@ -47,7 +47,9 @@ const Login: React.FC = () => {
       }
 
       // Redirect based on role
-      navigate(role === "admin" ? "/admin/dashboard" : "/institute/dashboard");
+      navigate(
+        role === "admin" ? "/admin/dashboard" : "/institution/dashboard",
+      );
       setLoading(false);
     } catch (err) {
       console.error(err);
