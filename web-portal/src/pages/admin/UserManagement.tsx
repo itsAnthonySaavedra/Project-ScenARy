@@ -29,23 +29,21 @@ interface Institution {
   name: string;
 }
 
-const roles: UserType["role"][] = [
-  "super admin",
-  "admin",
-  "institution",
-  "user",
-];
+const roles: UserType["role"][] = ["super admin", "admin", "institution"];
 
 // Secondary Firebase app for user creation (won't affect your current session)
-const secondaryApp = initializeApp({
-  apiKey: "AIzaSyAsKAbgKf5xx7dmEVX82yvleRUW6_n1JEs",
-  authDomain: "scenary-4f022.firebaseapp.com",
-  projectId: "scenary-4f022",
-  storageBucket: "scenary-4f022.firebasestorage.app",
-  messagingSenderId: "1053511640232",
-  appId: "1:1053511640232:web:c9919ebc339ca0f03a0e9d",
-  measurementId: "G-9BL059HZEH",
-}, "Secondary");
+const secondaryApp = initializeApp(
+  {
+    apiKey: "AIzaSyAsKAbgKf5xx7dmEVX82yvleRUW6_n1JEs",
+    authDomain: "scenary-4f022.firebaseapp.com",
+    projectId: "scenary-4f022",
+    storageBucket: "scenary-4f022.firebasestorage.app",
+    messagingSenderId: "1053511640232",
+    appId: "1:1053511640232:web:c9919ebc339ca0f03a0e9d",
+    measurementId: "G-9BL059HZEH",
+  },
+  "Secondary",
+);
 
 const secondaryAuth = getAuth(secondaryApp);
 
@@ -128,6 +126,13 @@ const UserManagement: React.FC = () => {
     const institutionId =
       role === "institution" ? form.institutionId?.value || null : null;
 
+    if (role === "user") {
+      alert(
+        "Unauthorized: Administrators cannot create accounts with the 'user' role. Please select 'institution' or another valid role.",
+      );
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     try {
@@ -181,11 +186,13 @@ const UserManagement: React.FC = () => {
           },
         ]);
 
-        alert(`User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user.`);
+        alert(
+          `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user.`,
+        );
       }
     } catch (err: any) {
       console.error("Save error:", err);
-      
+
       let errorMessage = "Error saving user";
       if (err.code === "auth/email-already-in-use") {
         errorMessage = "This email is already registered";
@@ -194,7 +201,7 @@ const UserManagement: React.FC = () => {
       } else if (err.code === "auth/weak-password") {
         errorMessage = "Password is too weak";
       }
-      
+
       alert(errorMessage);
     }
 
@@ -343,7 +350,7 @@ const UserManagement: React.FC = () => {
             <select
               name="role"
               className={commonStyles.formControl}
-              defaultValue={currentUser?.role || "user"}
+              defaultValue={currentUser?.role || "institution"}
             >
               {roles.map((r) => (
                 <option key={r} value={r}>
