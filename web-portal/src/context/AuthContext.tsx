@@ -87,8 +87,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = async (): Promise<void> => {
     try {
+      const currentPath = window.location.pathname;
+
       await signOut(auth);
-      navigate("/login?type=admin");
+
+      if (currentPath.includes("institution")) {
+        navigate("/login?type=institution");
+      } else {
+        navigate("/login?type=admin");
+      }
     } catch (error) {
       console.error("Logout error:", error);
     }

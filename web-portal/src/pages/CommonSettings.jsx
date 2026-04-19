@@ -3,11 +3,50 @@ import styles from "../components/common/Common.module.css";
 import { useAuth } from "../context/AuthContext";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import {
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+} from "firebase/auth";
 
 const Settings = () => {
   const { currentUser } = useAuth();
   const [role, setRole] = useState("Loading...");
   const [displayName, setDisplayName] = useState("Loading...");
+  const [newPassword, setNewPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState(""); // Needed for re-authentication
+  const [message, setMessage] = useState({ type: "", text: "" });
+
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    if (!newPassword) return;
+
+    try {
+      setMessage({ type: "info", text: "Updating..." });
+
+      // 1. Re-authenticate the user (Security Requirement)
+      const credential = EmailAuthProvider.credential(
+        currentUser.email,
+        currentPassword,
+      );
+      await reauthenticateWithCredential(currentUser, credential);
+
+      // 2. Update the password
+      await updatePassword(currentUser, newPassword);
+
+      setMessage({ type: "success", text: "Password updated successfully!" });
+      setNewPassword("");
+      setCurrentPassword("");
+    } catch (err) {
+      console.error(err);
+      setMessage({
+        type: "error",
+        text: err.message.includes("wrong-password")
+          ? "Current password is incorrect."
+          : "Failed to update password.",
+      });
+    }
+  };
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -107,6 +146,58 @@ const Settings = () => {
               defaultValue={currentUser?.email || ""}
               disabled
             />
+          </div>
+          {/* Password Change Section */}
+          <div
+            style={{
+              marginTop: "2rem",
+              paddingTop: "2rem",
+              borderTop: "1px solid rgba(255,255,255,0.05)",
+              width: "100%",
+            }}
+          >
+            <h4>Change Password</h4>
+
+            {message.text && (
+              <p
+                style={{
+                  color: message.type === "success" ? "#4ade80" : "#f87171",
+                  fontSize: "0.8rem",
+                }}
+              >
+                {message.text}
+              </p>
+            )}
+
+            <div className={styles.formGroup} style={{ marginTop: "1rem" }}>
+              <label>Current Password</label>
+              <input
+                type="password"
+                className={styles.formControl}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Required to verify it's you"
+              />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>New Password</label>
+              <input
+                type="password"
+                className={styles.formControl}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password"
+              />
+            </div>
+
+            <button
+              onClick={handleUpdatePassword}
+              className={styles.btnOutline}
+              style={{ alignSelf: "flex-end", marginTop: "0.5rem" }}
+            >
+              Update Password
+            </button>
           </div>
           <button
             className={styles.btnPrimary}
