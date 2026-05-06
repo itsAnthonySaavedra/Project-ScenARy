@@ -7,6 +7,7 @@ import {
   doc,
   updateDoc,
   getDoc,
+  addDoc,
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
@@ -18,6 +19,14 @@ const MyTours = () => {
   const [availableContent, setAvailableContent] = useState([]);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [selectedTour, setSelectedTour] = useState(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newTour, setNewTour] = useState({
+    title: "",
+    description: "",
+    duration: "",
+    status: "LIVE",
+    imageUrl: "",
+  });
 
   // App State
   const [loading, setLoading] = useState(true);
@@ -107,6 +116,37 @@ const MyTours = () => {
     setIsManageModalOpen(true);
   };
 
+  const handleCreateTour = async (e) => {
+    e.preventDefault();
+    if (!userInstitutionId) return;
+
+    setLoading(true);
+    try {
+      const docRef = await addDoc(collection(db, "tours"), {
+        ...newTour,
+        duration: parseInt(newTour.duration),
+        institutionId: userInstitutionId.trim(),
+        moduleIds: [], // Start with no modules
+        createdAt: new Date(),
+      });
+
+      // Update local state immediately
+      setTours([...tours, { id: docRef.id, ...newTour, moduleIds: [] }]);
+      setIsCreateModalOpen(false);
+      setNewTour({
+        title: "",
+        description: "",
+        duration: "",
+        status: "LIVE",
+        imageUrl: "",
+      });
+    } catch (err) {
+      console.error("Error creating tour:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleModule = async (moduleId) => {
     if (!selectedTour || loading) return;
     setLoading(true);
@@ -162,7 +202,8 @@ const MyTours = () => {
       >
         <button
           className={commonStyles.btnPrimary}
-          disabled={!userInstitutionId} // Prevent creating a tour if they have no institution
+          onClick={() => setIsCreateModalOpen(true)}
+          disabled={!userInstitutionId}
           style={{ opacity: userInstitutionId ? 1 : 0.5 }}
         >
           <i className="fa-solid fa-plus"></i> Create New Tour
@@ -266,6 +307,83 @@ const MyTours = () => {
           )}
         </div>
       )}
+
+      {/* CREATE TOUR MODAL */}
+      <Modal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        title="Create New Tour"
+      >
+        <form
+          onSubmit={handleCreateTour}
+          style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+        >
+          <input
+            type="text"
+            placeholder="Tour Title"
+            required
+            style={{
+              padding: "10px",
+              borderRadius: "4px",
+              background: "#1a1a1a",
+              border: "1px solid #333",
+              color: "#fff",
+            }}
+            value={newTour.title}
+            onChange={(e) => setNewTour({ ...newTour, title: e.target.value })}
+          />
+          <textarea
+            placeholder="Description"
+            required
+            style={{
+              padding: "10px",
+              borderRadius: "4px",
+              background: "#1a1a1a",
+              border: "1px solid #333",
+              color: "#fff",
+              minHeight: "100px",
+            }}
+            value={newTour.description}
+            onChange={(e) =>
+              setNewTour({ ...newTour, description: e.target.value })
+            }
+          />
+          <input
+            type="number"
+            placeholder="Duration (mins)"
+            required
+            style={{
+              padding: "10px",
+              borderRadius: "4px",
+              background: "#1a1a1a",
+              border: "1px solid #333",
+              color: "#fff",
+            }}
+            value={newTour.duration}
+            onChange={(e) =>
+              setNewTour({ ...newTour, duration: e.target.value })
+            }
+          />
+          <input
+            type="text"
+            placeholder="Image URL (optional)"
+            style={{
+              padding: "10px",
+              borderRadius: "4px",
+              background: "#1a1a1a",
+              border: "1px solid #333",
+              color: "#fff",
+            }}
+            value={newTour.imageUrl}
+            onChange={(e) =>
+              setNewTour({ ...newTour, imageUrl: e.target.value })
+            }
+          />
+          <button type="submit" className={commonStyles.btnPrimary}>
+            Save Tour
+          </button>
+        </form>
+      </Modal>
 
       {/* MANAGE MODAL */}
       <Modal
