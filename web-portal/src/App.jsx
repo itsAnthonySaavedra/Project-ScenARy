@@ -20,6 +20,7 @@ import InstitutionManagement from "./pages/admin/InstitutionManagement";
 import ContentManagement from "./pages/admin/ContentManagement";
 import AdminAnalytics from "./pages/admin/Analytics";
 import Settings from "./pages/CommonSettings";
+import MapSystem from "./pages/admin/MapSystem";
 
 /* Institute Pages */
 import InstituteDashboard from "./pages/institution/Dashboard";
@@ -36,6 +37,7 @@ function AppRoutes() {
       <Route path="/admin" element={<Layout role="admin" />}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
+        <Route path="map" element={<MapSystem />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="institutions" element={<InstitutionManagement />} />
         <Route path="content" element={<ContentManagement />} />

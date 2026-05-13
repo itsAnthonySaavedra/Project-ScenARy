@@ -46,6 +46,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
 
   const adminLinks = [
     { path: "/admin/dashboard", icon: "fa-chart-line", label: "Dashboard" },
+    { path: "/admin/map", icon: "fa-map-location-dot", label: "Map System" },
     { path: "/admin/users", icon: "fa-users", label: "User Management" },
     {
       path: "/admin/institutions",
