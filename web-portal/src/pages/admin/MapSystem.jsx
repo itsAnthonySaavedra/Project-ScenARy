@@ -44,6 +44,9 @@ const MapSystem = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [tempCoords, setTempCoords] = useState(null);
 
+  // NEW: State to hold the description input
+  const [description, setDescription] = useState("");
+
   // 1. Real-time Listeners
   useEffect(() => {
     const unsubInst = onSnapshot(collection(db, "institutions"), (snapshot) => {
@@ -71,11 +74,15 @@ const MapSystem = () => {
         lat: parseFloat(tempCoords.lat),
         lng: parseFloat(tempCoords.lng),
         createdAt: serverTimestamp(),
-        institutionId: instId, // Document ID from image_39c239.png
-        institutionName: instName, // The 'name' field
+        institutionId: instId,
+        institutionName: instName,
+        description: description.trim(), // NEW: Saved to Firestore
       });
+
+      // Reset everything on success
       setIsModalOpen(false);
       setTempCoords(null);
+      setDescription("");
     } catch (err) {
       console.error("Error saving marker:", err);
     }
@@ -87,6 +94,12 @@ const MapSystem = () => {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setTempCoords(null);
+    setDescription(""); // Reset description if canceled
   };
 
   // 3. Map Event Handler
@@ -119,9 +132,9 @@ const MapSystem = () => {
       <MapContainer
         center={[10.3157, 123.8854]}
         zoom={12}
-        minZoom={9} // Prevents zooming out too far
+        minZoom={9}
         maxBounds={cebuBounds}
-        maxBoundsViscosity={1.0} // Makes the boundary feel like a solid wall
+        maxBoundsViscosity={1.0}
         style={{ height: "600px", width: "100%" }}
       >
         <TileLayer
@@ -132,12 +145,45 @@ const MapSystem = () => {
         {markers.map((marker) => (
           <Marker key={marker.id} position={[marker.lat, marker.lng]}>
             <Popup>
-              <div style={{ color: "#000", textAlign: "center" }}>
-                <strong>{marker.institutionName}</strong>
-                <br />
+              <div
+                style={{
+                  color: "#000",
+                  textAlign: "center",
+                  minWidth: "150px",
+                }}
+              >
+                <strong style={{ fontSize: "1.05rem" }}>
+                  {marker.institutionName}
+                </strong>
+
+                {/* NEW: Conditional rendering for descriptions */}
+                {marker.description && (
+                  <p
+                    style={{
+                      margin: "8px 0",
+                      color: "#4b5563",
+                      fontSize: "0.9rem",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    "{marker.description}"
+                  </p>
+                )}
+
+                <hr
+                  style={{ border: "0.5px solid #e5e7eb", margin: "8px 0" }}
+                />
                 <button
                   onClick={() => removeMarker(marker.id)}
-                  style={{ marginTop: "5px", cursor: "pointer" }}
+                  style={{
+                    marginTop: "5px",
+                    cursor: "pointer",
+                    backgroundColor: "#ef4444",
+                    color: "white",
+                    border: "none",
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                  }}
                 >
                   Delete Pin
                 </button>
@@ -180,18 +226,48 @@ const MapSystem = () => {
               style={{
                 fontSize: "0.85rem",
                 color: "#a8a29e",
-                marginBottom: "1.5rem",
+                marginBottom: "1rem",
               }}
             >
-              Select the organization for this location.
+              Select the organization and add a description for this location.
             </p>
+
+            {/* NEW: Input Box for adding Description */}
+            <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
+              <label
+                style={{
+                  color: "#d4af37",
+                  fontSize: "0.8rem",
+                  display: "block",
+                  marginBottom: "4px",
+                }}
+              >
+                Description (Optional):
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Type details about this marker..."
+                rows={3}
+                style={{
+                  width: "100%",
+                  padding: "8px",
+                  backgroundColor: "#262626",
+                  color: "white",
+                  border: "1px solid #404040",
+                  borderRadius: "4px",
+                  resize: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
 
             <div
               style={{
                 display: "flex",
                 flexDirection: "column",
                 gap: "0.6rem",
-                maxHeight: "250px",
+                maxHeight: "200px", // Shrunk slightly to account for the input field
                 overflowY: "auto",
                 paddingRight: "5px",
               }}
@@ -216,7 +292,7 @@ const MapSystem = () => {
             </div>
 
             <button
-              onClick={() => setIsModalOpen(false)}
+              onClick={handleCloseModal}
               style={{
                 marginTop: "1.5rem",
                 background: "none",
