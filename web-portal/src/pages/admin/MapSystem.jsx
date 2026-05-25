@@ -13,6 +13,9 @@ import {
   deleteDoc,
   doc,
   serverTimestamp,
+  query,
+  where,
+  getDocs,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import "leaflet/dist/leaflet.css";
@@ -30,7 +33,6 @@ let DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// Boundary for Cebu Province
 const cebuBounds = [
   [9.3826, 123.2324],
   [11.35, 124.1],
@@ -39,24 +41,23 @@ const cebuBounds = [
 const MapSystem = () => {
   const [markers, setMarkers] = useState([]);
   const [institutions, setInstitutions] = useState([]);
-
-  // State for the Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [tempCoords, setTempCoords] = useState(null);
-
-  // NEW: State to hold the description input
   const [description, setDescription] = useState("");
 
-  // 1. Real-time Listeners
+  // NEW: Track the active tours for the currently clicked marker
+  const [activeTours, setActiveTours] = useState({});
+  const [loadingTours, setLoadingTours] = useState({});
+
   useEffect(() => {
     const unsubInst = onSnapshot(collection(db, "institutions"), (snapshot) => {
-      const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setInstitutions(docs);
+      setInstitutions(
+        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      );
     });
 
     const unsubMarkers = onSnapshot(collection(db, "markers"), (snapshot) => {
-      const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setMarkers(docs);
+      setMarkers(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
 
     return () => {
@@ -65,10 +66,29 @@ const MapSystem = () => {
     };
   }, []);
 
-  // 2. Actions
+  // NEW: Fetch tours whenever a user opens a marker popup
+  const handleMarkerClick = async (institutionId) => {
+    if (activeTours[institutionId]) return; // Already fetched
+
+    setLoadingTours((prev) => ({ ...prev, [institutionId]: true }));
+    try {
+      const q = query(
+        collection(db, "tours"),
+        where("institutionId", "==", institutionId.trim()),
+      );
+      const snap = await getDocs(q);
+      const toursList = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      setActiveTours((prev) => ({ ...prev, [institutionId]: toursList }));
+    } catch (err) {
+      console.error("Error fetching tours for marker:", err);
+    } finally {
+      setLoadingTours((prev) => ({ ...prev, [institutionId]: false }));
+    }
+  };
+
   const confirmAddMarker = async (instId, instName) => {
     if (!tempCoords) return;
-
     try {
       await addDoc(collection(db, "markers"), {
         lat: parseFloat(tempCoords.lat),
@@ -76,10 +96,8 @@ const MapSystem = () => {
         createdAt: serverTimestamp(),
         institutionId: instId,
         institutionName: instName,
-        description: description.trim(), // NEW: Saved to Firestore
+        description: description.trim(),
       });
-
-      // Reset everything on success
       setIsModalOpen(false);
       setTempCoords(null);
       setDescription("");
@@ -96,13 +114,6 @@ const MapSystem = () => {
     }
   };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setTempCoords(null);
-    setDescription(""); // Reset description if canceled
-  };
-
-  // 3. Map Event Handler
   function MapEvents() {
     useMapEvents({
       click: (e) => {
@@ -142,21 +153,26 @@ const MapSystem = () => {
           attribution="&copy; OpenStreetMap"
         />
         <MapEvents />
+
         {markers.map((marker) => (
-          <Marker key={marker.id} position={[marker.lat, marker.lng]}>
+          <Marker
+            key={marker.id}
+            position={[marker.lat, marker.lng]}
+            eventHandlers={{
+              click: () => handleMarkerClick(marker.institutionId),
+            }} // NEW EVENT HANDLER
+          >
             <Popup>
               <div
                 style={{
                   color: "#000",
                   textAlign: "center",
-                  minWidth: "150px",
+                  minWidth: "180px",
                 }}
               >
                 <strong style={{ fontSize: "1.05rem" }}>
                   {marker.institutionName}
                 </strong>
-
-                {/* NEW: Conditional rendering for descriptions */}
                 {marker.description && (
                   <p
                     style={{
@@ -173,16 +189,55 @@ const MapSystem = () => {
                 <hr
                   style={{ border: "0.5px solid #e5e7eb", margin: "8px 0" }}
                 />
+
+                {/* NEW: Display available tours inside the pin popup */}
+                <div style={{ textAlign: "left", marginBottom: "10px" }}>
+                  <span
+                    style={{
+                      fontSize: "0.8rem",
+                      fontWeight: "bold",
+                      color: "#855e2e",
+                    }}
+                  >
+                    Available Experiences:
+                  </span>
+                  {loadingTours[marker.institutionId] ? (
+                    <div style={{ fontSize: "0.8rem" }}>Loading tours...</div>
+                  ) : activeTours[marker.institutionId]?.length > 0 ? (
+                    activeTours[marker.institutionId].map((tour) => (
+                      <div
+                        key={tour.id}
+                        style={{
+                          fontSize: "0.85rem",
+                          padding: "4px 0",
+                          borderBottom: "1px dashed #eee",
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span>📍 {tour.title}</span>
+                        <span style={{ color: "#C19A4B" }}>
+                          {tour.duration}m
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ fontSize: "0.8rem", color: "#888" }}>
+                      No tours available yet.
+                    </div>
+                  )}
+                </div>
+
                 <button
                   onClick={() => removeMarker(marker.id)}
                   style={{
-                    marginTop: "5px",
                     cursor: "pointer",
                     backgroundColor: "#ef4444",
                     color: "white",
                     border: "none",
                     padding: "4px 8px",
                     borderRadius: "4px",
+                    width: "100%",
                   }}
                 >
                   Delete Pin
@@ -232,7 +287,6 @@ const MapSystem = () => {
               Select the organization and add a description for this location.
             </p>
 
-            {/* NEW: Input Box for adding Description */}
             <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
               <label
                 style={{
@@ -267,7 +321,7 @@ const MapSystem = () => {
                 display: "flex",
                 flexDirection: "column",
                 gap: "0.6rem",
-                maxHeight: "200px", // Shrunk slightly to account for the input field
+                maxHeight: "200px",
                 overflowY: "auto",
                 paddingRight: "5px",
               }}
@@ -290,9 +344,12 @@ const MapSystem = () => {
                 </button>
               ))}
             </div>
-
             <button
-              onClick={handleCloseModal}
+              onClick={() => {
+                setIsModalOpen(false);
+                setTempCoords(null);
+                setDescription("");
+              }}
               style={{
                 marginTop: "1.5rem",
                 background: "none",
