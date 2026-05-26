@@ -26,6 +26,7 @@ import MapSystem from "./pages/admin/MapSystem";
 import InstituteDashboard from "./pages/institution/Dashboard";
 import InstituteTours from "./pages/institution/MyTours";
 import InstituteAnalytics from "./pages/institution/Analytics";
+import InstituteContent from "./pages/institution/ContentManagement";
 
 function AppRoutes() {
   return (
@@ -50,6 +51,7 @@ function AppRoutes() {
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<InstituteDashboard />} />
         <Route path="tours" element={<InstituteTours />} />
+        <Route path="content" element={<InstituteContent />} />
         <Route path="analytics" element={<InstituteAnalytics />} />
         <Route path="profile" element={<Settings />} />
       </Route>

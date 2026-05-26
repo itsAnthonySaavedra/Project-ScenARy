@@ -20,6 +20,10 @@ const MyTours = () => {
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [selectedTour, setSelectedTour] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  // Tab control state inside the Manage Modal
+  const [activeTab, setActiveTab] = useState("Information");
+
   const [newTour, setNewTour] = useState({
     title: "",
     description: "",
@@ -113,6 +117,7 @@ const MyTours = () => {
 
   const handleManage = (tour) => {
     setSelectedTour(tour);
+    setActiveTab("Information"); // Reset back to default tab upon view
     setIsManageModalOpen(true);
   };
 
@@ -120,17 +125,22 @@ const MyTours = () => {
     e.preventDefault();
     if (!userInstitutionId) return;
 
+    if (tours.length >= 1) {
+      alert("You have reached the maximum limit of 1 tour per institution.");
+      setIsCreateModalOpen(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const docRef = await addDoc(collection(db, "tours"), {
         ...newTour,
         duration: parseInt(newTour.duration),
         institutionId: userInstitutionId.trim(),
-        moduleIds: [], // Start with no modules
+        moduleIds: [],
         createdAt: new Date(),
       });
 
-      // Update local state immediately
       setTours([...tours, { id: docRef.id, ...newTour, moduleIds: [] }]);
       setIsCreateModalOpen(false);
       setNewTour({
@@ -177,12 +187,19 @@ const MyTours = () => {
     );
   }
 
+  const isCreateDisabled = !userInstitutionId || tours.length >= 1;
+
+  // Filter content arrays dynamically for the active tab view mapping
+  const filteredTabItems = availableContent.filter(
+    (item) => item.type === activeTab,
+  );
+
   return (
     <div style={{ padding: "20px" }}>
       {/* DEBUG HEADER */}
       <div
         style={{
-          background: userInstitutionId ? "#C19A4B" : "#dc2626", // Red if null
+          background: userInstitutionId ? "#C19A4B" : "#dc2626",
           color: "#000",
           padding: "10px",
           marginBottom: "20px",
@@ -203,8 +220,8 @@ const MyTours = () => {
         <button
           className={commonStyles.btnPrimary}
           onClick={() => setIsCreateModalOpen(true)}
-          disabled={!userInstitutionId}
-          style={{ opacity: userInstitutionId ? 1 : 0.5 }}
+          disabled={isCreateDisabled}
+          style={{ opacity: isCreateDisabled ? 0.5 : 1 }}
         >
           <i className="fa-solid fa-plus"></i> Create New Tour
         </button>
@@ -289,9 +306,9 @@ const MyTours = () => {
             </div>
           ))}
 
-          {/* Placeholder for new experiences */}
-          {userInstitutionId && (
+          {userInstitutionId && tours.length < 1 && (
             <div
+              onClick={() => setIsCreateModalOpen(true)}
               style={{
                 border: "1px dashed #333",
                 borderRadius: "12px",
@@ -300,6 +317,7 @@ const MyTours = () => {
                 justifyContent: "center",
                 minHeight: "350px",
                 color: "#666",
+                cursor: "pointer",
               }}
             >
               <h3>+ Create New Experience</h3>
@@ -385,44 +403,124 @@ const MyTours = () => {
         </form>
       </Modal>
 
-      {/* MANAGE MODAL */}
+      {/* MANAGE MODAL (WITH INTERACTIVE TABS Layout) */}
       <Modal
         isOpen={isManageModalOpen}
         onClose={() => setIsManageModalOpen(false)}
-        title={`Manage: ${selectedTour?.title}`}
+        title={`Manage Modules: ${selectedTour?.title}`}
       >
-        <div style={{ color: "#ccc" }}>
-          <h4 style={{ color: "#C19A4B", marginBottom: "1rem" }}>
-            Attached Modules
-          </h4>
+        <div style={{ color: "#ccc", minHeight: "350px" }}>
+          {/* TAB BAR WRAPPER */}
           <div
-            style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+            style={{
+              display: "flex",
+              borderBottom: "1px solid #222",
+              marginBottom: "1.5rem",
+              gap: "5px",
+            }}
           >
-            {availableContent.map((item) => (
+            {["Information", "Quiz", "Fun Fact"].map((tab) => {
+              const isActive = activeTab === tab;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  style={{
+                    padding: "10px 16px",
+                    background: isActive
+                      ? "rgba(193, 154, 75, 0.15)"
+                      : "transparent",
+                    color: isActive ? "#C19A4B" : "#888",
+                    border: "none",
+                    borderBottom: isActive
+                      ? "2px solid #C19A4B"
+                      : "2px solid transparent",
+                    cursor: "pointer",
+                    fontSize: "0.9rem",
+                    fontWeight: isActive ? "600" : "400",
+                    transition: "all 0.2s ease",
+                    outline: "none",
+                  }}
+                >
+                  {tab === "Information"
+                    ? "ℹ️ Information"
+                    : tab === "Quiz"
+                      ? "❓ Quizzes"
+                      : "💡 Fun Facts"}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ACTIVE TAB ELEMENT VIEW */}
+          <div
+            style={{
+              maxHeight: "45vh",
+              overflowY: "auto",
+              paddingRight: "5px",
+            }}
+          >
+            {filteredTabItems.length === 0 ? (
               <div
-                key={item.id}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  background: "rgba(255,255,255,0.05)",
-                  padding: "10px",
-                  borderRadius: "6px",
+                  textAlign: "center",
+                  color: "#555",
+                  padding: "3rem 1rem",
+                  fontSize: "0.9rem",
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={selectedTour?.moduleIds?.includes(item.id)}
-                  onChange={() => toggleModule(item.id)}
-                />
-                <div>
-                  <div style={{ color: "#fff" }}>{item.title}</div>
-                  <div style={{ fontSize: "0.7rem", color: "#888" }}>
-                    {item.type}
-                  </div>
-                </div>
+                No published <strong>{activeTab}</strong> component models
+                found.
               </div>
-            ))}
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}
+              >
+                {filteredTabItems.map((item) => (
+                  <label
+                    key={item.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      background: "rgba(255,255,255,0.03)",
+                      padding: "12px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.02)",
+                      cursor: "pointer",
+                      transition: "background 0.2s",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background =
+                        "rgba(255,255,255,0.06)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.background =
+                        "rgba(255,255,255,0.03)")
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedTour?.moduleIds?.includes(item.id)}
+                      onChange={() => toggleModule(item.id)}
+                      style={{
+                        width: "16px",
+                        height: "16px",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <span style={{ color: "#fff", fontSize: "0.95rem" }}>
+                      {item.title}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </Modal>

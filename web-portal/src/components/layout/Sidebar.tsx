@@ -61,6 +61,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
   const instituteLinks = [
     { path: "/institution/dashboard", icon: "fa-home", label: "Dashboard" },
     { path: "/institution/tours", icon: "fa-vr-cardboard", label: "My Tours" },
+    { path: "/institution/content", icon: "fa-folder-open", label: "Content" }, // 🌟 ADDED CONTENT MANAGE LINK HERE
     {
       path: "/institution/analytics",
       icon: "fa-chart-bar",
