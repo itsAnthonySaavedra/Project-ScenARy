@@ -20,6 +20,24 @@ const ContentManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("");
 
+  // Edit Mode Tracking State Fields
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editDocId, setEditDocId] = useState(null);
+
+  // Controlled form values to enable pre-population during edit
+  const [formTitle, setFormTitle] = useState("");
+  const [formInstitutionId, setFormInstitutionId] = useState("");
+  const [formInfoUrl, setFormInfoUrl] = useState("");
+  const [formInfoDesc, setFormInfoDesc] = useState("");
+  const [formVideoUrl, setFormVideoUrl] = useState("");
+  const [formModelUrl, setFormModelUrl] = useState("");
+  const [formFactText, setFormFactText] = useState("");
+
+  // Dynamic Quiz Questions Array State (Updated to match the True/False configuration)
+  const [quizQuestions, setQuizQuestions] = useState([
+    { question: "", answer: "True" },
+  ]);
+
   // Modals
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -45,50 +63,138 @@ const ContentManagement = () => {
     fetchData();
   }, []);
 
+  // --- QUIZ FIELDS MANAGEMENT ---
+  const addQuizQuestionField = () => {
+    setQuizQuestions([...quizQuestions, { question: "", answer: "True" }]);
+  };
+
+  const updateQuizQuestionValue = (index, field, value) => {
+    const updated = [...quizQuestions];
+    updated[index][field] = value;
+    setQuizQuestions(updated);
+  };
+
+  const removeQuizQuestionField = (index) => {
+    if (quizQuestions.length === 1) return;
+    setQuizQuestions(quizQuestions.filter((_, i) => i !== index));
+  };
+
+  // --- OPEN MODAL CLEANING FUNCTION ---
+  const handleOpenCreateModal = () => {
+    setIsEditMode(false);
+    setEditDocId(null);
+    setFormTitle("");
+    setFormInstitutionId("");
+    setFormInfoUrl("");
+    setFormInfoDesc("");
+    setFormVideoUrl("");
+    setFormModelUrl("");
+    setFormFactText("");
+    setSelectedType("");
+    setQuizQuestions([{ question: "", answer: "True" }]);
+    setIsAddModalOpen(true);
+  };
+
+  // --- EDIT ROW POPULATION HANDLER ---
+  const handleEditClick = (item) => {
+    setIsEditMode(true);
+    setEditDocId(item.id);
+    setFormTitle(item.title || "");
+    setFormInstitutionId(item.institutionId || "");
+    setSelectedType(item.type || "");
+
+    // Unpack inner specific payload data safely back into state
+    if (item.type === "Information") {
+      setFormInfoUrl(item.data?.imageUrl || "");
+      setFormInfoDesc(item.data?.description || "");
+    } else if (item.type === "Video") {
+      setFormVideoUrl(item.data?.videoUrl || "");
+    } else if (item.type === "3D Model") {
+      setFormModelUrl(item.data?.modelPath || "");
+    } else if (item.type === "Quiz") {
+      if (item.data?.quizzes && item.data.quizzes.length > 0) {
+        setQuizQuestions(
+          item.data.quizzes.map((q) => ({
+            question: q.question || "",
+            answer: q.correctAnswer || "True",
+          })),
+        );
+      } else {
+        setQuizQuestions([{ question: "", answer: "True" }]);
+      }
+    } else if (item.type === "Fun Fact") {
+      setFormFactText(item.data?.fact || "");
+    }
+
+    setIsAddModalOpen(true);
+  };
+
   // --- HANDLERS ---
-  const handleAddShell = async (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const formData = new FormData(e.currentTarget);
-    const type = formData.get("type");
 
     let contentData = {};
 
     try {
-      // Logic adjusted to take URL strings directly
-      if (type === "Information") {
+      if (selectedType === "Information") {
         contentData = {
-          description: formData.get("description"),
-          imageUrl: formData.get("imageUrl") || "",
+          description: formInfoDesc,
+          imageUrl: formInfoUrl || "",
         };
-      } else if (type === "Video") {
-        contentData = { videoUrl: formData.get("videoUrl") };
-      } else if (type === "3D Model") {
-        contentData = { modelPath: formData.get("modelUrl") || "" };
-      } else if (type === "Quiz") {
+      } else if (selectedType === "Video") {
+        contentData = { videoUrl: formVideoUrl };
+      } else if (selectedType === "3D Model") {
+        contentData = { modelPath: formModelUrl || "" };
+      } else if (selectedType === "Quiz") {
         contentData = {
-          quizzes: [
-            { id: 1, q: formData.get("q1"), a: formData.get("a1") },
-            { id: 2, q: formData.get("q2"), a: formData.get("a2") },
-            { id: 3, q: formData.get("q3"), a: formData.get("a3") },
-          ],
+          quizzes: quizQuestions.map((q, index) => ({
+            id: index + 1,
+            question: q.question,
+            correctAnswer: q.answer,
+          })),
+        };
+      } else if (selectedType === "Fun Fact") {
+        contentData = {
+          fact: formFactText,
         };
       }
 
-      const newShell = {
-        title: formData.get("title"),
-        type: type,
-        institutionId: formData.get("institutionId"),
-        status: "Published",
-        data: contentData,
-        createdAt: serverTimestamp(),
-      };
+      if (isEditMode && editDocId) {
+        const docRef = doc(db, "content", editDocId);
+        await updateDoc(docRef, {
+          title: formTitle,
+          institutionId: formInstitutionId,
+          data: contentData,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        const newShell = {
+          title: formTitle,
+          type: selectedType,
+          institutionId: formInstitutionId,
+          status: "Published",
+          data: contentData,
+          createdAt: serverTimestamp(),
+        };
+        await addDoc(collection(db, "content"), newShell);
+      }
 
-      await addDoc(collection(db, "content"), newShell);
       await fetchData();
+
+      // Reset Modal Form States
       setIsAddModalOpen(false);
+      setIsEditMode(false);
+      setEditDocId(null);
+      setFormTitle("");
+      setFormInstitutionId("");
+      setFormInfoUrl("");
+      setFormInfoDesc("");
+      setFormVideoUrl("");
+      setFormModelUrl("");
+      setFormFactText("");
       setSelectedType("");
-      e.target.reset();
+      setQuizQuestions([{ question: "", answer: "True" }]);
     } catch (error) {
       console.error("Save Error:", error);
       alert("Error saving content. Check console.");
@@ -108,7 +214,7 @@ const ContentManagement = () => {
 
   return (
     <div style={{ width: "100%", padding: "20px" }}>
-      {/* 1. CONTROLS: Now completely outside the glass box for better spacing */}
+      {/* 1. CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
           <button
@@ -133,14 +239,14 @@ const ContentManagement = () => {
           />
           <button
             className={tableStyles.btnAdd}
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={handleOpenCreateModal}
           >
             <i className="fa-solid fa-plus"></i> Create Content
           </button>
         </div>
       </div>
 
-      {/* 2. TABLE BOX: Glass container purely for the list */}
+      {/* 2. TABLE BOX */}
       <div className={tableStyles.tableContainer}>
         <table className={tableStyles.adminTable}>
           <thead>
@@ -180,12 +286,27 @@ const ContentManagement = () => {
                     </span>
                   </td>
                   <td>
-                    <button
-                      className={tableStyles.btnAction}
-                      onClick={() => handleView(item)}
-                    >
-                      <i className="fa-solid fa-file-alt"></i>
-                    </button>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        className={tableStyles.btnAction}
+                        onClick={() => handleView(item)}
+                        title="View Metadata Source"
+                      >
+                        <i className="fa-solid fa-file-alt"></i>
+                      </button>
+
+                      <button
+                        className={tableStyles.btnAction}
+                        onClick={() => handleEditClick(item)}
+                        title="Modify Content Node Inplace"
+                        style={{
+                          background: "rgba(193, 154, 75, 0.15)",
+                          color: "#C19A4B",
+                        }}
+                      >
+                        <i className="fa-solid fa-edit"></i>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -207,14 +328,14 @@ const ContentManagement = () => {
         </table>
       </div>
 
-      {/* MODAL: CREATE CONTENT */}
+      {/* MODAL: CREATE / EDIT CONTENT */}
       <Modal
         isOpen={isAddModalOpen}
         onClose={() => {
           setIsAddModalOpen(false);
           setSelectedType("");
         }}
-        title="Add New Content"
+        title={isEditMode ? "Edit Content Component Node" : "Add New Content"}
         actions={
           <button
             className={commonStyles.btnCancel}
@@ -225,18 +346,26 @@ const ContentManagement = () => {
         }
       >
         <form
-          onSubmit={handleAddShell}
+          onSubmit={handleFormSubmit}
           style={{ maxHeight: "75vh", overflowY: "auto", paddingRight: "10px" }}
         >
           <div className={commonStyles.formGroup}>
             <label>Title</label>
-            <input name="title" className={commonStyles.formControl} required />
+            <input
+              name="title"
+              className={commonStyles.formControl}
+              value={formTitle}
+              onChange={(e) => setFormTitle(e.target.value)}
+              required
+            />
           </div>
           <div className={commonStyles.formGroup}>
             <label>Assign Institution</label>
             <select
               name="institutionId"
               className={commonStyles.formControl}
+              value={formInstitutionId}
+              onChange={(e) => setFormInstitutionId(e.target.value)}
               required
             >
               <option value="">Select Institution</option>
@@ -253,110 +382,212 @@ const ContentManagement = () => {
               name="type"
               className={commonStyles.formControl}
               required
+              value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
+              disabled={isEditMode}
+              style={{ opacity: isEditMode ? 0.6 : 1 }}
             >
               <option value="">Select Type</option>
               <option value="Information">
-                Information (Paste Image Link)
+                Information (Image & Description)
               </option>
-              <option value="Quiz">Quiz (3 Questions)</option>
+              <option value="Quiz">True / False Quiz</option>
               <option value="Video">Video Link</option>
               <option value="3D Model">3D Model (Paste .glb Link)</option>
+              <option value="Fun Fact">Fun Fact</option>
             </select>
           </div>
 
-          <div
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              padding: "15px",
-              borderRadius: "8px",
-              marginTop: "10px",
-            }}
-          >
-            {selectedType === "Information" && (
-              <>
-                <div className={commonStyles.formGroup}>
-                  <label>Image URL</label>
-                  <input
-                    name="imageUrl"
-                    className={commonStyles.formControl}
-                    placeholder="https://..."
-                  />
-                </div>
-                <div className={commonStyles.formGroup}>
-                  <label>Description</label>
-                  <textarea
-                    name="description"
-                    className={commonStyles.formControl}
-                    rows={3}
-                  />
-                </div>
-              </>
-            )}
-            {selectedType === "Video" && (
-              <div className={commonStyles.formGroup}>
-                <label>YouTube URL</label>
-                <input
-                  name="videoUrl"
-                  className={commonStyles.formControl}
-                  placeholder="https://youtube.com/..."
-                />
-              </div>
-            )}
-            {selectedType === "3D Model" && (
-              <div className={commonStyles.formGroup}>
-                <label>Model URL (.glb)</label>
-                <input
-                  name="modelUrl"
-                  className={commonStyles.formControl}
-                  placeholder="https://github.com/user/repo/raw/..."
-                />
-              </div>
-            )}
-            {selectedType === "Quiz" && (
-              <>
-                {[1, 2, 3].map((num) => (
-                  <div
-                    key={num}
-                    style={{
-                      marginBottom: "15px",
-                      paddingBottom: "10px",
-                      borderBottom: "1px solid rgba(255,255,255,0.1)",
-                    }}
-                  >
-                    <p
-                      style={{
-                        color: "#C19A4B",
-                        fontWeight: "600",
-                        marginBottom: "5px",
-                      }}
-                    >
-                      Question {num}
-                    </p>
+          {selectedType && (
+            <div
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                padding: "15px",
+                borderRadius: "8px",
+                marginTop: "10px",
+              }}
+            >
+              {/* INFORMATION FORMAT */}
+              {selectedType === "Information" && (
+                <>
+                  <div className={commonStyles.formGroup}>
+                    <label>Image URL</label>
                     <input
-                      name={`q${num}`}
+                      name="imageUrl"
                       className={commonStyles.formControl}
-                      style={{ marginBottom: "10px" }}
-                      placeholder="Enter Question"
-                    />
-                    <input
-                      name={`a${num}`}
-                      className={commonStyles.formControl}
-                      placeholder="Enter Correct Answer"
+                      placeholder="https://..."
+                      value={formInfoUrl}
+                      onChange={(e) => setFormInfoUrl(e.target.value)}
                     />
                   </div>
-                ))}
-              </>
-            )}
-          </div>
+                  <div className={commonStyles.formGroup}>
+                    <label>Description</label>
+                    <textarea
+                      name="description"
+                      className={commonStyles.formControl}
+                      rows={3}
+                      value={formInfoDesc}
+                      onChange={(e) => setFormInfoDesc(e.target.value)}
+                      required
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* VIDEO LINK */}
+              {selectedType === "Video" && (
+                <div className={commonStyles.formGroup}>
+                  <label>YouTube URL</label>
+                  <input
+                    name="videoUrl"
+                    className={commonStyles.formControl}
+                    placeholder="https://youtube.com/..."
+                    value={formVideoUrl}
+                    onChange={(e) => setFormVideoUrl(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
+
+              {/* 3D MODEL LINK */}
+              {selectedType === "3D Model" && (
+                <div className={commonStyles.formGroup}>
+                  <label>Model URL (.glb)</label>
+                  <input
+                    name="modelUrl"
+                    className={commonStyles.formControl}
+                    placeholder="https://github.com/user/repo/raw/..."
+                    value={formModelUrl}
+                    onChange={(e) => setFormModelUrl(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
+
+              {/* UNLIMITED TRUE / FALSE QUIZ (REPLACED THE OLD 3-QUESTION SET) */}
+              {selectedType === "Quiz" && (
+                <div>
+                  <h4 style={{ color: "#C19A4B", marginBottom: "1rem" }}>
+                    Construct True / False Question Set
+                  </h4>
+                  {quizQuestions.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        borderBottom: "1px solid rgba(255,255,255,0.1)",
+                        paddingBottom: "15px",
+                        marginBottom: "15px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <label style={{ fontSize: "0.85rem", color: "#aaa" }}>
+                          Question {idx + 1}
+                        </label>
+                        {quizQuestions.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeQuizQuestionField(idx)}
+                            style={{
+                              background: "transparent",
+                              color: "#ef4444",
+                              border: "none",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        className={commonStyles.formControl}
+                        style={{ marginTop: "5px", marginBottom: "8px" }}
+                        placeholder="Enter statement..."
+                        value={item.question}
+                        onChange={(e) =>
+                          updateQuizQuestionValue(
+                            idx,
+                            "question",
+                            e.target.value,
+                          )
+                        }
+                        required
+                      />
+                      <label
+                        style={{ fontSize: "0.8rem", marginRight: "10px" }}
+                      >
+                        Correct Answer:
+                      </label>
+                      <select
+                        value={item.answer}
+                        onChange={(e) =>
+                          updateQuizQuestionValue(idx, "answer", e.target.value)
+                        }
+                        style={{
+                          padding: "4px 8px",
+                          background: "#1a1a1a",
+                          border: "1px solid #333",
+                          color: "#fff",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        <option value="True">True</option>
+                        <option value="False">False</option>
+                      </select>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addQuizQuestionField}
+                    style={{
+                      padding: "6px 12px",
+                      background: "rgba(193, 154, 75, 0.2)",
+                      border: "1px solid #C19A4B",
+                      color: "#C19A4B",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    + Add Question
+                  </button>
+                </div>
+              )}
+
+              {/* FUN FACT STRUCTURE */}
+              {selectedType === "Fun Fact" && (
+                <div className={commonStyles.formGroup}>
+                  <label>Fun Fact Text</label>
+                  <textarea
+                    name="factText"
+                    className={commonStyles.formControl}
+                    rows={3}
+                    placeholder="Enter an interesting fact..."
+                    value={formFactText}
+                    onChange={(e) => setFormFactText(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           <button
             type="submit"
             className={commonStyles.btnUpdate}
-            disabled={loading}
+            disabled={loading || !selectedType}
             style={{ width: "100%", marginTop: "1.5rem" }}
           >
-            {loading ? "Saving..." : "Save Content"}
+            {loading
+              ? "Processing..."
+              : isEditMode
+                ? "Apply Inplace Changes"
+                : "Save Content"}
           </button>
         </form>
       </Modal>
