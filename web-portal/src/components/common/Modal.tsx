@@ -1,5 +1,6 @@
 // src/components/common/Modal.tsx
 import React, { useEffect, ReactNode } from "react";
+import ReactDOM from "react-dom";
 import styles from "./Common.module.css";
 
 interface ModalProps {
@@ -35,19 +36,25 @@ const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  return ReactDOM.createPortal(
     <div
-      className={`${styles.modalOverlay} ${isOpen ? styles.modalOverlayActive : ""}`}
+      className={`${styles.modalOverlay} ${
+        isOpen ? styles.modalOverlayActive : ""
+      }`}
       onClick={onClose}
     >
-      <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={styles.modalContent}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className={styles.modalHeader}>
           <h3>{title}</h3>
         </div>
         <div className={styles.modalBody}>{children}</div>
         {actions && <div className={styles.modalActions}>{actions}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
