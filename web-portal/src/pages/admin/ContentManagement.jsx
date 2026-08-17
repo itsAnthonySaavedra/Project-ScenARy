@@ -4,9 +4,11 @@ import {
   getDocs,
   addDoc,
   updateDoc,
+  deleteDoc,
   doc,
   serverTimestamp,
 } from "firebase/firestore";
+import "@google/model-viewer";
 import { db } from "../../lib/firebase";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
@@ -24,6 +26,10 @@ const ContentManagement = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editDocId, setEditDocId] = useState(null);
 
+  // Delete State
+  const [deleteDocId, setDeleteDocId] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
   // Controlled form values to enable pre-population during edit
   const [formTitle, setFormTitle] = useState("");
   const [formInstitutionId, setFormInstitutionId] = useState("");
@@ -33,7 +39,7 @@ const ContentManagement = () => {
   const [formModelUrl, setFormModelUrl] = useState("");
   const [formFactText, setFormFactText] = useState("");
 
-  // Dynamic Quiz Questions Array State (Updated to match the True/False configuration)
+  // Dynamic Quiz Questions Array State
   const [quizQuestions, setQuizQuestions] = useState([
     { question: "", answer: "True" },
   ]);
@@ -103,7 +109,6 @@ const ContentManagement = () => {
     setFormInstitutionId(item.institutionId || "");
     setSelectedType(item.type || "");
 
-    // Unpack inner specific payload data safely back into state
     if (item.type === "Information") {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
@@ -129,7 +134,29 @@ const ContentManagement = () => {
     setIsAddModalOpen(true);
   };
 
-  // --- HANDLERS ---
+  // --- DELETE HANDLERS ---
+  const handleConfirmDeleteClick = (id) => {
+    setDeleteDocId(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteDocId) return;
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, "content", deleteDocId));
+      await fetchData();
+      setIsDeleteModalOpen(false);
+      setDeleteDocId(null);
+    } catch (error) {
+      console.error("Delete Error:", error);
+      alert("Error deleting item.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- FORM SUBMIT HANDLER ---
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -182,7 +209,6 @@ const ContentManagement = () => {
 
       await fetchData();
 
-      // Reset Modal Form States
       setIsAddModalOpen(false);
       setIsEditMode(false);
       setEditDocId(null);
@@ -206,6 +232,16 @@ const ContentManagement = () => {
   const handleView = (item) => {
     setCurrentContent(item);
     setIsViewModalOpen(true);
+  };
+
+  // YouTube Embed Helper
+  const getYouTubeEmbedUrl = (url) => {
+    if (!url) return "";
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return match && match[2].length === 11
+      ? `https://www.youtube.com/embed/${match[2]}`
+      : url;
   };
 
   const filteredContents = contents
@@ -290,7 +326,7 @@ const ContentManagement = () => {
                       <button
                         className={tableStyles.btnAction}
                         onClick={() => handleView(item)}
-                        title="View Metadata Source"
+                        title="View Content Details"
                       >
                         <i className="fa-solid fa-file-alt"></i>
                       </button>
@@ -298,13 +334,25 @@ const ContentManagement = () => {
                       <button
                         className={tableStyles.btnAction}
                         onClick={() => handleEditClick(item)}
-                        title="Modify Content Node Inplace"
+                        title="Modify Content Node"
                         style={{
                           background: "rgba(193, 154, 75, 0.15)",
                           color: "#C19A4B",
                         }}
                       >
                         <i className="fa-solid fa-edit"></i>
+                      </button>
+
+                      <button
+                        className={tableStyles.btnAction}
+                        onClick={() => handleConfirmDeleteClick(item.id)}
+                        title="Delete Content Node"
+                        style={{
+                          background: "rgba(239, 68, 68, 0.15)",
+                          color: "#ef4444",
+                        }}
+                      >
+                        <i className="fa-solid fa-trash"></i>
                       </button>
                     </div>
                   </td>
@@ -456,7 +504,7 @@ const ContentManagement = () => {
                   <input
                     name="modelUrl"
                     className={commonStyles.formControl}
-                    placeholder="https://github.com/user/repo/raw/..."
+                    placeholder="https://.../model.glb"
                     value={formModelUrl}
                     onChange={(e) => setFormModelUrl(e.target.value)}
                     required
@@ -464,7 +512,7 @@ const ContentManagement = () => {
                 </div>
               )}
 
-              {/* UNLIMITED TRUE / FALSE QUIZ (REPLACED THE OLD 3-QUESTION SET) */}
+              {/* TRUE / FALSE QUIZ */}
               {selectedType === "Quiz" && (
                 <div>
                   <h4 style={{ color: "#C19A4B", marginBottom: "1rem" }}>
@@ -482,7 +530,7 @@ const ContentManagement = () => {
                       <div
                         style={{
                           display: "flex",
-                          justifyContent: "space-between",
+                          justifySpace: "space-between",
                           alignItems: "center",
                         }}
                       >
@@ -611,9 +659,38 @@ const ContentManagement = () => {
             <p style={{ marginBottom: "10px" }}>
               <strong>Type:</strong> {currentContent.type}
             </p>
+
+            {/* PREVIEW 3D MODEL IF APPLICABLE */}
+            {currentContent.type === "3D Model" && currentContent.data?.modelPath && (
+              <div style={{ width: "100%", height: "300px", marginBottom: "15px" }}>
+                <model-viewer
+                  src={currentContent.data.modelPath}
+                  alt={currentContent.title}
+                  auto-rotate
+                  camera-controls
+                  style={{ width: "100%", height: "100%", backgroundColor: "#111" }}
+                ></model-viewer>
+              </div>
+            )}
+
+            {/* PREVIEW VIDEO IF APPLICABLE */}
+            {currentContent.type === "Video" && currentContent.data?.videoUrl && (
+              <div style={{ marginBottom: "15px" }}>
+                <iframe
+                  width="100%"
+                  height="250"
+                  src={getYouTubeEmbedUrl(currentContent.data.videoUrl)}
+                  title={currentContent.title}
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                ></iframe>
+              </div>
+            )}
+
             <div
               style={{
-                maxHeight: "400px",
+                maxHeight: "300px",
                 overflow: "auto",
                 background: "#0a0a0a",
                 borderRadius: "4px",
@@ -631,6 +708,41 @@ const ContentManagement = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* MODAL: DELETE CONFIRMATION */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="Confirm Delete"
+        actions={
+          <>
+            <button
+              className={commonStyles.btnCancel}
+              onClick={() => setIsDeleteModalOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={loading}
+              style={{
+                padding: "0.5rem 1rem",
+                background: "#ef4444",
+                color: "#fff",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              {loading ? "Deleting..." : "Delete Node"}
+            </button>
+          </>
+        }
+      >
+        <p style={{ color: "#ccc" }}>
+          Are you sure you want to delete this content item? This action cannot be undone.
+        </p>
       </Modal>
     </div>
   );
