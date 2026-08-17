@@ -75,7 +75,7 @@ const Landing = () => {
             </p>
           </div>
           <div className={styles.footerLinks}>
-            <a href="#">Collab</a>
+            <Link to="/collab">Collab</Link>
             <a href="#">Create for Institute</a>
             <Link to="/login?type=admin">Admin</Link>
           </div>

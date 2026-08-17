@@ -9,6 +9,7 @@ import Layout from "./components/layout/Layout";
 
 /* Public Pages */
 import Landing from "./pages/Landing";
+import CollabPage from "./pages/CollabPage";
 
 /* Auth */
 import Login from "./pages/auth/Login";
@@ -33,6 +34,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/collab" element={<CollabPage />} />
 
       {/* Admin Routes */}
       <Route path="/admin" element={<Layout role="admin" />}>
