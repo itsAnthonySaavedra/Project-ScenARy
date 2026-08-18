@@ -24,8 +24,8 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      // Call login from AuthContext (returns { success, role, message })
-      const result = await login(email, password);
+      // Call login from AuthContext with expected role for this tab
+      const result = await login(email, password, loginType as "admin" | "institution");
 
       if (!result.success) {
         setError(result.message || "Login failed");

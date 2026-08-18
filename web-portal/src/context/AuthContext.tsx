@@ -18,9 +18,11 @@ import { useNavigate } from "react-router-dom";
 
 interface AuthContextType {
   currentUser: User | null;
+  currentRole: "admin" | "institute" | null;
   login: (
     email: string,
     password: string,
+    expectedRole: "admin" | "institute",
   ) => Promise<{
     success: boolean;
     role?: "admin" | "institute";
@@ -43,12 +45,14 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentRole, setCurrentRole] = useState<"admin" | "institute" | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   const login = async (
     email: string,
     password: string,
+    expectedRole: "admin" | "institute",
   ): Promise<{
     success: boolean;
     role?: "admin" | "institute";
@@ -70,6 +74,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const role = snap.data().role as "admin" | "institute";
 
+      // Store the expected role in sessionStorage for this tab
+      sessionStorage.setItem("scenaryExpectedRole", expectedRole);
+      sessionStorage.setItem("scenaryUserId", cred.user.uid);
+
+      // Immediately update state with the new user
+      setCurrentUser(cred.user);
+      setCurrentRole(expectedRole);
+
       return { success: true, role };
     } catch (error: any) {
       console.error("Login error:", error);
@@ -89,7 +101,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       const currentPath = window.location.pathname;
 
+      // Clear sessionStorage
+      sessionStorage.removeItem("scenaryExpectedRole");
+      sessionStorage.removeItem("scenaryUserId");
+
       await signOut(auth);
+      setCurrentUser(null);
+      setCurrentRole(null);
 
       if (currentPath.includes("institution")) {
         navigate("/login?type=institution");
@@ -103,14 +121,57 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
+      // Check if this tab has a stored session
+      const expectedRole = sessionStorage.getItem("scenaryExpectedRole") as
+        | "admin"
+        | "institute"
+        | null;
+      const expectedUserId = sessionStorage.getItem("scenaryUserId");
+
+      // If no stored session for this tab, stay logged out
+      if (!expectedRole || !expectedUserId) {
+        setCurrentUser(null);
+        setCurrentRole(null);
+        setLoading(false);
+        return;
+      }
+
+      // If Firebase user is null but we have a stored session,
+      // the global auth was cleared (by another tab's logout)
+      // Clear our session and stay logged out
+      if (!user) {
+        sessionStorage.removeItem("scenaryExpectedRole");
+        sessionStorage.removeItem("scenaryUserId");
+        setCurrentUser(null);
+        setCurrentRole(null);
+        setLoading(false);
+        return;
+      }
+
+      // If Firebase user matches this tab's stored session, update state
+      if (user.uid === expectedUserId) {
+        setCurrentUser(user);
+        setCurrentRole(expectedRole);
+        setLoading(false);
+        return;
+      }
+
+      // If Firebase user doesn't match this tab's session (another user logged in globally),
+      // clear this tab's stored session to prevent stale auth
+      console.warn(
+        "Auth mismatch detected: different user logged in from another tab. Clearing session.",
+      );
+      sessionStorage.removeItem("scenaryExpectedRole");
+      sessionStorage.removeItem("scenaryUserId");
+      setCurrentUser(null);
+      setCurrentRole(null);
       setLoading(false);
     });
     return unsubscribe;
   }, []);
 
   return (
-    <AuthContext.Provider value={{ currentUser, login, logout }}>
+    <AuthContext.Provider value={{ currentUser, currentRole, login, logout }}>
       {!loading && children}
     </AuthContext.Provider>
   );
