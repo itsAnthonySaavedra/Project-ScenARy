@@ -31,7 +31,10 @@ const InstituteContentManagement = () => {
   const [formTitle, setFormTitle] = useState("");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
-  const [formFactText, setFormFactText] = useState("");
+  const [formAudioUrl, setFormAudioUrl] = useState("");
+  const [formModelUrl, setFormModelUrl] = useState("");
+  const [formCustomData, setFormCustomData] = useState("");
+  const [formAudioSequence, setFormAudioSequence] = useState("1");
 
   // Authentication & Institution isolation
   const [userInstitutionId, setUserInstitutionId] = useState(null);
@@ -79,7 +82,13 @@ const InstituteContentManagement = () => {
         where("institutionId", "==", instId.trim()),
       );
       const contentSnap = await getDocs(q);
-      setContents(contentSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setContents(
+        contentSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((item) =>
+            ["Information", "3D Model", "Quiz", "Audio"].includes(item.type),
+          ),
+      );
     } catch (err) {
       console.error("Isolated Fetch Error:", err);
     }
@@ -114,7 +123,10 @@ const InstituteContentManagement = () => {
     setFormTitle("");
     setFormInfoUrl("");
     setFormInfoDesc("");
-    setFormFactText("");
+    setFormAudioUrl("");
+    setFormModelUrl("");
+    setFormCustomData("");
+    setFormAudioSequence("1");
     setSelectedType("");
     setQuizQuestions([{ question: "", answer: "True" }]);
     setIsAddModalOpen(true);
@@ -126,6 +138,12 @@ const InstituteContentManagement = () => {
     setEditDocId(item.id);
     setFormTitle(item.title || "");
     setSelectedType(item.type || "");
+    setFormAudioUrl(item.data?.audioUrl || "");
+    setFormModelUrl(item.data?.modelUrl || "");
+    setFormCustomData(
+      item.data?.customData ? JSON.stringify(item.data.customData, null, 2) : "",
+    );
+    setFormAudioSequence(item.data?.sequence?.toString() || "1");
 
     // Unpack inner specific payload data safely
     if (item.type === "Information") {
@@ -142,8 +160,6 @@ const InstituteContentManagement = () => {
       } else {
         setQuizQuestions([{ question: "", answer: "True" }]);
       }
-    } else if (item.type === "Fun Fact") {
-      setFormFactText(item.data?.fact || "");
     }
 
     setIsAddModalOpen(true);
@@ -158,6 +174,10 @@ const InstituteContentManagement = () => {
     let contentData = {};
 
     try {
+      const customData = formCustomData.trim()
+        ? JSON.parse(formCustomData)
+        : {};
+
       if (selectedType === "Information") {
         contentData = {
           description: formInfoDesc,
@@ -171,11 +191,19 @@ const InstituteContentManagement = () => {
             correctAnswer: q.answer,
           })),
         };
-      } else if (selectedType === "Fun Fact") {
+      } else if (selectedType === "3D Model") {
+        contentData = { modelUrl: formModelUrl.trim() };
+      } else if (selectedType === "Audio") {
         contentData = {
-          fact: formFactText,
+          audioUrl: formAudioUrl.trim(),
+          sequence: Number(formAudioSequence) || 1,
         };
       }
+
+      contentData = {
+        ...contentData,
+        customData,
+      };
 
       if (isEditMode && editDocId) {
         // Enforce Firestore Document Patch Update
@@ -185,8 +213,7 @@ const InstituteContentManagement = () => {
           data: contentData,
           updatedAt: serverTimestamp(),
         });
-      }
-      {
+      } else {
         // Enforce Standard Firestore Document Creation Pipeline
         const payload = {
           title: formTitle,
@@ -208,7 +235,10 @@ const InstituteContentManagement = () => {
       setFormTitle("");
       setFormInfoUrl("");
       setFormInfoDesc("");
-      setFormFactText("");
+      setFormAudioUrl("");
+      setFormModelUrl("");
+      setFormCustomData("");
+      setFormAudioSequence("1");
       setSelectedType("");
       setQuizQuestions([{ question: "", answer: "True" }]);
     } catch (error) {
@@ -270,6 +300,9 @@ const InstituteContentManagement = () => {
           </button>
         </div>
       </div>
+      <p style={{ color: "#888", marginBottom: "1.5rem" }}>
+        Create reusable content here, then assign it from the Landmark or POI management page.
+      </p>
 
       {/* INVENTORY TABLE BOX */}
       <div className={tableStyles.tableContainer}>
@@ -399,11 +432,10 @@ const InstituteContentManagement = () => {
               style={{ opacity: isEditMode ? 0.6 : 1 }}
             >
               <option value="">Select Type</option>
-              <option value="Information">
-                Information (Image & Description)
-              </option>
+              <option value="Information">Info</option>
+              <option value="3D Model">3D Model (.glb URL)</option>
               <option value="Quiz">True / False Quiz</option>
-              <option value="Fun Fact">Fun Fact</option>
+              <option value="Audio">Sequential Audio Track</option>
             </select>
           </div>
 
@@ -441,6 +473,19 @@ const InstituteContentManagement = () => {
                     />
                   </div>
                 </>
+              )}
+
+              {selectedType === "3D Model" && (
+                <div className={commonStyles.formGroup}>
+                  <label>3D Model URL (.glb)</label>
+                  <input
+                    className={commonStyles.formControl}
+                    placeholder="https://.../model.glb"
+                    value={formModelUrl}
+                    onChange={(e) => setFormModelUrl(e.target.value)}
+                    required
+                  />
+                </div>
               )}
 
               {/* DYNAMIC TRUE / FALSE QUIZ */}
@@ -538,21 +583,42 @@ const InstituteContentManagement = () => {
                 </div>
               )}
 
-              {/* FUN FACT STRUCTURE */}
-              {selectedType === "Fun Fact" && (
-                <div className={commonStyles.formGroup}>
-                  <label>Fun Fact Text</label>
-                  <textarea
-                    name="factText"
-                    className={commonStyles.formControl}
-                    rows={3}
-                    placeholder="Enter an interesting fact..."
-                    value={formFactText}
-                    onChange={(e) => setFormFactText(e.target.value)}
-                    required
-                  />
-                </div>
+              {selectedType === "Audio" && (
+                <>
+                  <div className={commonStyles.formGroup}>
+                    <label>Audio URL</label>
+                    <input
+                      className={commonStyles.formControl}
+                      placeholder="https://.../poi-audio.mp3"
+                      value={formAudioUrl}
+                      onChange={(e) => setFormAudioUrl(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className={commonStyles.formGroup}>
+                    <label>Traversal Sequence</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className={commonStyles.formControl}
+                      value={formAudioSequence}
+                      onChange={(e) => setFormAudioSequence(e.target.value)}
+                      required
+                    />
+                  </div>
+                </>
               )}
+
+              <div className={commonStyles.formGroup}>
+                <label>Custom Data (JSON)</label>
+                <textarea
+                  className={commonStyles.formControl}
+                  rows={4}
+                  placeholder='{"period":"18th century","materials":["stone"]}'
+                  value={formCustomData}
+                  onChange={(e) => setFormCustomData(e.target.value)}
+                />
+              </div>
             </div>
           )}
 

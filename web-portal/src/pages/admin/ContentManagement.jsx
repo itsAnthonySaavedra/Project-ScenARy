@@ -35,7 +35,6 @@ const ContentManagement = () => {
   const [formInstitutionId, setFormInstitutionId] = useState("");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
-  const [formVideoUrl, setFormVideoUrl] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
   const [formFactText, setFormFactText] = useState("");
 
@@ -54,7 +53,13 @@ const ContentManagement = () => {
   const fetchData = async () => {
     try {
       const contentSnap = await getDocs(collection(db, "content"));
-      setContents(contentSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setContents(
+        contentSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((item) =>
+            ["Information", "3D Model", "Quiz", "Audio"].includes(item.type),
+          ),
+      );
 
       const instSnap = await getDocs(collection(db, "institutions"));
       setInstitutions(
@@ -93,7 +98,6 @@ const ContentManagement = () => {
     setFormInstitutionId("");
     setFormInfoUrl("");
     setFormInfoDesc("");
-    setFormVideoUrl("");
     setFormModelUrl("");
     setFormFactText("");
     setSelectedType("");
@@ -112,8 +116,6 @@ const ContentManagement = () => {
     if (item.type === "Information") {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
-    } else if (item.type === "Video") {
-      setFormVideoUrl(item.data?.videoUrl || "");
     } else if (item.type === "3D Model") {
       setFormModelUrl(item.data?.modelPath || "");
     } else if (item.type === "Quiz") {
@@ -169,8 +171,6 @@ const ContentManagement = () => {
           description: formInfoDesc,
           imageUrl: formInfoUrl || "",
         };
-      } else if (selectedType === "Video") {
-        contentData = { videoUrl: formVideoUrl };
       } else if (selectedType === "3D Model") {
         contentData = { modelPath: formModelUrl || "" };
       } else if (selectedType === "Quiz") {
@@ -216,7 +216,6 @@ const ContentManagement = () => {
       setFormInstitutionId("");
       setFormInfoUrl("");
       setFormInfoDesc("");
-      setFormVideoUrl("");
       setFormModelUrl("");
       setFormFactText("");
       setSelectedType("");
@@ -232,16 +231,6 @@ const ContentManagement = () => {
   const handleView = (item) => {
     setCurrentContent(item);
     setIsViewModalOpen(true);
-  };
-
-  // YouTube Embed Helper
-  const getYouTubeEmbedUrl = (url) => {
-    if (!url) return "";
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return match && match[2].length === 11
-      ? `https://www.youtube.com/embed/${match[2]}`
-      : url;
   };
 
   const filteredContents = contents
@@ -440,7 +429,6 @@ const ContentManagement = () => {
                 Information (Image & Description)
               </option>
               <option value="Quiz">True / False Quiz</option>
-              <option value="Video">Video Link</option>
               <option value="3D Model">3D Model (Paste .glb Link)</option>
               <option value="Fun Fact">Fun Fact</option>
             </select>
@@ -480,21 +468,6 @@ const ContentManagement = () => {
                     />
                   </div>
                 </>
-              )}
-
-              {/* VIDEO LINK */}
-              {selectedType === "Video" && (
-                <div className={commonStyles.formGroup}>
-                  <label>YouTube URL</label>
-                  <input
-                    name="videoUrl"
-                    className={commonStyles.formControl}
-                    placeholder="https://youtube.com/..."
-                    value={formVideoUrl}
-                    onChange={(e) => setFormVideoUrl(e.target.value)}
-                    required
-                  />
-                </div>
               )}
 
               {/* 3D MODEL LINK */}
@@ -670,21 +643,6 @@ const ContentManagement = () => {
                   camera-controls
                   style={{ width: "100%", height: "100%", backgroundColor: "#111" }}
                 ></model-viewer>
-              </div>
-            )}
-
-            {/* PREVIEW VIDEO IF APPLICABLE */}
-            {currentContent.type === "Video" && currentContent.data?.videoUrl && (
-              <div style={{ marginBottom: "15px" }}>
-                <iframe
-                  width="100%"
-                  height="250"
-                  src={getYouTubeEmbedUrl(currentContent.data.videoUrl)}
-                  title={currentContent.title}
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                ></iframe>
               </div>
             )}
 

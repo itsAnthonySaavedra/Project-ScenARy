@@ -13,6 +13,19 @@ import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
+import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
+
+L.Marker.prototype.options.icon = L.icon({
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+});
 
 const MyTours = () => {
   const [tours, setTours] = useState([]);
@@ -193,6 +206,15 @@ const MyTours = () => {
   const filteredTabItems = availableContent.filter(
     (item) => item.type === activeTab,
   );
+  const mappedEntities = availableContent.filter(
+    (item) =>
+      item.type === "Information" &&
+      Number.isFinite(item.data?.latitude) &&
+      Number.isFinite(item.data?.longitude),
+  );
+  const orderedAudio = availableContent
+    .filter((item) => item.type === "Audio" && item.entityType === "POI")
+    .sort((first, second) => (first.data?.sequence || 0) - (second.data?.sequence || 0));
 
   return (
     <div style={{ padding: "20px" }}>
@@ -419,7 +441,7 @@ const MyTours = () => {
               gap: "5px",
             }}
           >
-            {["Information", "Quiz", "Fun Fact"].map((tab) => {
+            {["Information", "3D Model", "Quiz", "Audio", "Tour Map"].map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <button
@@ -443,11 +465,15 @@ const MyTours = () => {
                     outline: "none",
                   }}
                 >
-                  {tab === "Information"
+                  {tab === "Tour Map"
+                    ? "Map"
+                    : tab === "3D Model"
+                      ? "3D Models"
+                      : tab === "Audio"
+                        ? "Audio Sequence"
+                        : tab === "Information"
                     ? "ℹ️ Information"
-                    : tab === "Quiz"
-                      ? "❓ Quizzes"
-                      : "💡 Fun Facts"}
+                    : "❓ Quizzes"}
                 </button>
               );
             })}
@@ -461,7 +487,68 @@ const MyTours = () => {
               paddingRight: "5px",
             }}
           >
-            {filteredTabItems.length === 0 ? (
+            {activeTab === "Tour Map" ? (
+              <div>
+                <p style={{ color: "#aaa", fontSize: "0.85rem" }}>
+                  Landmarks and their linked POIs for this institution.
+                </p>
+                <MapContainer
+                  center={[10.3157, 123.8854]}
+                  zoom={15}
+                  style={{ height: "340px", width: "100%", borderRadius: "6px" }}
+                >
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution="&copy; OpenStreetMap"
+                  />
+                  {mappedEntities.map((item) => (
+                    <Marker
+                      key={item.id}
+                      position={[item.data.latitude, item.data.longitude]}
+                    >
+                      <Popup>
+                        <strong>{item.title}</strong>
+                        <br />
+                        {item.entityType === "POI"
+                          ? `POI linked to ${item.landmarkId || "a landmark"}`
+                          : "Landmark"}
+                      </Popup>
+                    </Marker>
+                  ))}
+                </MapContainer>
+                {mappedEntities.length === 0 && (
+                  <p style={{ color: "#777", textAlign: "center" }}>
+                    Add an Information record with coordinates to place an entity on the map.
+                  </p>
+                )}
+              </div>
+            ) : activeTab === "Audio" ? (
+              orderedAudio.length === 0 ? (
+                <div style={{ textAlign: "center", color: "#555", padding: "3rem 1rem" }}>
+                  No POI audio tracks found.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {orderedAudio.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        background: "rgba(255,255,255,0.03)",
+                        padding: "12px",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      <span style={{ color: "#fff" }}>{item.title}</span>
+                      <span style={{ color: "#C19A4B" }}>
+                        Stop {item.data?.sequence || "-"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : filteredTabItems.length === 0 ? (
               <div
                 style={{
                   textAlign: "center",

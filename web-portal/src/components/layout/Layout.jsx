@@ -15,6 +15,8 @@ const Layout = ({ role }) => {
         if (pathname.includes('/users')) return 'User Management';
         if (pathname.includes('/institutions')) return 'Institutions';
         if (pathname.includes('/content')) return 'Content Management';
+        if (pathname.includes('/landmarks')) return 'Landmarks';
+        if (pathname.includes('/pois')) return 'Points of Interest';
         if (pathname.includes('/analytics')) return 'Analytics';
         if (pathname.includes('/settings')) return 'Settings';
         if (pathname.includes('/tours')) return 'My Tours';
