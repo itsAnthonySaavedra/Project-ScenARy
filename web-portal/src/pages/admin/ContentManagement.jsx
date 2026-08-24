@@ -33,6 +33,7 @@ const ContentManagement = () => {
   // Controlled form values to enable pre-population during edit
   const [formTitle, setFormTitle] = useState("");
   const [formInstitutionId, setFormInstitutionId] = useState("");
+  const [formStatus, setFormStatus] = useState("Awaiting Content");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
@@ -96,6 +97,7 @@ const ContentManagement = () => {
     setEditDocId(null);
     setFormTitle("");
     setFormInstitutionId("");
+    setFormStatus("Awaiting Content");
     setFormInfoUrl("");
     setFormInfoDesc("");
     setFormModelUrl("");
@@ -111,6 +113,7 @@ const ContentManagement = () => {
     setEditDocId(item.id);
     setFormTitle(item.title || "");
     setFormInstitutionId(item.institutionId || "");
+    setFormStatus(item.status || "Awaiting Content");
     setSelectedType(item.type || "");
 
     if (item.type === "Information") {
@@ -192,6 +195,7 @@ const ContentManagement = () => {
         await updateDoc(docRef, {
           title: formTitle,
           institutionId: formInstitutionId,
+          status: formStatus,
           data: contentData,
           updatedAt: serverTimestamp(),
         });
@@ -200,7 +204,7 @@ const ContentManagement = () => {
           title: formTitle,
           type: selectedType,
           institutionId: formInstitutionId,
-          status: "Published",
+          status: formStatus,
           data: contentData,
           createdAt: serverTimestamp(),
         };
@@ -214,6 +218,7 @@ const ContentManagement = () => {
       setEditDocId(null);
       setFormTitle("");
       setFormInstitutionId("");
+      setFormStatus("Awaiting Content");
       setFormInfoUrl("");
       setFormInfoDesc("");
       setFormModelUrl("");
@@ -431,6 +436,20 @@ const ContentManagement = () => {
               <option value="Quiz">True / False Quiz</option>
               <option value="3D Model">3D Model (Paste .glb Link)</option>
               <option value="Fun Fact">Fun Fact</option>
+            </select>
+          </div>
+
+          <div className={commonStyles.formGroup}>
+            <label>Review Status</label>
+            <select
+              name="status"
+              className={commonStyles.formControl}
+              value={formStatus}
+              onChange={(e) => setFormStatus(e.target.value)}
+            >
+              <option value="Awaiting Content">Awaiting Content</option>
+              <option value="Published">Published</option>
+              <option value="Archived">Archived</option>
             </select>
           </div>
 

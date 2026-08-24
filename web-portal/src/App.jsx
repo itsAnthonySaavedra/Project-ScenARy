@@ -1,7 +1,7 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 /* Auth Context */
-import { AuthProvider } from "./context/AuthContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 
 /* Layouts */
 /* Layouts */
@@ -31,6 +31,30 @@ import LandmarkManagement from "./pages/institution/LandmarkManagement";
 import POIManagement from "./pages/institution/POIManagement";
 import InstituteContentManagement from "./pages/institution/ContentManagement";
 
+function ProtectedRoute({ role, children }) {
+  const { currentUser, currentRole } = useAuth();
+
+  if (!currentUser) {
+    return <Navigate to={`/login?type=${role}`} replace />;
+  }
+
+  const hasExpectedRole =
+    role === "admin"
+      ? currentRole === "admin"
+      : currentRole === "institution";
+
+  if (!hasExpectedRole) {
+    return (
+      <Navigate
+        to={currentRole === "admin" ? "/admin/dashboard" : "/institution/dashboard"}
+        replace
+      />
+    );
+  }
+
+  return children;
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -39,7 +63,14 @@ function AppRoutes() {
       <Route path="/collab" element={<CollabPage />} />
 
       {/* Admin Routes */}
-      <Route path="/admin" element={<Layout role="admin" />}>
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute role="admin">
+            <Layout role="admin" />
+          </ProtectedRoute>
+        }
+      >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="map" element={<MapSystem />} />
@@ -51,7 +82,14 @@ function AppRoutes() {
       </Route>
 
       {/* Institute Routes */}
-      <Route path="/institution" element={<Layout role="institution" />}>
+      <Route
+        path="/institution"
+        element={
+          <ProtectedRoute role="institution">
+            <Layout role="institution" />
+          </ProtectedRoute>
+        }
+      >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<InstituteDashboard />} />
         <Route path="tours" element={<InstituteTours />} />

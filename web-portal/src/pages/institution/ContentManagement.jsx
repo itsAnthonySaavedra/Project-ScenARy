@@ -16,18 +16,55 @@ import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 
+const getContentQualityIssues = (item) => {
+  const issues = [];
+  const title = item.title?.trim();
+  const data = item.data || {};
+
+  if (!title) issues.push("Add a title");
+  if (!item.type) issues.push("Select a content type");
+
+  if (item.type === "Information" && !data.description?.trim()) {
+    issues.push("Add a description");
+  }
+  if (
+    item.type === "3D Model" &&
+    !(data.modelUrl || data.modelPath)?.trim()
+  ) {
+    issues.push("Add a model URL");
+  }
+  if (item.type === "Quiz" && (!data.quizzes || data.quizzes.length === 0)) {
+    issues.push("Add at least one quiz question");
+  }
+  if (
+    item.type === "Quiz" &&
+    data.quizzes?.some((quiz) => !quiz.question?.trim())
+  ) {
+    issues.push("Complete every quiz question");
+  }
+  if (item.type === "Audio" && !data.audioUrl?.trim()) {
+    issues.push("Add an audio URL");
+  }
+  if (
+    item.type === "Audio" &&
+    (!Number.isInteger(Number(data.sequence)) || Number(data.sequence) < 1)
+  ) {
+    issues.push("Use a sequence number of 1 or higher");
+  }
+
+  return issues;
+};
+
+const isContentReady = (item) =>
+  !item.needsAttention && getContentQualityIssues(item).length === 0;
+
 const InstituteContentManagement = () => {
-  // --- STATE ---
   const [contents, setContents] = useState([]);
   const [filter, setFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("");
-
-  // Edit Mode Tracking State Fields
   const [isEditMode, setIsEditMode] = useState(false);
   const [editDocId, setEditDocId] = useState(null);
-
-  // Controlled form values for title field to enable pre-population during edit
   const [formTitle, setFormTitle] = useState("");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
@@ -35,30 +72,24 @@ const InstituteContentManagement = () => {
   const [formModelUrl, setFormModelUrl] = useState("");
   const [formCustomData, setFormCustomData] = useState("");
   const [formAudioSequence, setFormAudioSequence] = useState("1");
-
-  // Authentication & Institution isolation
+  const [formNeedsAttention, setFormNeedsAttention] = useState(false);
   const [userInstitutionId, setUserInstitutionId] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-
-  // Dynamic Quiz Questions Array State
   const [quizQuestions, setQuizQuestions] = useState([
     { question: "", answer: "True" },
   ]);
-
-  // Modals
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [currentContent, setCurrentContent] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState("");
 
-  // --- 1. IDENTIFY USER INSTITUTION ---
   useEffect(() => {
     const auth = getAuth();
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
-          const userDocRef = doc(db, "users", user.uid);
-          const userDocSnap = await getDoc(userDocRef);
+          const userDocSnap = await getDoc(doc(db, "users", user.uid));
           if (userDocSnap.exists()) {
             setUserInstitutionId(userDocSnap.data().institutionId);
           }
@@ -73,15 +104,12 @@ const InstituteContentManagement = () => {
     return () => unsubscribe();
   }, []);
 
-  // --- 2. FETCH DATA FILTERED BY INSTITUTION ---
   const fetchInstitutionData = async (instId) => {
     if (!instId) return;
     try {
-      const q = query(
-        collection(db, "content"),
-        where("institutionId", "==", instId.trim()),
+      const contentSnap = await getDocs(
+        query(collection(db, "content"), where("institutionId", "==", instId.trim())),
       );
-      const contentSnap = await getDocs(q);
       setContents(
         contentSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
@@ -89,8 +117,8 @@ const InstituteContentManagement = () => {
             ["Information", "3D Model", "Quiz", "Audio"].includes(item.type),
           ),
       );
-    } catch (err) {
-      console.error("Isolated Fetch Error:", err);
+    } catch (error) {
+      console.error("Isolated Fetch Error:", error);
     }
   };
 
@@ -100,7 +128,6 @@ const InstituteContentManagement = () => {
     }
   }, [userInstitutionId, isAuthChecking]);
 
-  // --- QUIZ FIELDS MANAGEMENT ---
   const addQuizQuestionField = () => {
     setQuizQuestions([...quizQuestions, { question: "", answer: "True" }]);
   };
@@ -116,7 +143,6 @@ const InstituteContentManagement = () => {
     setQuizQuestions(quizQuestions.filter((_, i) => i !== index));
   };
 
-  // --- OPEN MODAL CLEANING FUNCTION ---
   const handleOpenCreateModal = () => {
     setIsEditMode(false);
     setEditDocId(null);
@@ -127,39 +153,39 @@ const InstituteContentManagement = () => {
     setFormModelUrl("");
     setFormCustomData("");
     setFormAudioSequence("1");
+    setFormNeedsAttention(false);
     setSelectedType("");
     setQuizQuestions([{ question: "", answer: "True" }]);
+    setFormError("");
     setIsAddModalOpen(true);
   };
 
-  // --- EDIT ROW POPULATION HANDLER ---
   const handleEditClick = (item) => {
     setIsEditMode(true);
     setEditDocId(item.id);
+    setFormError("");
     setFormTitle(item.title || "");
     setSelectedType(item.type || "");
     setFormAudioUrl(item.data?.audioUrl || "");
-    setFormModelUrl(item.data?.modelUrl || "");
+    setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
     setFormCustomData(
       item.data?.customData ? JSON.stringify(item.data.customData, null, 2) : "",
     );
     setFormAudioSequence(item.data?.sequence?.toString() || "1");
+    setFormNeedsAttention(item.needsAttention === true);
 
-    // Unpack inner specific payload data safely
     if (item.type === "Information") {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
     } else if (item.type === "Quiz") {
-      if (item.data?.quizzes && item.data.quizzes.length > 0) {
-        setQuizQuestions(
-          item.data.quizzes.map((q) => ({
-            question: q.question || "",
-            answer: q.correctAnswer || "True",
-          })),
-        );
-      } else {
-        setQuizQuestions([{ question: "", answer: "True" }]);
-      }
+      setQuizQuestions(
+        item.data?.quizzes?.length
+          ? item.data.quizzes.map((q) => ({
+              question: q.question || "",
+              answer: q.correctAnswer || "True",
+            }))
+          : [{ question: "", answer: "True" }],
+      );
     }
 
     setIsAddModalOpen(true);
@@ -170,6 +196,7 @@ const InstituteContentManagement = () => {
     e.preventDefault();
     if (!userInstitutionId) return;
     setLoading(true);
+    setFormError("");
 
     let contentData = {};
 
@@ -205,12 +232,24 @@ const InstituteContentManagement = () => {
         customData,
       };
 
+      const qualityIssues = getContentQualityIssues({
+        title: formTitle,
+        type: selectedType,
+        data: contentData,
+      });
+      if (qualityIssues.length > 0) {
+        setFormError(qualityIssues.join(" | "));
+        return;
+      }
+
       if (isEditMode && editDocId) {
         // Enforce Firestore Document Patch Update
         const docRef = doc(db, "content", editDocId);
         await updateDoc(docRef, {
           title: formTitle,
           data: contentData,
+          needsAttention: formNeedsAttention,
+          status: "Awaiting Content",
           updatedAt: serverTimestamp(),
         });
       } else {
@@ -219,7 +258,8 @@ const InstituteContentManagement = () => {
           title: formTitle,
           type: selectedType,
           institutionId: userInstitutionId.trim(),
-          status: "Published",
+          status: "Awaiting Content",
+          needsAttention: formNeedsAttention,
           data: contentData,
           createdAt: serverTimestamp(),
         };
@@ -239,8 +279,10 @@ const InstituteContentManagement = () => {
       setFormModelUrl("");
       setFormCustomData("");
       setFormAudioSequence("1");
+      setFormNeedsAttention(false);
       setSelectedType("");
       setQuizQuestions([{ question: "", answer: "True" }]);
+      setFormError("");
     } catch (error) {
       console.error("Database Transaction Error:", error);
       alert("Error committing document updates to cloud collection.");
@@ -257,6 +299,10 @@ const InstituteContentManagement = () => {
   const filteredContents = contents
     .filter((c) => (filter === "All" ? true : c.status === "Awaiting Content"))
     .filter((c) => c.title?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  const incompleteCount = contents.filter(
+    (item) => !isContentReady(item),
+  ).length;
 
   if (isAuthChecking) {
     return (
@@ -303,6 +349,16 @@ const InstituteContentManagement = () => {
       <p style={{ color: "#888", marginBottom: "1.5rem" }}>
         Create reusable content here, then assign it from the Landmark or POI management page.
       </p>
+      <div
+        style={{
+          color: incompleteCount > 0 ? "#fbbf24" : "#4ade80",
+          marginBottom: "1rem",
+        }}
+      >
+        {incompleteCount > 0
+          ? `${incompleteCount} content item${incompleteCount === 1 ? "" : "s"} need attention before use.`
+          : "All content items are ready for use."}
+      </div>
 
       {/* INVENTORY TABLE BOX */}
       <div className={tableStyles.tableContainer}>
@@ -312,6 +368,7 @@ const InstituteContentManagement = () => {
               <th>Title</th>
               <th>Type</th>
               <th>Status</th>
+              <th>Quality</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -336,6 +393,20 @@ const InstituteContentManagement = () => {
                       }}
                     >
                       {item.status}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      title={getContentQualityIssues(item).join(", ")}
+                      style={{
+                        color: isContentReady(item)
+                          ? "#4ade80"
+                          : "#fbbf24",
+                      }}
+                    >
+                      {isContentReady(item)
+                        ? "Ready"
+                        : "Needs attention"}
                     </span>
                   </td>
                   <td>
@@ -368,7 +439,7 @@ const InstituteContentManagement = () => {
             ) : (
               <tr>
                 <td
-                  colSpan={4}
+                  colSpan={5}
                   style={{
                     textAlign: "center",
                     padding: "2rem",
@@ -409,6 +480,21 @@ const InstituteContentManagement = () => {
           onSubmit={handleFormSubmit}
           style={{ maxHeight: "75vh", overflowY: "auto", paddingRight: "10px" }}
         >
+          {formError && (
+            <div
+              role="alert"
+              style={{
+                color: "#fbbf24",
+                background: "rgba(251, 191, 36, 0.1)",
+                border: "1px solid rgba(251, 191, 36, 0.35)",
+                borderRadius: "4px",
+                padding: "0.75rem",
+                marginBottom: "1rem",
+              }}
+            >
+              {formError}
+            </div>
+          )}
           <div className={commonStyles.formGroup}>
             <label>Title</label>
             <input
@@ -438,6 +524,23 @@ const InstituteContentManagement = () => {
               <option value="Audio">Sequential Audio Track</option>
             </select>
           </div>
+
+          <label
+            style={{
+              display: "flex",
+              gap: "0.5rem",
+              alignItems: "center",
+              color: "#fbbf24",
+              margin: "1rem 0",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={formNeedsAttention}
+              onChange={(e) => setFormNeedsAttention(e.target.checked)}
+            />
+            Mark as needs attention
+          </label>
 
           {selectedType && (
             <div

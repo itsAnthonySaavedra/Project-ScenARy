@@ -18,14 +18,14 @@ import { useNavigate } from "react-router-dom";
 
 interface AuthContextType {
   currentUser: User | null;
-  currentRole: "admin" | "institute" | null;
+  currentRole: "admin" | "institution" | null;
   login: (
     email: string,
     password: string,
-    expectedRole: "admin" | "institute",
+    expectedRole: "admin" | "institution",
   ) => Promise<{
     success: boolean;
-    role?: "admin" | "institute";
+    role?: "admin" | "institution";
     message?: string;
   }>;
   logout: () => Promise<void>;
@@ -45,17 +45,19 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentRole, setCurrentRole] = useState<"admin" | "institute" | null>(null);
+  const [currentRole, setCurrentRole] = useState<
+    "admin" | "institution" | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   const login = async (
     email: string,
     password: string,
-    expectedRole: "admin" | "institute",
+    expectedRole: "admin" | "institution",
   ): Promise<{
     success: boolean;
-    role?: "admin" | "institute";
+    role?: "admin" | "institution";
     message?: string;
   }> => {
     try {
@@ -72,7 +74,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
         };
       }
 
-      const role = snap.data().role as "admin" | "institute";
+      const storedRole = String(snap.data().role || "").toLowerCase();
+      const role =
+        storedRole === "admin" || storedRole === "super admin"
+          ? "admin"
+          : storedRole === "institute" || storedRole === "institution"
+            ? "institution"
+            : null;
+
+      if (!role || role !== expectedRole) {
+        await signOut(auth);
+        return {
+          success: false,
+          message: "Access denied: wrong portal for this account.",
+        };
+      }
 
       // Store the expected role in sessionStorage for this tab
       sessionStorage.setItem("scenaryExpectedRole", expectedRole);
@@ -80,7 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       // Immediately update state with the new user
       setCurrentUser(cred.user);
-      setCurrentRole(expectedRole);
+      setCurrentRole(role);
 
       return { success: true, role };
     } catch (error: any) {
@@ -124,7 +140,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Check if this tab has a stored session
       const expectedRole = sessionStorage.getItem("scenaryExpectedRole") as
         | "admin"
-        | "institute"
+        | "institution"
         | null;
       const expectedUserId = sessionStorage.getItem("scenaryUserId");
 
