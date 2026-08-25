@@ -1,15 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
+import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import { db } from "../../lib/firebase";
-
-const MapPicker = ({ latitude, longitude, onPick }) => {
-  useMapEvents({ click: ({ latlng }) => onPick(latlng) });
-  return latitude && longitude ? <Marker position={[Number(latitude), Number(longitude)]} /> : null;
-};
 
 const POIManagement = () => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -18,7 +12,7 @@ const POIManagement = () => {
   const [availableContent, setAvailableContent] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
   const [selectedPoiId, setSelectedPoiId] = useState(null);
-  const [form, setForm] = useState({ landmarkId: "", name: "", latitude: "", longitude: "" });
+  const [form, setForm] = useState({ landmarkId: "", name: "", qrCode: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -51,7 +45,7 @@ const POIManagement = () => {
   const resetForm = () => {
     setSelectedPoiId(null);
     setSelectedContentIds([]);
-    setForm({ landmarkId: "", name: "", latitude: "", longitude: "" });
+    setForm({ landmarkId: "", name: "", qrCode: "" });
   };
 
   const editPoi = (poi) => {
@@ -60,8 +54,7 @@ const POIManagement = () => {
     setForm({
       landmarkId: poi.landmarkId,
       name: poi.name || "",
-      latitude: String(poi.latitude ?? ""),
-      longitude: String(poi.longitude ?? ""),
+      qrCode: poi.qrCode || "",
     });
   };
 
@@ -74,14 +67,13 @@ const POIManagement = () => {
 
   const savePoi = async (event) => {
     event.preventDefault();
-    if (!institutionId || !form.landmarkId) return;
+    if (!institutionId || !form.landmarkId || !form.qrCode.trim()) return;
     setSaving(true);
     try {
       const poiData = {
         landmarkId: form.landmarkId,
         name: form.name.trim(),
-        latitude: Number(form.latitude),
-        longitude: Number(form.longitude),
+        qrCode: form.qrCode.trim(),
         contentIds: selectedContentIds,
       };
       if (selectedPoiId) {
@@ -95,7 +87,7 @@ const POIManagement = () => {
       }
       resetForm();
       await loadData(institutionId);
-    } catch (error) {
+    } catch {
       alert("Unable to save POI.");
     } finally { setSaving(false); }
   };
@@ -110,8 +102,10 @@ const POIManagement = () => {
         <h3 style={{ color: "#fff" }}>{selectedPoiId ? "Edit POI" : "Add POI"}</h3>
         <select className={commonStyles.formControl} value={form.landmarkId} onChange={(e) => updateField("landmarkId", e.target.value)} required><option value="">Select parent landmark</option>{landmarks.map((landmark) => <option key={landmark.id} value={landmark.id}>{landmark.landmarkName || landmark.institutionName}</option>)}</select>
         <input className={commonStyles.formControl} placeholder="POI name, e.g. Painting A" value={form.name} onChange={(e) => updateField("name", e.target.value)} required />
-        <MapContainer center={[10.3157, 123.8854]} zoom={17} style={{ height: 240, width: "100%" }}><TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" /><MapPicker latitude={form.latitude} longitude={form.longitude} onPick={({ lat, lng }) => setForm((current) => ({ ...current, latitude: lat.toFixed(6), longitude: lng.toFixed(6) }))} /></MapContainer>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><input className={commonStyles.formControl} type="number" step="any" placeholder="Latitude" value={form.latitude} onChange={(e) => updateField("latitude", e.target.value)} required /><input className={commonStyles.formControl} type="number" step="any" placeholder="Longitude" value={form.longitude} onChange={(e) => updateField("longitude", e.target.value)} required /></div>
+        <label style={{ color: "#fff" }}>QR Code Identifier</label>
+        <input className={commonStyles.formControl} placeholder="e.g. museum-a-painting-01" value={form.qrCode} onChange={(e) => updateField("qrCode", e.target.value)} required />
+        <small style={{ color: "#888" }}>This exact identifier will be encoded in the QR code placed beside the POI.</small>
+        {form.qrCode.trim() && <div style={{ background: "#fff", padding: 12, width: "fit-content" }}><QRCodeCanvas value={form.qrCode.trim()} size={140} includeMargin /></div>}
         <div>
           <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
             Assign Existing Content

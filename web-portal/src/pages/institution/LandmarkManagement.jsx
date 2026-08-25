@@ -70,7 +70,7 @@ const LandmarkManagement = () => {
       });
       setForm({ ...form, name: form.name.trim(), description: form.description.trim() });
       await loadData(institutionId);
-    } catch (error) {
+    } catch {
       alert("Unable to save landmark details.");
     } finally { setSaving(false); }
   };
@@ -124,7 +124,7 @@ const LandmarkManagement = () => {
         <MapContainer center={[10.3157, 123.8854]} zoom={15} style={{ height: 420, width: "100%" }}>
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
           {landmarks.map((landmark) => <Marker key={landmark.id} position={[landmark.lat, landmark.lng]}><Popup><strong>{landmark.landmarkName || landmark.institutionName}</strong><br />Landmark</Popup></Marker>)}
-          {pois.map((poi) => <Marker key={poi.id} position={[poi.latitude, poi.longitude]}><Popup><strong>{poi.name}</strong><br />POI of {landmarks.find((item) => item.id === poi.landmarkId)?.landmarkName || "unknown landmark"}</Popup></Marker>)}
+          {pois.filter((poi) => Number.isFinite(poi.latitude) && Number.isFinite(poi.longitude)).map((poi) => <Marker key={poi.id} position={[poi.latitude, poi.longitude]}><Popup><strong>{poi.name}</strong><br />POI of {landmarks.find((item) => item.id === poi.landmarkId)?.landmarkName || "unknown landmark"}<br />QR: {poi.qrCode || "Legacy GPS POI"}</Popup></Marker>)}
         </MapContainer>
         <div style={{ marginTop: 12 }}>{landmarks.map((landmark) => <div key={landmark.id} style={{ padding: 10, borderBottom: "1px solid #333" }}><strong>{landmark.landmarkName || landmark.institutionName}</strong> <span style={{ color: "#888" }}>({pois.filter((poi) => poi.landmarkId === landmark.id).length} POIs)</span></div>)}</div>
       </div>
