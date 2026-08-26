@@ -15,6 +15,7 @@ import { db } from "../../lib/firebase";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
+import ContentPreview from "../../components/common/ContentPreview";
 
 const getContentQualityIssues = (item) => {
   const issues = [];
@@ -755,29 +756,7 @@ const InstituteContentManagement = () => {
         }
       >
         {currentContent && (
-          <div style={{ color: "#ccc" }}>
-            <p style={{ marginBottom: "10px" }}>
-              <strong>Type:</strong> {currentContent.type}
-            </p>
-            <div
-              style={{
-                maxHeight: "400px",
-                overflow: "auto",
-                background: "#0a0a0a",
-                borderRadius: "4px",
-              }}
-            >
-              <pre
-                style={{
-                  padding: "1rem",
-                  fontSize: "0.8rem",
-                  color: "#4ade80",
-                }}
-              >
-                {JSON.stringify(currentContent.data, null, 2)}
-              </pre>
-            </div>
-          </div>
+          <ContentPreview content={currentContent} />
         )}
       </Modal>
     </div>

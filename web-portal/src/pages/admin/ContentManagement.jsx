@@ -13,6 +13,7 @@ import { db } from "../../lib/firebase";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
+import ContentPreview from "../../components/common/ContentPreview";
 
 const ContentManagement = () => {
   // --- STATE ---
@@ -647,43 +648,7 @@ const ContentManagement = () => {
         }
       >
         {currentContent && (
-          <div style={{ color: "#ccc" }}>
-            <p style={{ marginBottom: "10px" }}>
-              <strong>Type:</strong> {currentContent.type}
-            </p>
-
-            {/* PREVIEW 3D MODEL IF APPLICABLE */}
-            {currentContent.type === "3D Model" && currentContent.data?.modelPath && (
-              <div style={{ width: "100%", height: "300px", marginBottom: "15px" }}>
-                <model-viewer
-                  src={currentContent.data.modelPath}
-                  alt={currentContent.title}
-                  auto-rotate
-                  camera-controls
-                  style={{ width: "100%", height: "100%", backgroundColor: "#111" }}
-                ></model-viewer>
-              </div>
-            )}
-
-            <div
-              style={{
-                maxHeight: "300px",
-                overflow: "auto",
-                background: "#0a0a0a",
-                borderRadius: "4px",
-              }}
-            >
-              <pre
-                style={{
-                  padding: "1rem",
-                  fontSize: "0.8rem",
-                  color: "#4ade80",
-                }}
-              >
-                {JSON.stringify(currentContent.data, null, 2)}
-              </pre>
-            </div>
-          </div>
+          <ContentPreview content={currentContent} />
         )}
       </Modal>
 

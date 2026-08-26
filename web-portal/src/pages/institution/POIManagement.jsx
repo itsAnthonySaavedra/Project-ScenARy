@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { QRCodeCanvas } from "qrcode.react";
@@ -15,6 +15,8 @@ const POIManagement = () => {
   const [form, setForm] = useState({ landmarkId: "", name: "", qrCode: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const qrCanvasRef = useRef(null);
 
   const loadData = async (id) => {
     const landmarkSnap = await getDocs(query(collection(db, "markers"), where("institutionId", "==", id)));
@@ -46,6 +48,39 @@ const POIManagement = () => {
     setSelectedPoiId(null);
     setSelectedContentIds([]);
     setForm({ landmarkId: "", name: "", qrCode: "" });
+    setFormError("");
+  };
+
+  const generateQrCode = () => {
+    const id = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setForm((current) => ({ ...current, qrCode: `SCENARY|POI|${id}` }));
+    setFormError("");
+  };
+
+  const downloadQrCode = (canvasId, fileName) => {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = `${fileName.replace(/[^a-z0-9-_]/gi, "-")}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+
+  const printQrCode = (canvasId, title, qrCode) => {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const printWindow = window.open("", "_blank", "width=500,height=600");
+    if (!printWindow) return;
+    printWindow.document.write(`
+      <html><head><title>${title} QR Code</title></head>
+      <body style="font-family: sans-serif; text-align: center; padding: 32px">
+        <h1>${title}</h1>
+        <img src="${canvas.toDataURL("image/png")}" alt="QR code for ${title}" />
+        <p>${qrCode}</p>
+        <script>window.onload = () => { window.print(); window.close(); };</script>
+      </body></html>
+    `);
+    printWindow.document.close();
   };
 
   const editPoi = (poi) => {
@@ -56,6 +91,7 @@ const POIManagement = () => {
       name: poi.name || "",
       qrCode: poi.qrCode || "",
     });
+    setFormError("");
   };
 
   const removePoi = async (poi) => {
@@ -69,6 +105,17 @@ const POIManagement = () => {
     event.preventDefault();
     if (!institutionId || !form.landmarkId || !form.qrCode.trim()) return;
     setSaving(true);
+    setFormError("");
+    const duplicate = pois.some(
+      (poi) =>
+        poi.id !== selectedPoiId &&
+        poi.qrCode?.trim().toLowerCase() === form.qrCode.trim().toLowerCase(),
+    );
+    if (duplicate) {
+      setFormError("That QR identifier is already assigned to another POI.");
+      setSaving(false);
+      return;
+    }
     try {
       const poiData = {
         landmarkId: form.landmarkId,
@@ -105,7 +152,12 @@ const POIManagement = () => {
         <label style={{ color: "#fff" }}>QR Code Identifier</label>
         <input className={commonStyles.formControl} placeholder="e.g. museum-a-painting-01" value={form.qrCode} onChange={(e) => updateField("qrCode", e.target.value)} required />
         <small style={{ color: "#888" }}>This exact identifier will be encoded in the QR code placed beside the POI.</small>
-        {form.qrCode.trim() && <div style={{ background: "#fff", padding: 12, width: "fit-content" }}><QRCodeCanvas value={form.qrCode.trim()} size={140} includeMargin /></div>}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button type="button" className={commonStyles.btnOutline} onClick={generateQrCode}>Generate Identifier</button>
+          <small style={{ color: "#888" }}>Use a generated value to avoid duplicates.</small>
+        </div>
+        {formError && <div role="alert" style={{ color: "#fbbf24" }}>{formError}</div>}
+        {form.qrCode.trim() && <div style={{ background: "#fff", padding: 12, width: "fit-content" }}><QRCodeCanvas ref={qrCanvasRef} value={form.qrCode.trim()} size={140} includeMargin /></div>}
         <div>
           <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
             Assign Existing Content
@@ -126,7 +178,7 @@ const POIManagement = () => {
         <button className={commonStyles.btnPrimary} disabled={saving}>{saving ? "Saving..." : selectedPoiId ? "Save POI Changes" : "Save POI"}</button>
         {selectedPoiId && <button type="button" className={commonStyles.btnCancel} onClick={resetForm}>Cancel Edit</button>}
       </form>
-      <div>{pois.map((poi) => <div key={poi.id} style={{ padding: 12, borderBottom: "1px solid #333", display: "flex", justifyContent: "space-between", gap: 12 }}><span><strong>{poi.name}</strong><span style={{ color: "#888" }}> · {landmarks.find((landmark) => landmark.id === poi.landmarkId)?.landmarkName || "Unknown landmark"}</span></span><span style={{ display: "flex", gap: 8 }}><button type="button" className={commonStyles.btnOutline} onClick={() => editPoi(poi)}>Edit / Move</button><button type="button" className={commonStyles.btnCancel} onClick={() => removePoi(poi)}>Remove</button></span></div>)}</div>
+      <div>{pois.map((poi) => <div key={poi.id} style={{ padding: 12, borderBottom: "1px solid #333", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}><span><strong>{poi.name}</strong><span style={{ color: "#888" }}> · {landmarks.find((landmark) => landmark.id === poi.landmarkId)?.landmarkName || "Unknown landmark"}</span></span><span style={{ display: "flex", gap: 8, alignItems: "center" }}>{poi.qrCode && <QRCodeCanvas id={`poi-qr-${poi.id}`} value={poi.qrCode} size={56} />}<button type="button" className={commonStyles.btnOutline} onClick={() => downloadQrCode(`poi-qr-${poi.id}`, poi.name)}>Download QR</button><button type="button" className={commonStyles.btnOutline} onClick={() => printQrCode(`poi-qr-${poi.id}`, poi.name, poi.qrCode)}>Print QR</button><button type="button" className={commonStyles.btnOutline} onClick={() => editPoi(poi)}>Edit / Move</button><button type="button" className={commonStyles.btnCancel} onClick={() => removePoi(poi)}>Remove</button></span></div>)}</div>
     </div>}
   </div>;
 };
