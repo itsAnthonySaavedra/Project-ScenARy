@@ -8,6 +8,7 @@ import {
   updateDoc,
   getDoc,
   addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
@@ -41,7 +42,7 @@ const MyTours = () => {
     title: "",
     description: "",
     duration: "",
-    status: "LIVE",
+    status: "Published",
     imageUrl: "",
   });
 
@@ -151,7 +152,8 @@ const MyTours = () => {
         duration: parseInt(newTour.duration),
         institutionId: userInstitutionId.trim(),
         moduleIds: [],
-        createdAt: new Date(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
 
       setTours([...tours, { id: docRef.id, ...newTour, moduleIds: [] }]);
@@ -160,7 +162,7 @@ const MyTours = () => {
         title: "",
         description: "",
         duration: "",
-        status: "LIVE",
+        status: "Published",
         imageUrl: "",
       });
     } catch (err) {
@@ -180,7 +182,10 @@ const MyTours = () => {
 
     try {
       const tourRef = doc(db, "tours", selectedTour.id);
-      await updateDoc(tourRef, { moduleIds: newModules });
+      await updateDoc(tourRef, {
+        moduleIds: newModules,
+        updatedAt: serverTimestamp(),
+      });
       setSelectedTour({ ...selectedTour, moduleIds: newModules });
       setTours(
         tours.map((t) =>

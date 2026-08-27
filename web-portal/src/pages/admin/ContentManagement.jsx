@@ -121,7 +121,7 @@ const ContentManagement = () => {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
     } else if (item.type === "3D Model") {
-      setFormModelUrl(item.data?.modelPath || "");
+      setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
     } else if (item.type === "Quiz") {
       if (item.data?.quizzes && item.data.quizzes.length > 0) {
         setQuizQuestions(
@@ -176,7 +176,7 @@ const ContentManagement = () => {
           imageUrl: formInfoUrl || "",
         };
       } else if (selectedType === "3D Model") {
-        contentData = { modelPath: formModelUrl || "" };
+        contentData = { modelUrl: formModelUrl.trim() };
       } else if (selectedType === "Quiz") {
         contentData = {
           quizzes: quizQuestions.map((q, index) => ({
@@ -208,6 +208,7 @@ const ContentManagement = () => {
           status: formStatus,
           data: contentData,
           createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         };
         await addDoc(collection(db, "content"), newShell);
       }

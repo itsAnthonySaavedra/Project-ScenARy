@@ -122,6 +122,7 @@ const POIManagement = () => {
         name: form.name.trim(),
         qrCode: form.qrCode.trim(),
         contentIds: selectedContentIds,
+        updatedAt: serverTimestamp(),
       };
       if (selectedPoiId) {
         await updateDoc(doc(db, "pois", selectedPoiId), poiData);

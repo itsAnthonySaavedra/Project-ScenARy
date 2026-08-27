@@ -263,6 +263,7 @@ const InstituteContentManagement = () => {
           needsAttention: formNeedsAttention,
           data: contentData,
           createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         };
         await addDoc(collection(db, "content"), payload);
       }

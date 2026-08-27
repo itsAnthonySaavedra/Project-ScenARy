@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -10,6 +10,9 @@ import {
   Legend,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
+import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db } from "../../lib/firebase";
 import dashboardStyles from "../../components/features/dashboard/Dashboard.module.css";
 
 ChartJS.register(
@@ -23,12 +26,68 @@ ChartJS.register(
 );
 
 const InstituteAnalytics = () => {
+  const [analytics, setAnalytics] = useState({
+    content: 0,
+    published: 0,
+    landmarks: 0,
+    pois: 0,
+    byType: {},
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const profile = await getDoc(doc(db, "users", user.uid));
+        const institutionId = profile.data()?.institutionId;
+        if (!institutionId) {
+          setLoading(false);
+          return;
+        }
+
+        const [contentSnap, landmarkSnap, poiSnap] = await Promise.all([
+          getDocs(query(collection(db, "content"), where("institutionId", "==", institutionId))),
+          getDocs(query(collection(db, "markers"), where("institutionId", "==", institutionId))),
+          getDocs(query(collection(db, "pois"), where("institutionId", "==", institutionId))),
+        ]);
+
+        const byType = contentSnap.docs.reduce((counts, item) => {
+          const type = item.data().type || "Other";
+          counts[type] = (counts[type] || 0) + 1;
+          return counts;
+        }, {});
+
+        setAnalytics({
+          content: contentSnap.size,
+          published: contentSnap.docs.filter((item) => item.data().status === "Published").length,
+          landmarks: landmarkSnap.size,
+          pois: poiSnap.size,
+          byType,
+        });
+      } catch (fetchError) {
+        console.error("Unable to load institution analytics:", fetchError);
+        setError("Unable to load live analytics.");
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const typeLabels = Object.keys(analytics.byType);
   const engagementData = {
-    labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    labels: typeLabels.length ? typeLabels : ["No content"],
     datasets: [
       {
-        label: "Student Engagement",
-        data: [65, 59, 80, 81, 56, 55, 40],
+        label: "Content items",
+        data: typeLabels.length ? typeLabels.map((type) => analytics.byType[type]) : [0],
         fill: false,
         borderColor: "#d4af37",
         tension: 0.1,
@@ -48,6 +107,9 @@ const InstituteAnalytics = () => {
     },
   };
 
+  if (loading) return <div style={{ padding: 20, color: "#fff" }}>Loading live analytics...</div>;
+  if (error) return <div style={{ padding: 20, color: "#fbbf24" }}>{error}</div>;
+
   return (
     <div>
       <div className={dashboardStyles.statsGrid}>
@@ -56,8 +118,8 @@ const InstituteAnalytics = () => {
             <i className="fa-solid fa-users"></i>
           </div>
           <div className={dashboardStyles.statInfo}>
-            <h3>Weekly Visitors</h3>
-            <div className={dashboardStyles.value}>456</div>
+            <h3>Total Content</h3>
+            <div className={dashboardStyles.value}>{analytics.content}</div>
           </div>
         </div>
         <div className={dashboardStyles.statCard}>
@@ -65,8 +127,26 @@ const InstituteAnalytics = () => {
             <i className="fa-solid fa-clock"></i>
           </div>
           <div className={dashboardStyles.statInfo}>
-            <h3>Avg. Time</h3>
-            <div className={dashboardStyles.value}>18m</div>
+            <h3>Published Content</h3>
+            <div className={dashboardStyles.value}>{analytics.published}</div>
+          </div>
+        </div>
+        <div className={dashboardStyles.statCard}>
+          <div className={dashboardStyles.statIcon}>
+            <i className="fa-solid fa-location-dot"></i>
+          </div>
+          <div className={dashboardStyles.statInfo}>
+            <h3>Landmarks</h3>
+            <div className={dashboardStyles.value}>{analytics.landmarks}</div>
+          </div>
+        </div>
+        <div className={dashboardStyles.statCard}>
+          <div className={dashboardStyles.statIcon}>
+            <i className="fa-solid fa-qrcode"></i>
+          </div>
+          <div className={dashboardStyles.statInfo}>
+            <h3>POIs</h3>
+            <div className={dashboardStyles.value}>{analytics.pois}</div>
           </div>
         </div>
       </div>
@@ -74,7 +154,7 @@ const InstituteAnalytics = () => {
       <div
         className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`}
       >
-        <h3>Engagement Weekly Trend</h3>
+        <h3>Content By Type</h3>
         <div className={dashboardStyles.chartContainer}>
           <Line
             data={engagementData}

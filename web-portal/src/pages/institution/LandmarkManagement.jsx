@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { collection, getDocs, query, where, updateDoc, doc } from "firebase/firestore";
+import { collection, getDocs, query, where, updateDoc, doc, serverTimestamp } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
@@ -67,6 +67,7 @@ const LandmarkManagement = () => {
         landmarkName: form.name.trim(),
         info: { description: form.description.trim() },
         contentIds: selectedContentIds,
+        updatedAt: serverTimestamp(),
       });
       setForm({ ...form, name: form.name.trim(), description: form.description.trim() });
       await loadData(institutionId);

@@ -30,18 +30,32 @@ const Dashboard: React.FC = () => {
       color: "blue",
     },
     {
-      title: "Active Tours",
-      value: "89",
-      change: "+8%",
+      title: "Content Items",
+      value: "0",
+      change: "",
       icon: "fa-vr-cardboard",
       color: "green",
     },
     {
-      title: "Total Views",
-      value: "15.2k",
-      change: "+24%",
-      icon: "fa-eye",
+      title: "Published Content",
+      value: "0",
+      change: "",
+      icon: "fa-check-circle",
       color: "purple",
+    },
+    {
+      title: "Landmarks",
+      value: "0",
+      change: "",
+      icon: "fa-location-dot",
+      color: "blue",
+    },
+    {
+      title: "POIs",
+      value: "0",
+      change: "",
+      icon: "fa-qrcode",
+      color: "gold",
     },
   ]);
 
@@ -71,13 +85,23 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        // Fetch total users
-        const usersSnap = await getDocs(collection(db, "users"));
-        const totalUsers = usersSnap.docs.length;
+        const [usersSnap, instSnap, contentSnap, landmarkSnap, poiSnap] =
+          await Promise.all([
+            getDocs(collection(db, "users")),
+            getDocs(collection(db, "institutions")),
+            getDocs(collection(db, "content")),
+            getDocs(collection(db, "markers")),
+            getDocs(collection(db, "pois")),
+          ]);
 
-        // Fetch total institutions
-        const instSnap = await getDocs(collection(db, "institutions"));
-        const totalInstitutions = instSnap.docs.length;
+        const totalUsers = usersSnap.size;
+        const totalInstitutions = instSnap.size;
+        const totalContent = contentSnap.size;
+        const publishedContent = contentSnap.docs.filter(
+          (item) => item.data().status === "Published",
+        ).length;
+        const totalLandmarks = landmarkSnap.size;
+        const totalPois = poiSnap.size;
 
         setStats((prevStats) =>
           prevStats.map((s) => {
@@ -85,6 +109,14 @@ const Dashboard: React.FC = () => {
               return { ...s, value: totalUsers.toString() };
             if (s.title === "Institutions")
               return { ...s, value: totalInstitutions.toString() };
+            if (s.title === "Content Items")
+              return { ...s, value: totalContent.toString() };
+            if (s.title === "Published Content")
+              return { ...s, value: publishedContent.toString() };
+            if (s.title === "Landmarks")
+              return { ...s, value: totalLandmarks.toString() };
+            if (s.title === "POIs")
+              return { ...s, value: totalPois.toString() };
             return s;
           }),
         );
