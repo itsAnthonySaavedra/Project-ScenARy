@@ -69,6 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
     },
     { path: "/institution/landmarks", icon: "fa-landmark", label: "Landmarks" },
     { path: "/institution/pois", icon: "fa-location-dot", label: "POIs" },
+    { path: "/institution/floor-plan", icon: "fa-map", label: "Floor Plan" },
     {
       path: "/institution/analytics",
       icon: "fa-chart-bar",

@@ -30,6 +30,7 @@ import InstituteAnalytics from "./pages/institution/Analytics";
 import LandmarkManagement from "./pages/institution/LandmarkManagement";
 import POIManagement from "./pages/institution/POIManagement";
 import InstituteContentManagement from "./pages/institution/ContentManagement";
+import FloorPlan from "./pages/institution/FloorPlan";
 
 function ProtectedRoute({ role, children }) {
   const { currentUser, currentRole } = useAuth();
@@ -97,6 +98,7 @@ function AppRoutes() {
         <Route path="content" element={<InstituteContentManagement />} />
         <Route path="landmarks" element={<LandmarkManagement />} />
         <Route path="pois" element={<POIManagement />} />
+        <Route path="floor-plan" element={<FloorPlan />} />
         <Route path="analytics" element={<InstituteAnalytics />} />
         <Route path="profile" element={<Settings />} />
       </Route>

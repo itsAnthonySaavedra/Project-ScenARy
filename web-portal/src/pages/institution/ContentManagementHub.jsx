@@ -49,6 +49,25 @@ const ContentManagementHub = () => {
           style={{ display: "block", padding: "1.5rem" }}
         >
           <div style={{ color: "#d4af37", fontSize: "2rem", marginBottom: "1rem" }}>
+            <i className="fa-solid fa-map" />
+          </div>
+          <h3 style={{ color: "#fff" }}>Floor Plan</h3>
+          <p style={{ color: "#999", minHeight: "48px" }}>
+            Upload and preview the institution floor plan for future room and POI interactions.
+          </p>
+          <button
+            className={commonStyles.btnPrimary}
+            onClick={() => navigate("/institution/floor-plan")}
+          >
+            Open Floor Plan
+          </button>
+        </section>
+
+        <section
+          className={commonStyles.contentCard}
+          style={{ display: "block", padding: "1.5rem" }}
+        >
+          <div style={{ color: "#d4af37", fontSize: "2rem", marginBottom: "1rem" }}>
             <i className="fa-solid fa-location-dot" />
           </div>
           <h3 style={{ color: "#fff" }}>POI Content</h3>
