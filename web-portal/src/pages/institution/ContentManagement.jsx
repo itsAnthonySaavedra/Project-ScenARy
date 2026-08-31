@@ -4,57 +4,113 @@ import {
   getDocs,
   addDoc,
   updateDoc,
-  deleteDoc,
+  query,
+  where,
   doc,
+  getDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import "@google/model-viewer";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
 
-const ContentManagement = () => {
-  // --- STATE ---
+const getContentQualityIssues = (item) => {
+  const issues = [];
+  const title = item.title?.trim();
+  const data = item.data || {};
+
+  if (!title) issues.push("Add a title");
+  if (!item.type) issues.push("Select a content type");
+
+  if (item.type === "Information" && !data.description?.trim()) {
+    issues.push("Add a description");
+  }
+  if (
+    item.type === "3D Model" &&
+    !(data.modelUrl || data.modelPath)?.trim()
+  ) {
+    issues.push("Add a model URL");
+  }
+  if (item.type === "Quiz" && (!data.quizzes || data.quizzes.length === 0)) {
+    issues.push("Add at least one quiz question");
+  }
+  if (
+    item.type === "Quiz" &&
+    data.quizzes?.some((quiz) => !quiz.question?.trim())
+  ) {
+    issues.push("Complete every quiz question");
+  }
+  if (item.type === "Audio" && !data.audioUrl?.trim()) {
+    issues.push("Add an audio URL");
+  }
+  if (
+    item.type === "Audio" &&
+    (!Number.isInteger(Number(data.sequence)) || Number(data.sequence) < 1)
+  ) {
+    issues.push("Use a sequence number of 1 or higher");
+  }
+
+  return issues;
+};
+
+const isContentReady = (item) =>
+  !item.needsAttention && getContentQualityIssues(item).length === 0;
+
+const InstituteContentManagement = () => {
   const [contents, setContents] = useState([]);
-  const [institutions, setInstitutions] = useState([]);
   const [filter, setFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("");
-
-  // Edit Mode Tracking State Fields
   const [isEditMode, setIsEditMode] = useState(false);
   const [editDocId, setEditDocId] = useState(null);
-
-  // Delete State
-  const [deleteDocId, setDeleteDocId] = useState(null);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-
-  // Controlled form values to enable pre-population during edit
   const [formTitle, setFormTitle] = useState("");
-  const [formInstitutionId, setFormInstitutionId] = useState("");
-  const [formStatus, setFormStatus] = useState("Awaiting Content");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
+  const [formAudioUrl, setFormAudioUrl] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
-  const [formFactText, setFormFactText] = useState("");
-
-  // Dynamic Quiz Questions Array State
+  const [formCustomData, setFormCustomData] = useState("");
+  const [formAudioSequence, setFormAudioSequence] = useState("1");
+  const [formNeedsAttention, setFormNeedsAttention] = useState(false);
+  const [userInstitutionId, setUserInstitutionId] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [quizQuestions, setQuizQuestions] = useState([
     { question: "", answer: "True" },
   ]);
-
-  // Modals
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [currentContent, setCurrentContent] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState("");
 
-  // --- FETCH DATA ---
-  const fetchData = async () => {
+  useEffect(() => {
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const userDocSnap = await getDoc(doc(db, "users", user.uid));
+          if (userDocSnap.exists()) {
+            setUserInstitutionId(userDocSnap.data().institutionId);
+          }
+        } catch (error) {
+          console.error("Profile extraction error:", error);
+        }
+      } else {
+        setUserInstitutionId(null);
+      }
+      setIsAuthChecking(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const fetchInstitutionData = async (instId) => {
+    if (!instId) return;
     try {
-      const contentSnap = await getDocs(collection(db, "content"));
+      const contentSnap = await getDocs(
+        query(collection(db, "content"), where("institutionId", "==", instId.trim())),
+      );
       setContents(
         contentSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
@@ -62,21 +118,17 @@ const ContentManagement = () => {
             ["Information", "3D Model", "Quiz", "Audio"].includes(item.type),
           ),
       );
-
-      const instSnap = await getDocs(collection(db, "institutions"));
-      setInstitutions(
-        instSnap.docs.map((d) => ({ id: d.id, name: d.data().name })),
-      );
-    } catch (err) {
-      console.error("Error fetching data:", err);
+    } catch (error) {
+      console.error("Isolated Fetch Error:", error);
     }
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!isAuthChecking && userInstitutionId) {
+      fetchInstitutionData(userInstitutionId);
+    }
+  }, [userInstitutionId, isAuthChecking]);
 
-  // --- QUIZ FIELDS MANAGEMENT ---
   const addQuizQuestionField = () => {
     setQuizQuestions([...quizQuestions, { question: "", answer: "True" }]);
   };
@@ -92,91 +144,73 @@ const ContentManagement = () => {
     setQuizQuestions(quizQuestions.filter((_, i) => i !== index));
   };
 
-  // --- OPEN MODAL CLEANING FUNCTION ---
   const handleOpenCreateModal = () => {
     setIsEditMode(false);
     setEditDocId(null);
     setFormTitle("");
-    setFormInstitutionId("");
-    setFormStatus("Awaiting Content");
     setFormInfoUrl("");
     setFormInfoDesc("");
+    setFormAudioUrl("");
     setFormModelUrl("");
-    setFormFactText("");
+    setFormCustomData("");
+    setFormAudioSequence("1");
+    setFormNeedsAttention(false);
     setSelectedType("");
     setQuizQuestions([{ question: "", answer: "True" }]);
+    setFormError("");
     setIsAddModalOpen(true);
   };
 
-  // --- EDIT ROW POPULATION HANDLER ---
   const handleEditClick = (item) => {
     setIsEditMode(true);
     setEditDocId(item.id);
+    setFormError("");
     setFormTitle(item.title || "");
-    setFormInstitutionId(item.institutionId || "");
-    setFormStatus(item.status || "Awaiting Content");
     setSelectedType(item.type || "");
+    setFormAudioUrl(item.data?.audioUrl || "");
+    setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
+    setFormCustomData(
+      item.data?.customData ? JSON.stringify(item.data.customData, null, 2) : "",
+    );
+    setFormAudioSequence(item.data?.sequence?.toString() || "1");
+    setFormNeedsAttention(item.needsAttention === true);
 
     if (item.type === "Information") {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
-    } else if (item.type === "3D Model") {
-      setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
     } else if (item.type === "Quiz") {
-      if (item.data?.quizzes && item.data.quizzes.length > 0) {
-        setQuizQuestions(
-          item.data.quizzes.map((q) => ({
-            question: q.question || "",
-            answer: q.correctAnswer || "True",
-          })),
-        );
-      } else {
-        setQuizQuestions([{ question: "", answer: "True" }]);
-      }
-    } else if (item.type === "Fun Fact") {
-      setFormFactText(item.data?.fact || "");
+      setQuizQuestions(
+        item.data?.quizzes?.length
+          ? item.data.quizzes.map((q) => ({
+              question: q.question || "",
+              answer: q.correctAnswer || "True",
+            }))
+          : [{ question: "", answer: "True" }],
+      );
     }
 
     setIsAddModalOpen(true);
   };
 
-  // --- DELETE HANDLERS ---
-  const handleConfirmDeleteClick = (id) => {
-    setDeleteDocId(id);
-    setIsDeleteModalOpen(true);
-  };
-
-  const handleDelete = async () => {
-    if (!deleteDocId) return;
-    setLoading(true);
-    try {
-      await deleteDoc(doc(db, "content", deleteDocId));
-      await fetchData();
-      setIsDeleteModalOpen(false);
-      setDeleteDocId(null);
-    } catch (error) {
-      console.error("Delete Error:", error);
-      alert("Error deleting item.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // --- FORM SUBMIT HANDLER ---
+  // --- SUBMIT HANDLING (INTEGRATED FOR BOTH WRITE AND UPDATE OPERATIONS) ---
   const handleFormSubmit = async (e) => {
     e.preventDefault();
+    if (!userInstitutionId) return;
     setLoading(true);
+    setFormError("");
 
     let contentData = {};
 
     try {
+      const customData = formCustomData.trim()
+        ? JSON.parse(formCustomData)
+        : {};
+
       if (selectedType === "Information") {
         contentData = {
           description: formInfoDesc,
           imageUrl: formInfoUrl || "",
         };
-      } else if (selectedType === "3D Model") {
-        contentData = { modelUrl: formModelUrl.trim() };
       } else if (selectedType === "Quiz") {
         contentData = {
           quizzes: quizQuestions.map((q, index) => ({
@@ -185,51 +219,75 @@ const ContentManagement = () => {
             correctAnswer: q.answer,
           })),
         };
-      } else if (selectedType === "Fun Fact") {
+      } else if (selectedType === "3D Model") {
+        contentData = { modelUrl: formModelUrl.trim() };
+      } else if (selectedType === "Audio") {
         contentData = {
-          fact: formFactText,
+          audioUrl: formAudioUrl.trim(),
+          sequence: Number(formAudioSequence) || 1,
         };
       }
 
+      contentData = {
+        ...contentData,
+        customData,
+      };
+
+      const qualityIssues = getContentQualityIssues({
+        title: formTitle,
+        type: selectedType,
+        data: contentData,
+      });
+      if (qualityIssues.length > 0) {
+        setFormError(qualityIssues.join(" | "));
+        return;
+      }
+
       if (isEditMode && editDocId) {
+        // Enforce Firestore Document Patch Update
         const docRef = doc(db, "content", editDocId);
         await updateDoc(docRef, {
           title: formTitle,
-          institutionId: formInstitutionId,
-          status: formStatus,
           data: contentData,
+          needsAttention: formNeedsAttention,
+          status: "Awaiting Content",
           updatedAt: serverTimestamp(),
         });
       } else {
-        const newShell = {
+        // Enforce Standard Firestore Document Creation Pipeline
+        const payload = {
           title: formTitle,
           type: selectedType,
-          institutionId: formInstitutionId,
-          status: formStatus,
+          institutionId: userInstitutionId.trim(),
+          status: "Awaiting Content",
+          needsAttention: formNeedsAttention,
           data: contentData,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
-        await addDoc(collection(db, "content"), newShell);
+        await addDoc(collection(db, "content"), payload);
       }
 
-      await fetchData();
+      await fetchInstitutionData(userInstitutionId);
 
+      // Clean Interface Context States
       setIsAddModalOpen(false);
       setIsEditMode(false);
       setEditDocId(null);
       setFormTitle("");
-      setFormInstitutionId("");
-      setFormStatus("Awaiting Content");
       setFormInfoUrl("");
       setFormInfoDesc("");
+      setFormAudioUrl("");
       setFormModelUrl("");
-      setFormFactText("");
+      setFormCustomData("");
+      setFormAudioSequence("1");
+      setFormNeedsAttention(false);
       setSelectedType("");
       setQuizQuestions([{ question: "", answer: "True" }]);
+      setFormError("");
     } catch (error) {
-      console.error("Save Error:", error);
-      alert("Error saving content. Check console.");
+      console.error("Database Transaction Error:", error);
+      alert("Error committing document updates to cloud collection.");
     } finally {
       setLoading(false);
     }
@@ -244,9 +302,21 @@ const ContentManagement = () => {
     .filter((c) => (filter === "All" ? true : c.status === "Awaiting Content"))
     .filter((c) => c.title?.toLowerCase().includes(searchTerm.toLowerCase()));
 
+  const incompleteCount = contents.filter(
+    (item) => !isContentReady(item),
+  ).length;
+
+  if (isAuthChecking) {
+    return (
+      <div style={{ padding: "20px", color: "#fff" }}>
+        Loading Dashboard Identity...
+      </div>
+    );
+  }
+
   return (
     <div style={{ width: "100%", padding: "20px" }}>
-      {/* 1. CONTROLS */}
+      {/* CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
           <button
@@ -266,27 +336,41 @@ const ContentManagement = () => {
           <input
             type="text"
             className={tableStyles.searchBar}
-            placeholder="Search content..."
+            placeholder="Search your items..."
             onChange={(e) => setSearchTerm(e.target.value)}
           />
           <button
             className={tableStyles.btnAdd}
             onClick={handleOpenCreateModal}
+            disabled={!userInstitutionId}
           >
             <i className="fa-solid fa-plus"></i> Create Content
           </button>
         </div>
       </div>
+      <p style={{ color: "#888", marginBottom: "1.5rem" }}>
+        Create reusable content here, then assign it from the Landmark or POI management page.
+      </p>
+      <div
+        style={{
+          color: incompleteCount > 0 ? "#fbbf24" : "#4ade80",
+          marginBottom: "1rem",
+        }}
+      >
+        {incompleteCount > 0
+          ? `${incompleteCount} content item${incompleteCount === 1 ? "" : "s"} need attention before use.`
+          : "All content items are ready for use."}
+      </div>
 
-      {/* 2. TABLE BOX */}
+      {/* INVENTORY TABLE BOX */}
       <div className={tableStyles.tableContainer}>
         <table className={tableStyles.adminTable}>
           <thead>
             <tr>
               <th>Title</th>
-              <th>Institution</th>
               <th>Type</th>
               <th>Status</th>
+              <th>Quality</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -296,10 +380,6 @@ const ContentManagement = () => {
                 <tr key={item.id}>
                   <td style={{ color: "#fff", fontWeight: "500" }}>
                     {item.title}
-                  </td>
-                  <td>
-                    {institutions.find((i) => i.id === item.institutionId)
-                      ?.name || "Unassigned"}
                   </td>
                   <td>{item.type}</td>
                   <td>
@@ -318,37 +398,41 @@ const ContentManagement = () => {
                     </span>
                   </td>
                   <td>
+                    <span
+                      title={getContentQualityIssues(item).join(", ")}
+                      style={{
+                        color: isContentReady(item)
+                          ? "#4ade80"
+                          : "#fbbf24",
+                      }}
+                    >
+                      {isContentReady(item)
+                        ? "Ready"
+                        : "Needs attention"}
+                    </span>
+                  </td>
+                  <td>
                     <div style={{ display: "flex", gap: "8px" }}>
+                      {/* View Action Element Button */}
                       <button
                         className={tableStyles.btnAction}
                         onClick={() => handleView(item)}
-                        title="View Content Details"
+                        title="View Metadata Source"
                       >
                         <i className="fa-solid fa-file-alt"></i>
                       </button>
 
+                      {/* 🌟 INPLACE CONTENT EDIT TRIGGER ACTION BUTTON 🌟 */}
                       <button
                         className={tableStyles.btnAction}
                         onClick={() => handleEditClick(item)}
-                        title="Modify Content Node"
+                        title="Modify Content Node Inplace"
                         style={{
                           background: "rgba(193, 154, 75, 0.15)",
                           color: "#C19A4B",
                         }}
                       >
                         <i className="fa-solid fa-edit"></i>
-                      </button>
-
-                      <button
-                        className={tableStyles.btnAction}
-                        onClick={() => handleConfirmDeleteClick(item.id)}
-                        title="Delete Content Node"
-                        style={{
-                          background: "rgba(239, 68, 68, 0.15)",
-                          color: "#ef4444",
-                        }}
-                      >
-                        <i className="fa-solid fa-trash"></i>
                       </button>
                     </div>
                   </td>
@@ -364,7 +448,7 @@ const ContentManagement = () => {
                     color: "#888",
                   }}
                 >
-                  No content found
+                  No content found for your institution.
                 </td>
               </tr>
             )}
@@ -372,14 +456,19 @@ const ContentManagement = () => {
         </table>
       </div>
 
-      {/* MODAL: CREATE / EDIT CONTENT */}
+      {/* MODAL: INPUT FIELDS CONFIGURATION WORKSPACE CONTAINER */}
       <Modal
         isOpen={isAddModalOpen}
         onClose={() => {
           setIsAddModalOpen(false);
           setSelectedType("");
+          setQuizQuestions([{ question: "", answer: "True" }]);
         }}
-        title={isEditMode ? "Edit Content Component Node" : "Add New Content"}
+        title={
+          isEditMode
+            ? "Edit Content Component Node"
+            : "Add New Institution Content"
+        }
         actions={
           <button
             className={commonStyles.btnCancel}
@@ -393,6 +482,21 @@ const ContentManagement = () => {
           onSubmit={handleFormSubmit}
           style={{ maxHeight: "75vh", overflowY: "auto", paddingRight: "10px" }}
         >
+          {formError && (
+            <div
+              role="alert"
+              style={{
+                color: "#fbbf24",
+                background: "rgba(251, 191, 36, 0.1)",
+                border: "1px solid rgba(251, 191, 36, 0.35)",
+                borderRadius: "4px",
+                padding: "0.75rem",
+                marginBottom: "1rem",
+              }}
+            >
+              {formError}
+            </div>
+          )}
           <div className={commonStyles.formGroup}>
             <label>Title</label>
             <input
@@ -403,23 +507,7 @@ const ContentManagement = () => {
               required
             />
           </div>
-          <div className={commonStyles.formGroup}>
-            <label>Assign Institution</label>
-            <select
-              name="institutionId"
-              className={commonStyles.formControl}
-              value={formInstitutionId}
-              onChange={(e) => setFormInstitutionId(e.target.value)}
-              required
-            >
-              <option value="">Select Institution</option>
-              {institutions.map((inst) => (
-                <option key={inst.id} value={inst.id}>
-                  {inst.name}
-                </option>
-              ))}
-            </select>
-          </div>
+
           <div className={commonStyles.formGroup}>
             <label>Content Type</label>
             <select
@@ -428,32 +516,33 @@ const ContentManagement = () => {
               required
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              disabled={isEditMode}
+              disabled={isEditMode} // Enforce architectural format locking on edits
               style={{ opacity: isEditMode ? 0.6 : 1 }}
             >
               <option value="">Select Type</option>
-              <option value="Information">
-                Information (Image & Description)
-              </option>
+              <option value="Information">Info</option>
+              <option value="3D Model">3D Model (.glb URL)</option>
               <option value="Quiz">True / False Quiz</option>
-              <option value="3D Model">3D Model (Paste .glb Link)</option>
-              <option value="Fun Fact">Fun Fact</option>
+              <option value="Audio">Sequential Audio Track</option>
             </select>
           </div>
 
-          <div className={commonStyles.formGroup}>
-            <label>Review Status</label>
-            <select
-              name="status"
-              className={commonStyles.formControl}
-              value={formStatus}
-              onChange={(e) => setFormStatus(e.target.value)}
-            >
-              <option value="Awaiting Content">Awaiting Content</option>
-              <option value="Published">Published</option>
-              <option value="Archived">Archived</option>
-            </select>
-          </div>
+          <label
+            style={{
+              display: "flex",
+              gap: "0.5rem",
+              alignItems: "center",
+              color: "#fbbf24",
+              margin: "1rem 0",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={formNeedsAttention}
+              onChange={(e) => setFormNeedsAttention(e.target.checked)}
+            />
+            Mark as needs attention
+          </label>
 
           {selectedType && (
             <div
@@ -491,12 +580,10 @@ const ContentManagement = () => {
                 </>
               )}
 
-              {/* 3D MODEL LINK */}
               {selectedType === "3D Model" && (
                 <div className={commonStyles.formGroup}>
-                  <label>Model URL (.glb)</label>
+                  <label>3D Model URL (.glb)</label>
                   <input
-                    name="modelUrl"
                     className={commonStyles.formControl}
                     placeholder="https://.../model.glb"
                     value={formModelUrl}
@@ -506,17 +593,17 @@ const ContentManagement = () => {
                 </div>
               )}
 
-              {/* TRUE / FALSE QUIZ */}
+              {/* DYNAMIC TRUE / FALSE QUIZ */}
               {selectedType === "Quiz" && (
                 <div>
                   <h4 style={{ color: "#C19A4B", marginBottom: "1rem" }}>
-                    Construct True / False Question Set
+                    Modify True / False Matrix Nodes
                   </h4>
                   {quizQuestions.map((item, idx) => (
                     <div
                       key={idx}
                       style={{
-                        borderBottom: "1px solid rgba(255,255,255,0.1)",
+                        borderBottom: "1px solid #333",
                         paddingBottom: "15px",
                         marginBottom: "15px",
                       }}
@@ -524,7 +611,7 @@ const ContentManagement = () => {
                       <div
                         style={{
                           display: "flex",
-                          justifySpace: "space-between",
+                          justifyContent: "space-between",
                           alignItems: "center",
                         }}
                       >
@@ -601,21 +688,42 @@ const ContentManagement = () => {
                 </div>
               )}
 
-              {/* FUN FACT STRUCTURE */}
-              {selectedType === "Fun Fact" && (
-                <div className={commonStyles.formGroup}>
-                  <label>Fun Fact Text</label>
-                  <textarea
-                    name="factText"
-                    className={commonStyles.formControl}
-                    rows={3}
-                    placeholder="Enter an interesting fact..."
-                    value={formFactText}
-                    onChange={(e) => setFormFactText(e.target.value)}
-                    required
-                  />
-                </div>
+              {selectedType === "Audio" && (
+                <>
+                  <div className={commonStyles.formGroup}>
+                    <label>Audio URL</label>
+                    <input
+                      className={commonStyles.formControl}
+                      placeholder="https://.../poi-audio.mp3"
+                      value={formAudioUrl}
+                      onChange={(e) => setFormAudioUrl(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className={commonStyles.formGroup}>
+                    <label>Traversal Sequence</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className={commonStyles.formControl}
+                      value={formAudioSequence}
+                      onChange={(e) => setFormAudioSequence(e.target.value)}
+                      required
+                    />
+                  </div>
+                </>
               )}
+
+              <div className={commonStyles.formGroup}>
+                <label>Custom Data (JSON)</label>
+                <textarea
+                  className={commonStyles.formControl}
+                  rows={4}
+                  placeholder='{"period":"18th century","materials":["stone"]}'
+                  value={formCustomData}
+                  onChange={(e) => setFormCustomData(e.target.value)}
+                />
+              </div>
             </div>
           )}
 
@@ -634,7 +742,7 @@ const ContentManagement = () => {
         </form>
       </Modal>
 
-      {/* MODAL: VIEW DETAILS */}
+      {/* MODAL: INSPECT SUBSECTION ENTRIES */}
       <Modal
         isOpen={isViewModalOpen}
         onClose={() => setIsViewModalOpen(false)}
@@ -652,43 +760,8 @@ const ContentManagement = () => {
           <ContentPreview content={currentContent} />
         )}
       </Modal>
-
-      {/* MODAL: DELETE CONFIRMATION */}
-      <Modal
-        isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
-        title="Confirm Delete"
-        actions={
-          <>
-            <button
-              className={commonStyles.btnCancel}
-              onClick={() => setIsDeleteModalOpen(false)}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={loading}
-              style={{
-                padding: "0.5rem 1rem",
-                background: "#ef4444",
-                color: "#fff",
-                border: "none",
-                borderRadius: "4px",
-                cursor: "pointer",
-              }}
-            >
-              {loading ? "Deleting..." : "Delete Node"}
-            </button>
-          </>
-        }
-      >
-        <p style={{ color: "#ccc" }}>
-          Are you sure you want to delete this content item? This action cannot be undone.
-        </p>
-      </Modal>
     </div>
   );
 };
 
-export default ContentManagement;
+export default InstituteContentManagement;
