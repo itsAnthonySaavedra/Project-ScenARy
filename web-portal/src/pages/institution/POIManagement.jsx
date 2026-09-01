@@ -5,6 +5,8 @@ import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import { db } from "../../lib/firebase";
 
+const POI_ALLOWED_CONTENT_TYPES = ["Information", "3D Model", "Quiz", "Audio"];
+
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
   const [landmarks, setLandmarks] = useState([]);
@@ -30,7 +32,7 @@ const POIManagement = ({ adminMode = false }) => {
     setAvailableContent(
       contentSnap.docs
         .map((item) => ({ id: item.id, ...item.data() }))
-        .filter((item) => ["Information", "3D Model", "Audio"].includes(item.type)),
+        .filter((item) => POI_ALLOWED_CONTENT_TYPES.includes(item.type)),
     );
     setLoading(false);
   };
@@ -54,11 +56,24 @@ const POIManagement = ({ adminMode = false }) => {
     setFormError("");
   };
 
-  const generateQrCode = () => {
+  const generateLandmarkPoiQr = async (landmarkId = form.landmarkId) => {
+    if (!landmarkId) {
+      setFormError("Select a landmark before generating the shared POI QR.");
+      return;
+    }
     const id = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setForm((current) => ({ ...current, qrCode: `SCENARY|POI|${id}` }));
-    setFormError("");
+    const generatedQrCode = `SCENARY|POI_GROUP|${id}`;
+    try {
+      await updateDoc(doc(db, "markers", landmarkId), { poiQrCode: generatedQrCode });
+      setForm((current) => ({ ...current, qrCode: generatedQrCode }));
+      setFormError("");
+      await loadData(institutionId);
+    } catch {
+      setFormError("Unable to save the landmark POI QR.");
+    }
   };
+
+  const generateQrCode = () => generateLandmarkPoiQr();
 
   const downloadQrCode = (canvasId, fileName) => {
     const canvas = document.getElementById(canvasId);
@@ -81,11 +96,12 @@ const POIManagement = ({ adminMode = false }) => {
   const editPoi = (poi) => {
     setSelectedPoiId(poi.id);
     setSelectedContentIds(poi.contentIds || []);
+    const landmark = landmarks.find((item) => item.id === poi.landmarkId);
     setForm({
       institutionId: poi.institutionId || "",
       landmarkId: poi.landmarkId,
       name: poi.name || "",
-      qrCode: poi.qrCode || "",
+      qrCode: poi.qrCode || landmark?.poiQrCode || "",
     });
     setFormError("");
   };
@@ -100,24 +116,23 @@ const POIManagement = ({ adminMode = false }) => {
   const savePoi = async (event) => {
     event.preventDefault();
     const ownerId = adminMode ? form.institutionId : institutionId;
-    if (!ownerId || !form.landmarkId || !form.name.trim() || !form.qrCode.trim()) {
-      setFormError("Select a landmark and enter a QR identifier.");
+    const sharedLandmarkQr = landmarks.find((landmark) => landmark.id === form.landmarkId)?.poiQrCode || form.qrCode.trim();
+    if (!ownerId || !form.landmarkId || !form.name.trim()) {
+      setFormError("Select a landmark and enter a POI name.");
+      return;
+    }
+    if (!sharedLandmarkQr) {
+      setFormError("Generate the shared landmark POI QR before saving POIs.");
       return;
     }
     setSaving(true);
     setFormError("");
-    const duplicate = pois.some((poi) => poi.id !== selectedPoiId && poi.qrCode?.trim().toLowerCase() === form.qrCode.trim().toLowerCase());
-    if (duplicate) {
-      setFormError("That QR identifier is already assigned to another POI.");
-      setSaving(false);
-      return;
-    }
     try {
       const poiData = {
         institutionId: ownerId,
         landmarkId: form.landmarkId,
         name: form.name.trim(),
-        qrCode: form.qrCode.trim(),
+        qrCode: sharedLandmarkQr,
         contentIds: selectedContentIds,
         updatedAt: serverTimestamp(),
       };
@@ -145,12 +160,15 @@ const POIManagement = ({ adminMode = false }) => {
       <form onSubmit={savePoi} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 10, padding: 20 }}>
         <h3 style={{ color: "#fff" }}>{selectedPoiId ? "Edit POI" : "Add POI"}</h3>
         {adminMode && <select className={commonStyles.formControl} value={form.institutionId} onChange={(e) => { updateField("institutionId", e.target.value); updateField("landmarkId", ""); }} required><option value="">Select institution</option>{[...new Map(landmarks.map((landmark) => [landmark.institutionId, landmark.institutionName])).entries()].map(([id, name]) => <option key={id} value={id}>{name || id}</option>)}</select>}
-        <select className={commonStyles.formControl} value={form.landmarkId} onChange={(e) => updateField("landmarkId", e.target.value)} required><option value="">Select parent landmark</option>{landmarks.filter((landmark) => !adminMode || landmark.institutionId === form.institutionId).map((landmark) => <option key={landmark.id} value={landmark.id}>{landmark.landmarkName || landmark.institutionName}</option>)}</select>
+        <select className={commonStyles.formControl} value={form.landmarkId} onChange={(e) => {
+          const selectedLandmark = landmarks.find((landmark) => landmark.id === e.target.value);
+          updateField("landmarkId", e.target.value);
+          updateField("qrCode", selectedLandmark?.poiQrCode || "");
+        }} required><option value="">Select parent landmark</option>{landmarks.filter((landmark) => !adminMode || landmark.institutionId === form.institutionId).map((landmark) => <option key={landmark.id} value={landmark.id}>{landmark.landmarkName || landmark.institutionName}</option>)}</select>
         <input className={commonStyles.formControl} placeholder="POI name, e.g. Painting A" value={form.name} onChange={(e) => updateField("name", e.target.value)} required />
-        <label style={{ color: "#fff" }}>QR Code Identifier</label>
-        <input className={commonStyles.formControl} placeholder="e.g. museum-a-painting-01" value={form.qrCode} onChange={(e) => updateField("qrCode", e.target.value)} required />
-        <small style={{ color: "#888" }}>This identifier will be encoded in the QR code placed beside the POI.</small>
-        <button type="button" className={commonStyles.btnOutline} onClick={generateQrCode}>Generate Identifier</button>
+        <label style={{ color: "#fff" }}>Shared Landmark POI QR</label>
+        <small style={{ color: "#888" }}>Each landmark can have one POI QR that can include many POIs or sub-modules under it.</small>
+        <button type="button" className={commonStyles.btnOutline} onClick={generateQrCode}>Generate Shared Landmark QR</button>
         {formError && <div role="alert" style={{ color: "#fbbf24" }}>{formError}</div>}
         {form.qrCode.trim() && <div style={{ background: "#fff", padding: 12, width: "fit-content" }}><QRCodeCanvas ref={qrCanvasRef} value={form.qrCode.trim()} size={140} includeMargin /></div>}
         <div>
@@ -173,7 +191,51 @@ const POIManagement = ({ adminMode = false }) => {
         <button className={commonStyles.btnPrimary} disabled={saving}>{saving ? "Saving..." : selectedPoiId ? "Save POI Changes" : "Save POI"}</button>
         {selectedPoiId && <button type="button" className={commonStyles.btnCancel} onClick={resetForm}>Cancel Edit</button>}
       </form>
-      <div>{pois.map((poi) => { const landmark = landmarks.find((item) => item.id === poi.landmarkId); const landmarkLabel = landmark?.landmarkName || landmark?.institutionName || "Unknown landmark"; return <div key={poi.id} style={{ padding: 12, borderBottom: "1px solid #333", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}><span><strong>{poi.name}</strong><span style={{ color: "#888" }}> · {landmarkLabel}</span><small style={{ display: "block", color: "#888" }}>QR: {poi.qrCode || "No QR identifier"}</small></span><span style={{ display: "flex", gap: 8, alignItems: "center" }}>{poi.qrCode && <QRCodeCanvas id={`poi-qr-${poi.id}`} value={poi.qrCode} size={56} />}<button type="button" className={commonStyles.btnOutline} onClick={() => downloadQrCode(`poi-qr-${poi.id}`, poi.name)}>Download QR</button><button type="button" className={commonStyles.btnOutline} onClick={() => printQrCode(`poi-qr-${poi.id}`, poi.name, poi.qrCode)}>Print QR</button><button type="button" className={commonStyles.btnOutline} onClick={() => editPoi(poi)}>Edit POI</button><button type="button" className={commonStyles.btnCancel} onClick={() => removePoi(poi)}>Remove</button></span></div>; })}</div>
+      <div>{landmarks.filter((landmark) => !adminMode || landmark.institutionId === form.institutionId || !form.institutionId).map((landmark) => {
+        const landmarkPois = pois.filter((poi) => poi.landmarkId === landmark.id);
+        const sharedQr = landmark.poiQrCode || landmarkPois[0]?.qrCode || "";
+        return <div key={landmark.id} style={{ padding: 16, border: "1px solid #333", borderRadius: 10, marginBottom: 16, background: "#111827" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <div>
+              <strong style={{ color: "#d4af37" }}>{landmark.landmarkName || landmark.institutionName}</strong>
+              <div style={{ color: "#888", fontSize: 12 }}>Shared POI QR for this landmark</div>
+            </div>
+            {sharedQr ? <QRCodeCanvas id={`landmark-poi-qr-${landmark.id}`} value={sharedQr} size={72} includeMargin /> : null}
+          </div>
+          {sharedQr ? (
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+              <button type="button" className={commonStyles.btnOutline} onClick={() => downloadQrCode(`landmark-poi-qr-${landmark.id}`, `${(landmark.landmarkName || landmark.institutionName || "landmark").replace(/[^a-z0-9-_]/gi, "-")}-poi-qr`)}>Download Shared QR</button>
+              <button type="button" className={commonStyles.btnOutline} onClick={() => printQrCode(`landmark-poi-qr-${landmark.id}`, `${landmark.landmarkName || landmark.institutionName || "Landmark"} POI QR`, sharedQr)}>Print Shared QR</button>
+            </div>
+          ) : (
+            <button type="button" className={commonStyles.btnOutline} onClick={() => generateLandmarkPoiQr(landmark.id)} style={{ marginBottom: 12 }}>Generate Shared Landmark POI QR</button>
+          )}
+          {landmarkPois.length === 0 ? (
+            <div style={{ color: "#888", paddingTop: 8 }}>No POIs added under this landmark yet.</div>
+          ) : (
+            <div>
+              {landmarkPois.map((poi, index) => {
+                const poiContent = (poi.contentIds || [])
+                  .map((contentId) => availableContent.find((content) => content.id === contentId))
+                  .filter(Boolean);
+                return <div key={poi.id} style={{ paddingTop: index === 0 ? 0 : 12, marginTop: index === 0 ? 0 : 12, borderTop: index === 0 ? "none" : "1px solid #333" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <strong>{poi.name}</strong>
+                      {poiContent.length > 0 && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>{poiContent.map((content) => `${content.title} (${content.type})`).join(" • ")}</div>}
+                      {!poiContent.length && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>No content assigned</div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <button type="button" className={commonStyles.btnOutline} onClick={() => editPoi(poi)}>Edit POI</button>
+                      <button type="button" className={commonStyles.btnCancel} onClick={() => removePoi(poi)}>Remove</button>
+                    </div>
+                  </div>
+                </div>;
+              })}
+            </div>
+          )}
+        </div>;
+      })}</div>
     </div>}
   </div>;
 };

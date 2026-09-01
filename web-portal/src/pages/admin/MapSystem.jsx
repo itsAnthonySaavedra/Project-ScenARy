@@ -21,7 +21,6 @@ import {
 import { db } from "../../lib/firebase";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { QRCodeCanvas } from "qrcode.react";
 
 // Standard Icon Fix
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -50,30 +49,6 @@ const MapSystem = () => {
   // NEW: Track the active tours for the currently clicked marker
   const [activeTours, setActiveTours] = useState({});
   const [loadingTours, setLoadingTours] = useState({});
-
-  const downloadQrCode = (marker) => {
-    const canvas = document.getElementById(`landmark-qr-${marker.id}`);
-    if (!canvas) return;
-    const link = document.createElement("a");
-    link.download = `${(marker.landmarkName || marker.institutionName || "landmark").replace(/[^a-z0-9-_]/gi, "-")}-qr.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  };
-
-  const printQrCode = (marker) => {
-    const canvas = document.getElementById(`landmark-qr-${marker.id}`);
-    if (!canvas) return;
-    const printWindow = window.open("", "_blank", "width=500,height=600");
-    if (!printWindow) return;
-    printWindow.document.write(`<html><head><title>${marker.landmarkName || marker.institutionName} QR Code</title></head><body style="font-family:sans-serif;text-align:center;padding:32px"><h1>${marker.landmarkName || marker.institutionName}</h1><img src="${canvas.toDataURL("image/png")}" alt="Landmark QR code" /><p>${marker.qrCode}</p><script>window.onload=()=>{window.print();window.close();};</script></body></html>`);
-    printWindow.document.close();
-  };
-
-  const generateLandmarkQr = async (marker) => {
-    await updateDoc(doc(db, "markers", marker.id), {
-      qrCode: `SCENARY|LANDMARK|${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`,
-    });
-  };
 
   useEffect(() => {
     const unsubInst = onSnapshot(collection(db, "institutions"), (snapshot) => {
@@ -126,7 +101,6 @@ const MapSystem = () => {
         landmarkName: instName,
         description: trimmedDescription,
         info: { description: trimmedDescription },
-        qrCode: `SCENARY|LANDMARK|${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`,
       });
       setIsModalOpen(false);
       setTempCoords(null);
@@ -203,8 +177,6 @@ const MapSystem = () => {
                 <strong style={{ fontSize: "1.05rem" }}>
                   {marker.landmarkName || marker.institutionName}
                 </strong>
-                <div style={{ margin: "10px auto", background: "#fff", padding: 8, width: "fit-content" }}><QRCodeCanvas id={`landmark-qr-${marker.id}`} value={marker.qrCode || `SCENARY|LANDMARK|${marker.id}`} size={120} includeMargin /></div>
-                {!marker.qrCode && <button onClick={() => generateLandmarkQr(marker)} style={{ cursor: "pointer", backgroundColor: "#d4af37", color: "#1c1917", border: "none", padding: "4px 8px", borderRadius: "4px", width: "100%", marginBottom: 6 }}>Generate Landmark QR</button>}
                 {marker.description && (
                   <p
                     style={{
@@ -260,18 +232,6 @@ const MapSystem = () => {
                   )}
                 </div>
 
-                <button
-                  onClick={() => downloadQrCode(marker)}
-                  style={{ cursor: "pointer", backgroundColor: "#d4af37", color: "#1c1917", border: "none", padding: "4px 8px", borderRadius: "4px", width: "100%", marginBottom: 6 }}
-                >
-                  Download Landmark QR
-                </button>
-                <button
-                  onClick={() => printQrCode(marker)}
-                  style={{ cursor: "pointer", backgroundColor: "#262626", color: "white", border: "1px solid #d4af37", padding: "4px 8px", borderRadius: "4px", width: "100%", marginBottom: 6 }}
-                >
-                  Print Landmark QR
-                </button>
                 <button
                   onClick={() => removeMarker(marker.id)}
                   style={{
