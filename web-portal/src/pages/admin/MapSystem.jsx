@@ -115,6 +115,7 @@ const MapSystem = () => {
 
   const confirmAddMarker = async (instId, instName) => {
     if (!tempCoords) return;
+    const trimmedDescription = description.trim();
     try {
       await addDoc(collection(db, "markers"), {
         lat: parseFloat(tempCoords.lat),
@@ -122,7 +123,9 @@ const MapSystem = () => {
         createdAt: serverTimestamp(),
         institutionId: instId,
         institutionName: instName,
-        description: description.trim(),
+        landmarkName: instName,
+        description: trimmedDescription,
+        info: { description: trimmedDescription },
         qrCode: `SCENARY|LANDMARK|${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`,
       });
       setIsModalOpen(false);

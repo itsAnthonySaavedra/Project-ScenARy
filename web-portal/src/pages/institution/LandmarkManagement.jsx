@@ -6,6 +6,7 @@ import { db } from "../../lib/firebase";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import { QRCodeCanvas } from "qrcode.react";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import commonStyles from "../../components/common/Common.module.css";
@@ -49,11 +50,40 @@ const LandmarkManagement = () => {
 
   const updateField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
 
+  const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId) || null;
+
+  const downloadQrCode = (landmark = selectedLandmark) => {
+    if (!landmark) return;
+    const canvas = document.getElementById(`institution-landmark-qr-${landmark.id}`);
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = `${(landmark.landmarkName || landmark.institutionName || "landmark").replace(/[^a-z0-9-_]/gi, "-")}-qr.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+
+  const printQrCode = (landmark = selectedLandmark) => {
+    if (!landmark) return;
+    const canvas = document.getElementById(`institution-landmark-qr-${landmark.id}`);
+    if (!canvas) return;
+    const printWindow = window.open("", "_blank", "width=500,height=600");
+    if (!printWindow) return;
+    printWindow.document.write(`<html><head><title>${landmark.landmarkName || landmark.institutionName} QR Code</title></head><body style="font-family:sans-serif;text-align:center;padding:32px"><h1>${landmark.landmarkName || landmark.institutionName}</h1><img src="${canvas.toDataURL("image/png")}" alt="Landmark QR code" /><p>${landmark.qrCode || ""}</p><script>window.onload=()=>{window.print();window.close();};</script></body></html>`);
+    printWindow.document.close();
+  };
+
+  const generateLandmarkQr = async (landmark = selectedLandmark) => {
+    if (!landmark) return;
+    const qrCode = `SCENARY|LANDMARK|${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`;
+    await updateDoc(doc(db, "markers", landmark.id), { qrCode });
+    await loadData(institutionId);
+  };
+
   const selectLandmark = (landmark) => {
     setSelectedLandmarkId(landmark.id);
     setForm({
       name: landmark.landmarkName || landmark.institutionName || "",
-      description: landmark.info?.description || landmark.description || "",
+      description: landmark.info?.description ?? landmark.description ?? "",
     });
     setSelectedContentIds(landmark.contentIds || []);
   };
@@ -61,15 +91,19 @@ const LandmarkManagement = () => {
   const saveLandmark = async (event) => {
     event.preventDefault();
     if (!institutionId || !selectedLandmarkId) return;
+    const name = form.name.trim();
+    const description = form.description.trim();
     setSaving(true);
     try {
       await updateDoc(doc(db, "markers", selectedLandmarkId), {
-        landmarkName: form.name.trim(),
-        info: { description: form.description.trim() },
+        landmarkName: name,
+        institutionName: name || undefined,
+        description,
+        info: { description },
         contentIds: selectedContentIds,
         updatedAt: serverTimestamp(),
       });
-      setForm({ ...form, name: form.name.trim(), description: form.description.trim() });
+      setForm({ ...form, name, description });
       await loadData(institutionId);
     } catch {
       alert("Unable to save landmark details.");
@@ -119,12 +153,65 @@ const LandmarkManagement = () => {
           })()}
         </MapContainer>
         <small style={{ color: "#888" }}>Location is controlled by the administrator and cannot be moved here.</small>
+
+        {selectedLandmark && (
+          <div style={{ marginTop: 12, padding: 12, border: "1px solid #3a3a3a", borderRadius: 8, background: "#111827", display: "grid", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <strong style={{ color: "#d4af37" }}>Main Landmark QR</strong>
+              {!selectedLandmark.qrCode && (
+                <button type="button" onClick={generateLandmarkQr} className={commonStyles.btnSecondary} style={{ padding: "6px 10px", fontSize: 12 }}>
+                  Generate QR
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", background: "#fff", padding: 12, borderRadius: 8 }}>
+              <QRCodeCanvas id={`institution-landmark-qr-${selectedLandmark.id}`} value={selectedLandmark.qrCode || `SCENARY|LANDMARK|${selectedLandmark.id}`} size={150} includeMargin />
+            </div>
+            {selectedLandmark.qrCode && <div style={{ color: "#bbb", fontSize: 12, wordBreak: "break-all" }}>{selectedLandmark.qrCode}</div>}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" onClick={downloadQrCode} className={commonStyles.btnPrimary} style={{ flex: 1, minWidth: 120 }}>
+                Download QR
+              </button>
+              <button type="button" onClick={printQrCode} className={commonStyles.btnSecondary} style={{ flex: 1, minWidth: 120 }}>
+                Print QR
+              </button>
+            </div>
+          </div>
+        )}
+
         <button className={commonStyles.btnPrimary} disabled={saving || !selectedLandmarkId}>{saving ? "Saving..." : "Save Landmark Details"}</button>
       </form>
       <div>
         <MapContainer center={[10.3157, 123.8854]} zoom={15} style={{ height: 420, width: "100%" }}>
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
-          {landmarks.map((landmark) => <Marker key={landmark.id} position={[landmark.lat, landmark.lng]}><Popup><strong>{landmark.landmarkName || landmark.institutionName}</strong><br />Landmark</Popup></Marker>)}
+          {landmarks.map((landmark) => (
+            <Marker key={landmark.id} position={[landmark.lat, landmark.lng]}>
+              <Popup>
+                <div style={{ color: "#111827", minWidth: 220, textAlign: "center" }}>
+                  <strong style={{ fontSize: "1rem" }}>{landmark.landmarkName || landmark.institutionName}</strong>
+                  {(landmark.info?.description || landmark.description) && (
+                    <p style={{ margin: "8px 0", color: "#4b5563", fontSize: "0.9rem", lineHeight: 1.4 }}>
+                      {landmark.info?.description || landmark.description}
+                    </p>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "center", background: "#fff", padding: 8, borderRadius: 8, margin: "10px 0" }}>
+                    <QRCodeCanvas id={`institution-landmark-qr-${landmark.id}`} value={landmark.qrCode || `SCENARY|LANDMARK|${landmark.id}`} size={120} includeMargin />
+                  </div>
+                  {!landmark.qrCode && (
+                    <button type="button" onClick={() => generateLandmarkQr(landmark)} style={{ width: "100%", marginBottom: 6, backgroundColor: "#d4af37", color: "#1c1917", border: "none", borderRadius: 4, padding: "6px 10px", cursor: "pointer" }}>
+                      Generate QR
+                    </button>
+                  )}
+                  <button type="button" onClick={() => downloadQrCode(landmark)} style={{ width: "100%", marginBottom: 6, backgroundColor: "#d4af37", color: "#1c1917", border: "none", borderRadius: 4, padding: "6px 10px", cursor: "pointer" }}>
+                    Download QR
+                  </button>
+                  <button type="button" onClick={() => printQrCode(landmark)} style={{ width: "100%", backgroundColor: "#1f2937", color: "#fff", border: "1px solid #d4af37", borderRadius: 4, padding: "6px 10px", cursor: "pointer" }}>
+                    Print QR
+                  </button>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
         </MapContainer>
         <div style={{ marginTop: 12 }}>{landmarks.map((landmark) => <div key={landmark.id} style={{ padding: 10, borderBottom: "1px solid #333" }}><strong>{landmark.landmarkName || landmark.institutionName}</strong> <span style={{ color: "#888" }}>({pois.filter((poi) => poi.landmarkId === landmark.id).length} POIs)</span></div>)}</div>
       </div>
