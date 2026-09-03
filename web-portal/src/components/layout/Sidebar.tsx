@@ -6,12 +6,12 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 
 interface SidebarProps {
-  role?: "admin" | "institute" | "super admin";
+  role?: "admin" | "institute";
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
   const { currentUser, logout } = useAuth();
-  const [role, setRole] = useState<"admin" | "super admin" | "institute">(
+  const [role, setRole] = useState<"admin" | "institute">(
     (initialRole?.toLowerCase() as any) || "admin",
   );
   const [displayName, setDisplayName] = useState("Loading...");
@@ -29,9 +29,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
           const data = snap.data();
           const userRole = (data.role as string).toLowerCase() as
             | "admin"
-            | "super admin"
             | "institute";
-          setRole(userRole);
+          setRole(userRole === "admin" ? "admin" : "institute");
 
           setDisplayName(data.name || "User");
         }
@@ -78,9 +77,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
     { path: "/institution/profile", icon: "fa-user", label: "Profile" },
   ];
 
-  // Super Admin gets same links as admin
-  const links =
-    role === "admin" || role === "super admin" ? adminLinks : instituteLinks;
+  const links = role === "admin" ? adminLinks : instituteLinks;
 
   return (
     <aside className={styles.sidebar}>
@@ -93,9 +90,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
           <span
             style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}
           >
-            {role === "super admin"
-              ? "Super Admin"
-              : role === "admin"
+            {role === "admin"
                 ? "Admin"
                 : "Content Creator"}
           </span>

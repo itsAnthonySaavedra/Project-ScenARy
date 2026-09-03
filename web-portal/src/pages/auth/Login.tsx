@@ -38,8 +38,7 @@ const Login: React.FC = () => {
 
       // Block login if role doesn't match the portal
       if (
-        role !== loginType &&
-        !(role === "super admin" && loginType === "admin")
+        role !== loginType
       ) {
         setError("Access denied: wrong portal for this account.");
         setLoading(false);

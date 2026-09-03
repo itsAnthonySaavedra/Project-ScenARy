@@ -10,7 +10,6 @@ import {
   setDoc,
   doc,
   updateDoc,
-  deleteDoc,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
@@ -19,8 +18,8 @@ interface UserType {
   id: string;
   name: string;
   email: string;
-  role: "super admin" | "admin" | "institution" | "user";
-  status: "Active" | "Inactive";
+  role: "admin" | "institution" | "user";
+  status: "Active" | "Inactive" | "Banned";
   institutionId?: string | null;
 }
 
@@ -29,7 +28,7 @@ interface Institution {
   name: string;
 }
 
-const roles: UserType["role"][] = ["super admin", "admin", "institution"];
+const roles: UserType["role"][] = ["admin", "institution"];
 
 // Secondary Firebase app for user creation (won't affect your current session)
 const secondaryApp = initializeApp(
@@ -86,11 +85,12 @@ const UserManagement: React.FC = () => {
   /* =====================
      ACTIONS
   ===================== */
-  const handleDelete = async (user: UserType) => {
-    if (!window.confirm(`Are you sure you want to delete ${user.name}?`))
+  const handleBanToggle = async (user: UserType) => {
+    const nextStatus = user.status === "Banned" ? "Active" : "Banned";
+    if (!window.confirm(`${nextStatus === "Banned" ? "Ban" : "Unban"} ${user.name}?`))
       return;
-    await deleteDoc(doc(db, "users", user.id));
-    setUsers((prev) => prev.filter((u) => u.id !== user.id));
+    await updateDoc(doc(db, "users", user.id), { status: nextStatus });
+    setUsers((prev) => prev.map((item) => item.id === user.id ? { ...item, status: nextStatus } : item));
   };
 
   const handleEdit = (user: UserType) => {
@@ -280,11 +280,11 @@ const UserManagement: React.FC = () => {
                   </button>
                   <button
                     className={tableStyles.btnAction}
-                    title="Delete"
-                    style={{ borderColor: "#ef4444", color: "#ef4444" }}
-                    onClick={() => handleDelete(user)}
+                    title={user.status === "Banned" ? "Unban account" : "Ban account"}
+                    style={{ borderColor: user.status === "Banned" ? "#4ade80" : "#ef4444", color: user.status === "Banned" ? "#4ade80" : "#ef4444" }}
+                    onClick={() => handleBanToggle(user)}
                   >
-                    <i className="fa-solid fa-trash"></i>
+                    <i className={`fa-solid ${user.status === "Banned" ? "fa-user-check" : "fa-user-slash"}`}></i>
                   </button>
                 </td>
               </tr>

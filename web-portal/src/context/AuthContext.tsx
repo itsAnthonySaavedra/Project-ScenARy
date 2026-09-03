@@ -74,9 +74,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         };
       }
 
-      const storedRole = String(snap.data().role || "").toLowerCase();
+      const profile = snap.data();
+      if (String(profile.status || "Active").toLowerCase() === "banned") {
+        await signOut(auth);
+        return { success: false, message: "This account has been banned. Contact an administrator." };
+      }
+
+      const storedRole = String(profile.role || "").toLowerCase();
       const role =
-        storedRole === "admin" || storedRole === "super admin"
+        storedRole === "admin"
           ? "admin"
           : storedRole === "institute" || storedRole === "institution"
             ? "institution"
@@ -136,7 +142,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       // Check if this tab has a stored session
       const expectedRole = sessionStorage.getItem("scenaryExpectedRole") as
         | "admin"
@@ -166,6 +172,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       // If Firebase user matches this tab's stored session, update state
       if (user.uid === expectedUserId) {
+        const profile = await getDoc(doc(db, "users", user.uid));
+        if (String(profile.data()?.status || "Active").toLowerCase() === "banned") {
+          sessionStorage.removeItem("scenaryExpectedRole");
+          sessionStorage.removeItem("scenaryUserId");
+          await signOut(auth);
+          setCurrentUser(null);
+          setCurrentRole(null);
+          setLoading(false);
+          return;
+        }
         setCurrentUser(user);
         setCurrentRole(expectedRole);
         setLoading(false);
