@@ -54,6 +54,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
       label: "Institutions",
     },
     { path: "/admin/content", icon: "fa-layer-group", label: "Content" },
+    { path: "/admin/tours", icon: "fa-route", label: "Tours" },
+    { path: "/admin/activity-logs", icon: "fa-list-check", label: "Activity Logs" },
     { path: "/admin/analytics", icon: "fa-chart-pie", label: "Analytics" },
     { path: "/admin/settings", icon: "fa-cog", label: "Settings" },
   ];

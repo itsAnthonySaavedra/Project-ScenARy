@@ -10,9 +10,12 @@ import {
   setDoc,
   doc,
   updateDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
+import { useAuth } from "../../context/AuthContext";
+import { writeAuditLog } from "../../lib/auditLog";
 
 interface UserType {
   id: string;
@@ -21,6 +24,7 @@ interface UserType {
   role: "admin" | "institution" | "user";
   status: "Active" | "Inactive" | "Banned";
   institutionId?: string | null;
+  createdAt?: unknown;
 }
 
 interface Institution {
@@ -29,6 +33,13 @@ interface Institution {
 }
 
 const roles: UserType["role"][] = ["admin", "institution"];
+
+const formatUserDate = (value: unknown) => {
+  if (!value) return "Not recorded";
+  const timestamp = value as { toDate?: () => Date };
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
+};
 
 // Secondary Firebase app for user creation (won't affect your current session)
 const secondaryApp = initializeApp(
@@ -47,11 +58,13 @@ const secondaryApp = initializeApp(
 const secondaryAuth = getAuth(secondaryApp);
 
 const UserManagement: React.FC = () => {
+  const { currentUser: authUser, currentRole } = useAuth();
   const [users, setUsers] = useState<UserType[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
+  const [detailsUser, setDetailsUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(false);
 
   /* =====================
@@ -91,6 +104,14 @@ const UserManagement: React.FC = () => {
       return;
     await updateDoc(doc(db, "users", user.id), { status: nextStatus });
     setUsers((prev) => prev.map((item) => item.id === user.id ? { ...item, status: nextStatus } : item));
+    await writeAuditLog({
+      actorId: authUser?.uid,
+      actorRole: currentRole,
+      action: nextStatus === "Banned" ? "user.banned" : "user.unbanned",
+      entityType: "user",
+      entityId: user.id,
+      metadata: { email: user.email },
+    });
   };
 
   const handleEdit = (user: UserType) => {
@@ -152,6 +173,14 @@ const UserManagement: React.FC = () => {
               : u,
           ),
         );
+        await writeAuditLog({
+          actorId: authUser?.uid,
+          actorRole: currentRole,
+          action: "user.updated",
+          entityType: "user",
+          entityId: currentUser.id,
+          metadata: { email, role, institutionId },
+        });
       } else {
         // Create new user using secondary auth (won't log you out!)
         const tempPassword = "TempPass123!";
@@ -168,6 +197,7 @@ const UserManagement: React.FC = () => {
           role,
           institutionId,
           status: "Active",
+          createdAt: serverTimestamp(),
         });
 
         // Sign out from secondary auth immediately (cleanup)
@@ -183,8 +213,18 @@ const UserManagement: React.FC = () => {
             role,
             institutionId,
             status: "Active",
+            createdAt: new Date().toISOString(),
           },
         ]);
+
+        await writeAuditLog({
+          actorId: authUser?.uid,
+          actorRole: currentRole,
+          action: "user.created",
+          entityType: "user",
+          entityId: cred.user.uid,
+          metadata: { email, role, institutionId },
+        });
 
         alert(
           `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user.`,
@@ -273,6 +313,13 @@ const UserManagement: React.FC = () => {
                 <td>
                   <button
                     className={tableStyles.btnAction}
+                    title="View details"
+                    onClick={() => setDetailsUser(user)}
+                  >
+                    <i className="fa-solid fa-eye"></i>
+                  </button>
+                  <button
+                    className={tableStyles.btnAction}
                     title="Edit"
                     onClick={() => handleEdit(user)}
                   >
@@ -298,6 +345,27 @@ const UserManagement: React.FC = () => {
           )}
         </tbody>
       </table>
+
+      <Modal
+        isOpen={Boolean(detailsUser)}
+        onClose={() => setDetailsUser(null)}
+        title="User Details"
+      >
+        {detailsUser && (
+          <div style={{ color: "#ddd" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div><small style={{ color: "#999" }}>Name</small><p>{detailsUser.name || "-"}</p></div>
+              <div><small style={{ color: "#999" }}>Email</small><p>{detailsUser.email || "-"}</p></div>
+              <div><small style={{ color: "#999" }}>Role</small><p>{detailsUser.role || "-"}</p></div>
+              <div><small style={{ color: "#999" }}>Status</small><p>{detailsUser.status || "-"}</p></div>
+              <div><small style={{ color: "#999" }}>Institution</small><p>{institutions.find((item) => item.id === detailsUser.institutionId)?.name || "-"}</p></div>
+              <div><small style={{ color: "#999" }}>Date joined</small><p>{formatUserDate(detailsUser.createdAt)}</p></div>
+            </div>
+            <small style={{ color: "#999" }}>Firebase user ID</small>
+            <p style={{ wordBreak: "break-all" }}>{detailsUser.id}</p>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         isOpen={isModalOpen}

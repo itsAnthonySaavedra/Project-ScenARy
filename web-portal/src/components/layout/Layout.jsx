@@ -20,6 +20,8 @@ const Layout = ({ role }) => {
         if (pathname.includes('/floor-plan')) return 'Interactive Floor Plan';
         if (pathname.includes('/analytics')) return 'Analytics';
         if (pathname.includes('/settings')) return 'Settings';
+        if (pathname === '/admin/tours') return 'Tour Management';
+        if (pathname === '/admin/activity-logs') return 'Activity Logs';
         if (pathname.includes('/tours')) return 'My Tours';
         if (pathname.includes('/profile')) return 'Profile';
         return 'Dashboard';

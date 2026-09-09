@@ -19,6 +19,8 @@ import AdminDashboard from "./pages/admin/Dashboard";
 import UserManagement from "./pages/admin/UserManagement";
 import InstitutionManagement from "./pages/admin/InstitutionManagement";
 import ContentManagement from "./pages/admin/ContentManagement";
+import TourManagement from "./pages/admin/TourManagement";
+import ActivityLogs from "./pages/admin/ActivityLogs";
 import AdminAnalytics from "./pages/admin/Analytics";
 import Settings from "./pages/CommonSettings";
 import MapSystem from "./pages/admin/MapSystem";
@@ -79,6 +81,8 @@ function AppRoutes() {
         <Route path="users" element={<UserManagement />} />
         <Route path="institutions" element={<InstitutionManagement />} />
         <Route path="content" element={<ContentManagement />} />
+        <Route path="tours" element={<TourManagement />} />
+        <Route path="activity-logs" element={<ActivityLogs />} />
         <Route path="analytics" element={<AdminAnalytics />} />
         <Route path="settings" element={<Settings />} />
       </Route>

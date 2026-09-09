@@ -15,6 +15,7 @@ import {
 import { auth, db } from "../lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
+import { writeAuditLog } from "../lib/auditLog";
 
 interface AuthContextType {
   currentUser: User | null;
@@ -103,6 +104,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Immediately update state with the new user
       setCurrentUser(cred.user);
       setCurrentRole(role);
+      await writeAuditLog({
+        actorId: cred.user.uid,
+        actorRole: role,
+        action: "auth.login",
+        entityType: "user",
+        entityId: cred.user.uid,
+        metadata: { portal: expectedRole },
+      });
 
       return { success: true, role };
     } catch (error: any) {
@@ -128,6 +137,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       sessionStorage.removeItem("scenaryUserId");
 
       await signOut(auth);
+      await writeAuditLog({
+        actorId: currentUser?.uid,
+        actorRole: currentRole,
+        action: "auth.logout",
+        entityType: "user",
+        entityId: currentUser?.uid,
+        metadata: { portal: currentPath.includes("institution") ? "institution" : "admin" },
+      });
       setCurrentUser(null);
       setCurrentRole(null);
 
