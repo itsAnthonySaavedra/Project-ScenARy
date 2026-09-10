@@ -3,6 +3,8 @@ import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import { db } from "../../lib/firebase";
+import { useAuth } from "../../context/AuthContext";
+import { writeAuditLog } from "../../lib/auditLog";
 import {
   collection,
   getDocs,
@@ -13,6 +15,7 @@ import {
 } from "firebase/firestore";
 
 const InstitutionManagement = () => {
+  const { currentUser, currentRole } = useAuth();
   const [institutions, setInstitutions] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -50,6 +53,7 @@ const InstitutionManagement = () => {
       return;
     await deleteDoc(doc(db, "institutions", id));
     setInstitutions((prev) => prev.filter((i) => i.id !== id));
+    await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "institution.deleted", entityType: "institution", entityId: id });
   };
 
   const handleEdit = (inst: any) => {
@@ -83,9 +87,11 @@ const InstitutionManagement = () => {
       setInstitutions((prev) =>
         prev.map((i) => (i.id === currentInst.id ? { ...i, ...data } : i)),
       );
+      await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "institution.updated", entityType: "institution", entityId: currentInst.id, metadata: data });
     } else {
       const ref = await addDoc(collection(db, "institutions"), data);
       setInstitutions((prev) => [...prev, { id: ref.id, ...data }]);
+      await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "institution.created", entityType: "institution", entityId: ref.id, metadata: data });
     }
 
     handleCloseModal();

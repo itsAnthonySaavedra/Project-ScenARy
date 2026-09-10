@@ -10,12 +10,15 @@ import {
 } from "firebase/firestore";
 import "@google/model-viewer";
 import { db } from "../../lib/firebase";
+import { useAuth } from "../../context/AuthContext";
+import { writeAuditLog } from "../../lib/auditLog";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
 
 const ContentManagement = () => {
+  const { currentUser, currentRole } = useAuth();
   // --- STATE ---
   const [contents, setContents] = useState([]);
   const [institutions, setInstitutions] = useState([]);
@@ -151,6 +154,7 @@ const ContentManagement = () => {
     setLoading(true);
     try {
       await deleteDoc(doc(db, "content", deleteDocId));
+      await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "content.deleted", entityType: "content", entityId: deleteDocId });
       await fetchData();
       setIsDeleteModalOpen(false);
       setDeleteDocId(null);
@@ -200,6 +204,7 @@ const ContentManagement = () => {
           data: contentData,
           updatedAt: serverTimestamp(),
         });
+        await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "content.updated", entityType: "content", entityId: editDocId, metadata: { title: formTitle, type: selectedType, institutionId: formInstitutionId, status: formStatus } });
       } else {
         const newShell = {
           title: formTitle,
@@ -210,7 +215,8 @@ const ContentManagement = () => {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
-        await addDoc(collection(db, "content"), newShell);
+        const createdContent = await addDoc(collection(db, "content"), newShell);
+        await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "content.created", entityType: "content", entityId: createdContent.id, metadata: { title: formTitle, type: selectedType, institutionId: formInstitutionId, status: formStatus } });
       }
 
       await fetchData();

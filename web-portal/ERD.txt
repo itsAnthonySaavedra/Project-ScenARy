@@ -1,0 +1,167 @@
+SCENARY WEB PORTAL ERD
+======================
+
+Notation
+--------
+PK  = primary key
+FK  = foreign key
+||  = exactly one
+o|  = zero or one
+|{  = one or more
+o{  = zero or more
+
+The application currently stores these records as Firestore collections.
+The junction entities below are the relational representation of the
+contentIds arrays used by the application.
+
+
+ENTITIES AND ATTRIBUTES
+-----------------------
+
+INSTITUTION
+  id             PK  varchar(20)  "inst_001"
+  name               varchar(20)  "ScenARy Museum"
+  location           varchar(20)  "Manila"
+  curator            varchar(20)  "A. Reyes"
+  joined             varchar(20)  "2026-09-08"
+
+USER
+  id             PK  varchar(20)  "auth_uid_001"
+  name               varchar(20)  "Alex Reyes"
+  email              varchar(20)  "alex@example.com"
+  role               varchar(20)  "institution"
+  institutionId  FK  varchar(20)  "inst_001"       -> INSTITUTION.id
+  status              varchar(20)  "Active"
+
+CONTENT
+  id             PK  varchar(20)  "content_001"
+  institutionId  FK  varchar(20)  "inst_001"       -> INSTITUTION.id
+  title              varchar(20)  "Gallery Intro"
+  type               varchar(20)  "Information"
+  status             varchar(20)  "Published"
+  needsAttention     boolean      false
+  data               varchar(20)  "{customData:...}"
+  createdAt          timestamp    "2026-09-08T10:00:00Z"
+  updatedAt          timestamp    "2026-09-08T10:05:00Z"
+
+  Note: data is a Firestore map. Its type-specific members include
+  description, imageUrl, modelUrl, audioUrl, sequence, quizzes, and
+  customData. The map is shown as varchar(20) here only to keep the
+  text ERD compact; use JSON/map in the physical Firestore schema.
+
+LANDMARK (Firestore collection: markers)
+  id             PK  varchar(20)  "marker_001"
+  institutionId  FK  varchar(20)  "inst_001"       -> INSTITUTION.id
+  institutionName     varchar(20)  "ScenARy Museum"
+  landmarkName        varchar(20)  "Main Entrance"
+  lat                 int          14
+  lng                 int          121
+  description         varchar(20)  "North entrance"
+  info                varchar(20)  "{description:...}"
+  poiQrCode           varchar(20)  "SCENARY|POI_GROUP|1"
+  createdAt           timestamp    "2026-09-08T10:00:00Z"
+
+POI
+  id             PK  varchar(20)  "poi_001"
+  institutionId  FK  varchar(20)  "inst_001"       -> INSTITUTION.id
+  landmarkId     FK  varchar(20)  "marker_001"      -> LANDMARK.id
+  name               varchar(20)  "Painting"
+  qrCode             varchar(20)  "SCENARY|POI_GROUP|1"
+  createdAt          timestamp    "2026-09-08T10:00:00Z"
+  updatedAt          timestamp    "2026-09-08T10:05:00Z"
+
+FLOOR_PLAN
+  id             PK  varchar(20)  "inst_001"
+  institutionId  FK  varchar(20)  "inst_001"       -> INSTITUTION.id
+  name               varchar(20)  "floor1.pdf"
+  fileType           varchar(20)  "application/pdf"
+  storagePath        varchar(20)  "floor-plans/..."
+  url                varchar(20)  "https://storage..."
+  updatedAt          timestamp    "2026-09-08T10:05:00Z"
+
+USER_ANALYTICS
+  id             PK  varchar(20)  "auth_uid_001"
+  userId         FK  varchar(20)  "auth_uid_001"   -> USER.id (logical key)
+  institutionId  FK  varchar(20)  "inst_001"       -> INSTITUTION.id
+  displayName        varchar(20)  "Alex Reyes"
+  email              varchar(20)  "alex@example.com"
+  interactionCount   int          12
+  ratingCount        int          3
+  ratingTotal        int          14
+  quizAttempts       int          0
+  quizScoreTotal     double       0
+  clickCount         int          0
+  sessionCount       int          0
+  totalSessionDurationSeconds int 0
+  lastInteractionAt  timestamp    "2026-09-08T10:05:00Z"
+
+FEEDBACK
+  id             PK  varchar(20)  "feedback_001"
+  userId         FK  varchar(20)  "auth_uid_001"   -> USER.id (optional)
+  institutionId  FK  varchar(20)  "inst_001"       -> INSTITUTION.id
+  rating             int          5
+  comment            varchar(20)  "Excellent exhibit"
+  createdAt          timestamp    "2026-09-08T10:05:00Z"
+
+LANDMARK_CONTENT
+  landmarkId     PK, FK  varchar(20)  "marker_001"  -> LANDMARK.id
+  contentId      PK, FK  varchar(20)  "content_001" -> CONTENT.id
+  Composite PK: (landmarkId, contentId)
+
+POI_CONTENT
+  poiId          PK, FK  varchar(20)  "poi_001"      -> POI.id
+  contentId      PK, FK  varchar(20)  "content_001" -> CONTENT.id
+  Composite PK: (poiId, contentId)
+
+CROW'S-FOOT RELATIONSHIPS
+-------------------------
+
+INSTITUTION  ||--o{ USER             : "assigns"
+INSTITUTION  ||--o{ CONTENT          : "owns"
+INSTITUTION  ||--o{ LANDMARK         : "contains"
+INSTITUTION  ||--o{ POI              : "owns"
+INSTITUTION  ||--o| FLOOR_PLAN       : "has"
+INSTITUTION  ||--o{ USER_ANALYTICS   : "aggregates"
+INSTITUTION  ||--o{ FEEDBACK         : "receives"
+
+USER         ||--o| USER_ANALYTICS   : "has summary"
+USER         ||--o{ FEEDBACK         : "submits"
+LANDMARK     ||--o{ POI              : "groups"
+
+LANDMARK     ||--o{ LANDMARK_CONTENT : "links"
+CONTENT      ||--o{ LANDMARK_CONTENT : "appears at"
+POI          ||--o{ POI_CONTENT      : "links"
+CONTENT      ||--o{ POI_CONTENT      : "appears in"
+COMPACT CROW'S-FOOT VIEW
+------------------------
+
+INSTITUTION ||--o{ USER
+INSTITUTION ||--o{ CONTENT
+INSTITUTION ||--o{ LANDMARK ||--o{ POI
+INSTITUTION ||--o| FLOOR_PLAN
+INSTITUTION ||--o{ USER_ANALYTICS
+INSTITUTION ||--o{ FEEDBACK
+USER ||--o| USER_ANALYTICS
+USER ||--o{ FEEDBACK
+LANDMARK ||--o{ LANDMARK_CONTENT }o--|| CONTENT
+POI      ||--o{ POI_CONTENT      }o--|| CONTENT
+IMPLEMENTATION NOTES
+--------------------
+
+1. Firestore document IDs are represented as varchar(20) examples above;
+   Firebase IDs may be longer, so use varchar(255) in a SQL migration if
+   exact Firebase ID length must be preserved.
+2. LANDMARK.lat and LANDMARK.lng are numeric coordinates in the app. They
+   should be decimal/double in a physical SQL schema, although int examples
+   are used above to match the requested value-type format.
+3. USER_ANALYTICS is currently documented in code as userAnalytics/{uid},
+   so id and userId are the same logical value unless the storage design is
+   changed.
+4. The relationships from USER and FEEDBACK to userId are logical because
+   the current portal reads those fields but does not create feedback or
+   analytics documents itself.
+5. The optional USER_ANALYTICS metrics are aggregate values per user. The
+  portal derives rating average = ratingTotal / ratingCount, quiz average =
+  quizScoreTotal / quizAttempts, clicks per session = clickCount /
+  sessionCount, and average session duration = totalSessionDurationSeconds /
+  sessionCount. Existing documents may omit these fields.

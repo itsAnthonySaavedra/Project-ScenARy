@@ -4,10 +4,25 @@
 
 The analytics screens read two Firestore collections. They are intentionally read-only until the phone app or a trusted backend begins writing data:
 
-- `userAnalytics/{userId}`: `userId`, `institutionId`, `displayName` or `email`, `interactionCount`, `ratingCount`, `ratingTotal`, `commentCount`, and `lastInteractionAt`.
+- `userAnalytics/{userId}`: `userId`, `institutionId`, `displayName` or `email`, `interactionCount`, `ratingCount`, `ratingTotal`, `commentCount`, and `lastInteractionAt`. Optional detailed metrics are `quizAttempts`, `quizScoreTotal` (percentage points), `clickCount`, `sessionCount`, and `totalSessionDurationSeconds`.
 - `feedback/{feedbackId}`: `userId`, `institutionId`, optional `landmarkId` or `contentId`, `rating` from 1 to 5, optional `comment`, and `createdAt`.
 
 The summary document is the cached reporting layer. A later phone integration can batch events locally and update this summary periodically, while submitting feedback as individual records. For stronger trust, move those writes behind a Firebase Cloud Function before treating the values as audit data.
+
+The portal derives per-user rating average, quiz average, clicks per session, and average session duration from these optional fields. Existing summary documents remain valid and display `-` until the phone app or trusted backend begins writing the detailed metrics.
+
+## Audit actions
+
+Audit records are stored in `auditLogs` with `actorId`, `actorRole`, `action`, `entityType`, `entityId`, `metadata`, `source`, and `createdAt`. The portal records:
+
+- `auth.login`, `auth.logout`
+- `user.created`, `user.updated`, `user.banned`, `user.unbanned`
+- `institution.created`, `institution.updated`, `institution.deleted`
+- `content.created`, `content.updated`, `content.deleted`
+- `feedback.deleted`
+- `analytics.viewed`
+
+The same pattern can cover `landmark.created`, `landmark.updated`, `landmark.deleted`, `poi.created`, `poi.updated`, `poi.deleted`, `tour.created`, `tour.updated`, `tour.deleted`, `quiz.completed`, and `session.started` / `session.ended` when those events are written by the institution portal, mobile app, or trusted backend.
 # ScenARy v2 - React Migration
 
 ScenARy V2 is an Augmented Reality (AR) platform for historical sites, featuring an Administrator Portal for management and an Institution Portal for content creators.
