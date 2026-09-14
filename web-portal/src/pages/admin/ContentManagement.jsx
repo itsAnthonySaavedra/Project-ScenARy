@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import "@google/model-viewer";
 import { db } from "../../lib/firebase";
+import { uploadStorageFile } from "../../lib/storageUpload";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
 import tableStyles from "../../components/common/Tables.module.css";
@@ -41,6 +42,8 @@ const ContentManagement = () => {
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
+  const [modelFile, setModelFile] = useState(null);
+  const [uploadingModel, setUploadingModel] = useState(false);
   const [formFactText, setFormFactText] = useState("");
 
   // Dynamic Quiz Questions Array State
@@ -105,6 +108,7 @@ const ContentManagement = () => {
     setFormInfoUrl("");
     setFormInfoDesc("");
     setFormModelUrl("");
+    setModelFile(null);
     setFormFactText("");
     setSelectedType("");
     setQuizQuestions([{ question: "", answer: "True" }]);
@@ -125,6 +129,7 @@ const ContentManagement = () => {
       setFormInfoDesc(item.data?.description || "");
     } else if (item.type === "3D Model") {
       setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
+      setModelFile(null);
     } else if (item.type === "Quiz") {
       if (item.data?.quizzes && item.data.quizzes.length > 0) {
         setQuizQuestions(
@@ -180,7 +185,10 @@ const ContentManagement = () => {
           imageUrl: formInfoUrl || "",
         };
       } else if (selectedType === "3D Model") {
-        contentData = { modelUrl: formModelUrl.trim() };
+        contentData = {
+          modelUrl: formModelUrl.trim(),
+          ...(modelFile ? { modelFileName: modelFile.fileName, modelFileType: modelFile.fileType, modelStoragePath: modelFile.storagePath } : {}),
+        };
       } else if (selectedType === "Quiz") {
         contentData = {
           quizzes: quizQuestions.map((q, index) => ({
@@ -230,6 +238,7 @@ const ContentManagement = () => {
       setFormInfoUrl("");
       setFormInfoDesc("");
       setFormModelUrl("");
+      setModelFile(null);
       setFormFactText("");
       setSelectedType("");
       setQuizQuestions([{ question: "", answer: "True" }]);
@@ -500,7 +509,36 @@ const ContentManagement = () => {
               {/* 3D MODEL LINK */}
               {selectedType === "3D Model" && (
                 <div className={commonStyles.formGroup}>
-                  <label>Model URL (.glb)</label>
+                  <label>Upload 3D Model (.glb, .gltf, or .bin)</label>
+                  <input
+                    type="file"
+                    accept=".glb,.gltf,.bin,model/gltf-binary,model/gltf+json,application/octet-stream"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 100 * 1024 * 1024) {
+                        alert("3D models must be 100 MB or smaller.");
+                        e.target.value = "";
+                        return;
+                      }
+                      setUploadingModel(true);
+                      try {
+                        const uploaded = await uploadStorageFile(file, `content-models/${formInstitutionId || "unassigned"}`);
+                        setModelFile(uploaded);
+                        setFormModelUrl(uploaded.url);
+                      } catch (error) {
+                        console.error("Model upload error:", error);
+                        alert("Unable to upload the 3D model. Check Firebase Storage permissions.");
+                      } finally {
+                        setUploadingModel(false);
+                      }
+                    }}
+                    style={{ color: "#ccc", marginBottom: "0.75rem" }}
+                  />
+                  <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>Upload a GLB, GLTF, or BIN file, maximum 100 MB.</small>
+                  {modelFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {modelFile.fileName}</small>}
+                  {uploadingModel && <small style={{ display: "block", color: "#fbbf24", marginBottom: "0.75rem" }}>Uploading model...</small>}
+                  <label>Or use an existing model URL</label>
                   <input
                     name="modelUrl"
                     className={commonStyles.formControl}

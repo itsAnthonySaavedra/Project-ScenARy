@@ -16,9 +16,9 @@ import {
   query,
   where,
   getDocs,
-  updateDoc,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { uploadStorageFile } from "../../lib/storageUpload";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
@@ -45,6 +45,8 @@ const MapSystem = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [tempCoords, setTempCoords] = useState(null);
   const [description, setDescription] = useState("");
+  const [markerImage, setMarkerImage] = useState(null);
+  const [savingMarker, setSavingMarker] = useState(false);
 
   // NEW: Track the active tours for the currently clicked marker
   const [activeTours, setActiveTours] = useState({});
@@ -91,7 +93,11 @@ const MapSystem = () => {
   const confirmAddMarker = async (instId, instName) => {
     if (!tempCoords) return;
     const trimmedDescription = description.trim();
+    setSavingMarker(true);
     try {
+      const image = markerImage
+        ? await uploadStorageFile(markerImage, `markers/${instId}`)
+        : null;
       await addDoc(collection(db, "markers"), {
         lat: parseFloat(tempCoords.lat),
         lng: parseFloat(tempCoords.lng),
@@ -101,12 +107,17 @@ const MapSystem = () => {
         landmarkName: instName,
         description: trimmedDescription,
         info: { description: trimmedDescription },
+        ...(image ? { imageUrl: image.url, imageStoragePath: image.storagePath, imageFileName: image.fileName, imageFileType: image.fileType } : {}),
       });
       setIsModalOpen(false);
       setTempCoords(null);
       setDescription("");
+      setMarkerImage(null);
     } catch (err) {
       console.error("Error saving marker:", err);
+      alert("Unable to save marker or upload its image. Check Firebase Storage permissions.");
+    } finally {
+      setSavingMarker(false);
     }
   };
 
@@ -188,6 +199,9 @@ const MapSystem = () => {
                   >
                     "{marker.description}"
                   </p>
+                )}
+                {marker.imageUrl && (
+                  <img src={marker.imageUrl} alt={marker.landmarkName || "Marker"} style={{ width: "100%", maxHeight: "140px", objectFit: "cover", borderRadius: "4px" }} />
                 )}
 
                 <hr
@@ -320,6 +334,27 @@ const MapSystem = () => {
               />
             </div>
 
+            <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
+              <label style={{ color: "#d4af37", fontSize: "0.8rem", display: "block", marginBottom: "4px" }}>
+                Marker picture (optional):
+              </label>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null;
+                  if (selected && selected.size > 10 * 1024 * 1024) {
+                    alert("Marker pictures must be 10 MB or smaller.");
+                    e.target.value = "";
+                    return;
+                  }
+                  setMarkerImage(selected);
+                }}
+                style={{ color: "#ccc", width: "100%" }}
+              />
+              <small style={{ color: "#888" }}>PNG, JPG, or WEBP, maximum 10 MB.</small>
+            </div>
+
             <div
               style={{
                 display: "flex",
@@ -333,6 +368,7 @@ const MapSystem = () => {
               {institutions.map((inst) => (
                 <button
                   key={inst.id}
+                  disabled={savingMarker}
                   onClick={() => confirmAddMarker(inst.id, inst.name)}
                   style={{
                     padding: "12px",
@@ -344,7 +380,7 @@ const MapSystem = () => {
                     textAlign: "left",
                   }}
                 >
-                  {inst.name}
+                  {savingMarker ? "Saving marker..." : inst.name}
                 </button>
               ))}
             </div>
@@ -353,6 +389,7 @@ const MapSystem = () => {
                 setIsModalOpen(false);
                 setTempCoords(null);
                 setDescription("");
+                setMarkerImage(null);
               }}
               style={{
                 marginTop: "1.5rem",

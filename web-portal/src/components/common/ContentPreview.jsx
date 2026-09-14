@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import "@google/model-viewer";
 
 const previewPanelStyle = {
@@ -9,10 +9,14 @@ const previewPanelStyle = {
 };
 
 const ContentPreview = ({ content }) => {
+  const [modelStates, setModelStates] = useState({});
+
   if (!content) return null;
 
   const data = content.data || {};
   const modelUrl = data.modelUrl || data.modelPath;
+  const modelState = modelStates[modelUrl] || "loading";
+  const updateModelState = (state) => setModelStates((current) => ({ ...current, [modelUrl]: state }));
 
   return (
     <div style={{ color: "#ccc" }}>
@@ -33,13 +37,30 @@ const ContentPreview = ({ content }) => {
 
       {content.type === "3D Model" && (
         modelUrl ? (
-          <model-viewer
-            src={modelUrl}
-            alt={content.title || "3D model"}
-            auto-rotate
-            camera-controls
-            style={{ width: "100%", height: "300px", backgroundColor: "#111", marginBottom: "1rem" }}
-          ></model-viewer>
+          <div>
+            <model-viewer
+              key={modelUrl}
+              src={modelUrl}
+              alt={content.title || "3D model"}
+              auto-rotate
+              camera-controls
+              camera-orbit="0deg 75deg auto"
+              shadow-intensity="1"
+              onLoad={() => updateModelState("loaded")}
+              onError={() => updateModelState("error")}
+              style={{ width: "100%", height: "420px", backgroundColor: "#111", marginBottom: "1rem" }}
+            ></model-viewer>
+            {modelState === "loading" && (
+              <p style={{ ...previewPanelStyle, color: "#fbbf24" }}>
+                Loading 3D model (51 MB can take a while)...
+              </p>
+            )}
+            {modelState === "error" && (
+              <p style={{ ...previewPanelStyle, color: "#f87171" }}>
+                The model could not be rendered. Open the model URL directly to check Storage access, then check the browser console for the model-loading error.
+              </p>
+            )}
+          </div>
         ) : (
           <div style={previewPanelStyle}>No model URL provided.</div>
         )

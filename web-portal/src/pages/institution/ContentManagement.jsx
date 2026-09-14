@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
+import { uploadStorageFile } from "../../lib/storageUpload";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
@@ -71,6 +72,8 @@ const InstituteContentManagement = () => {
   const [formInfoDesc, setFormInfoDesc] = useState("");
   const [formAudioUrl, setFormAudioUrl] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
+  const [modelFile, setModelFile] = useState(null);
+  const [uploadingModel, setUploadingModel] = useState(false);
   const [formCustomData, setFormCustomData] = useState("");
   const [formAudioSequence, setFormAudioSequence] = useState("1");
   const [formNeedsAttention, setFormNeedsAttention] = useState(false);
@@ -152,6 +155,7 @@ const InstituteContentManagement = () => {
     setFormInfoDesc("");
     setFormAudioUrl("");
     setFormModelUrl("");
+    setModelFile(null);
     setFormCustomData("");
     setFormAudioSequence("1");
     setFormNeedsAttention(false);
@@ -169,6 +173,7 @@ const InstituteContentManagement = () => {
     setSelectedType(item.type || "");
     setFormAudioUrl(item.data?.audioUrl || "");
     setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
+    setModelFile(null);
     setFormCustomData(
       item.data?.customData ? JSON.stringify(item.data.customData, null, 2) : "",
     );
@@ -220,7 +225,10 @@ const InstituteContentManagement = () => {
           })),
         };
       } else if (selectedType === "3D Model") {
-        contentData = { modelUrl: formModelUrl.trim() };
+        contentData = {
+          modelUrl: formModelUrl.trim(),
+          ...(modelFile ? { modelFileName: modelFile.fileName, modelFileType: modelFile.fileType, modelStoragePath: modelFile.storagePath } : {}),
+        };
       } else if (selectedType === "Audio") {
         contentData = {
           audioUrl: formAudioUrl.trim(),
@@ -279,6 +287,7 @@ const InstituteContentManagement = () => {
       setFormInfoDesc("");
       setFormAudioUrl("");
       setFormModelUrl("");
+      setModelFile(null);
       setFormCustomData("");
       setFormAudioSequence("1");
       setFormNeedsAttention(false);
@@ -582,7 +591,36 @@ const InstituteContentManagement = () => {
 
               {selectedType === "3D Model" && (
                 <div className={commonStyles.formGroup}>
-                  <label>3D Model URL (.glb)</label>
+                  <label>Upload 3D Model (.glb, .gltf, or .bin)</label>
+                  <input
+                    type="file"
+                    accept=".glb,.gltf,.bin,model/gltf-binary,model/gltf+json,application/octet-stream"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 100 * 1024 * 1024) {
+                        alert("3D models must be 100 MB or smaller.");
+                        e.target.value = "";
+                        return;
+                      }
+                      setUploadingModel(true);
+                      try {
+                        const uploaded = await uploadStorageFile(file, `content-models/${userInstitutionId}`);
+                        setModelFile(uploaded);
+                        setFormModelUrl(uploaded.url);
+                      } catch (error) {
+                        console.error("Model upload error:", error);
+                        alert("Unable to upload the 3D model. Check Firebase Storage permissions.");
+                      } finally {
+                        setUploadingModel(false);
+                      }
+                    }}
+                    style={{ color: "#ccc", marginBottom: "0.75rem" }}
+                  />
+                  <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>Upload a GLB, GLTF, or BIN file, maximum 100 MB.</small>
+                  {modelFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {modelFile.fileName}</small>}
+                  {uploadingModel && <small style={{ display: "block", color: "#fbbf24", marginBottom: "0.75rem" }}>Uploading model...</small>}
+                  <label>Or use an existing model URL</label>
                   <input
                     className={commonStyles.formControl}
                     placeholder="https://.../model.glb"
