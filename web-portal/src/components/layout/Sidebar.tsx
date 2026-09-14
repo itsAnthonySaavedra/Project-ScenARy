@@ -48,11 +48,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
     { path: "/admin/map", icon: "fa-map-location-dot", label: "Map System" },
     { path: "/admin/pois", icon: "fa-location-dot", label: "POIs" },
     { path: "/admin/users", icon: "fa-users", label: "User Management" },
-    {
-      path: "/admin/institutions",
-      icon: "fa-university",
-      label: "Institutions",
-    },
     { path: "/admin/content", icon: "fa-layer-group", label: "Content" },
     { path: "/admin/tours", icon: "fa-route", label: "Tours" },
     { path: "/admin/activity-logs", icon: "fa-list-check", label: "Activity Logs" },

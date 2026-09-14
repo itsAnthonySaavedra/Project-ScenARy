@@ -17,7 +17,6 @@ import Login from "./pages/auth/Login";
 /* Admin Pages */
 import AdminDashboard from "./pages/admin/Dashboard";
 import UserManagement from "./pages/admin/UserManagement";
-import InstitutionManagement from "./pages/admin/InstitutionManagement";
 import ContentManagement from "./pages/admin/ContentManagement";
 import TourManagement from "./pages/admin/TourManagement";
 import ActivityLogs from "./pages/admin/ActivityLogs";
@@ -79,7 +78,6 @@ function AppRoutes() {
         <Route path="map" element={<MapSystem />} />
         <Route path="pois" element={<POIManagement adminMode />} />
         <Route path="users" element={<UserManagement />} />
-        <Route path="institutions" element={<InstitutionManagement />} />
         <Route path="content" element={<ContentManagement />} />
         <Route path="tours" element={<TourManagement />} />
         <Route path="activity-logs" element={<ActivityLogs />} />

@@ -21,6 +21,18 @@ export const loadFeedback = async (institutionId = null) => {
     .sort((left, right) => timestampValue(right.createdAt) - timestampValue(left.createdAt));
 };
 
+export const loadTourFeedback = async (tourId) => {
+  const feedbackQuery = query(collection(db, "feedback"), where("tourId", "==", tourId));
+  const snapshot = await getDocs(feedbackQuery);
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+};
+
+export const loadTourViews = async (tourId) => {
+  const viewsQuery = query(collection(db, "tourViews"), where("tourId", "==", tourId));
+  const snapshot = await getDocs(viewsQuery);
+  return snapshot.size;
+};
+
 export const removeFeedback = async (feedbackId) => {
   await deleteDoc(doc(db, "feedback", feedbackId));
 };
@@ -32,20 +44,50 @@ const timestampValue = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-export const toRating = (summary) => Number(summary.ratingTotal || 0);
+export const normalizeFieldName = (fieldName) => String(fieldName).replace(/\d+$/, "");
+
+export const findNumericValue = (summary, fieldNames) => {
+  for (const fieldName of fieldNames) {
+    const directValue = summary?.[fieldName];
+    if (directValue !== undefined && directValue !== null && directValue !== "") {
+      return Number(directValue || 0);
+    }
+  }
+
+  for (const [fieldName, value] of Object.entries(summary || {})) {
+    if (value === undefined || value === null || value === "") continue;
+    if (fieldNames.includes(normalizeFieldName(fieldName))) {
+      return Number(value || 0);
+    }
+  }
+
+  return 0;
+};
+
+export const toRating = (summary) =>
+  Number(findNumericValue(summary, ["ratingTotal"]) || 0);
 
 export const getUserAnalyticsMetrics = (summary) => {
-  const ratingCount = Number(summary.ratingCount || 0);
-  const quizAttempts = Number(summary.quizAttempts || 0);
-  const sessionCount = Number(summary.sessionCount || 0);
-  const clickCount = Number(summary.clickCount ?? summary.interactionCount ?? 0);
-  const totalSessionDurationSeconds = Number(summary.totalSessionDurationSeconds || 0);
+  const ratingCount = findNumericValue(summary, ["ratingCount"]);
+  const ratingTotal = findNumericValue(summary, ["ratingTotal"]);
+  const quizAttempts = findNumericValue(summary, ["quizAttempts", "quizzesTaken"]);
+  const quizScoreTotal = findNumericValue(summary, ["quizScoreTotal", "quizTotalScore"]);
+  const sessionCount = findNumericValue(summary, ["sessionCount"]);
+  const clickCount = findNumericValue(summary, ["clickCount", "interactionCount"]);
+  const totalSessionDurationSeconds = findNumericValue(summary, ["totalSessionDurationSeconds"]);
+  const commentCount = findNumericValue(summary, ["commentCount"]);
+  const totalQuizQuestions = findNumericValue(summary, ["quizTotalQuestions"]);
+  const lastQuizAt = summary?.lastQuizAt || summary?.["lastQuizAt"] || null;
 
   return {
-    ratingAverage: ratingCount ? toRating(summary) / ratingCount : null,
-    quizAverage: quizAttempts ? Number(summary.quizScoreTotal || 0) / quizAttempts : null,
+    ratingAverage: ratingCount ? ratingTotal / ratingCount : null,
+    quizAverage: quizAttempts ? quizScoreTotal / quizAttempts : null,
     clicksPerSession: sessionCount ? clickCount / sessionCount : null,
     averageSessionDurationSeconds: sessionCount ? totalSessionDurationSeconds / sessionCount : null,
+    commentCount,
+    quizAttempts,
+    totalQuizQuestions,
+    lastQuizAt,
   };
 };
 

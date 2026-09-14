@@ -19,6 +19,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import { findNumericValue, formatAnalyticsDate, getRatingStats, loadFeedback, loadTourFeedback, loadTourViews } from "../../lib/userAnalytics";
 
 L.Marker.prototype.options.icon = L.icon({
   iconUrl: markerIcon,
@@ -30,6 +31,7 @@ L.Marker.prototype.options.icon = L.icon({
 
 const MyTours = () => {
   const [tours, setTours] = useState([]);
+  const [tourMetrics, setTourMetrics] = useState({});
   const [availableContent, setAvailableContent] = useState([]);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [selectedTour, setSelectedTour] = useState(null);
@@ -104,10 +106,54 @@ const MyTours = () => {
         collection(db, "tours"),
         where("institutionId", "==", instId.trim()),
       );
-      const snap = await getDocs(q);
+      const [snap, landmarkSnap, feedbackRows] = await Promise.all([
+        getDocs(q),
+        getDocs(query(collection(db, "markers"), where("institutionId", "==", instId.trim()))),
+        loadFeedback(instId.trim()),
+      ]);
 
       console.log("Tours found for this ID:", snap.size);
-      setTours(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const tourList = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const landmarks = landmarkSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setTours(tourList);
+      const metrics = await Promise.all(tourList.map(async (tour) => {
+        const [directTourFeedback, views] = await Promise.all([
+          loadTourFeedback(tour.id),
+          loadTourViews(tour.id),
+        ]);
+        const moduleIds = new Set(tour.moduleIds || []);
+        const linkedLandmarks = landmarks.filter((landmark) =>
+          (landmark.contentIds || []).some((contentId) => moduleIds.has(contentId)),
+        );
+        const linkedLandmarkIds = new Set(linkedLandmarks.map((landmark) => landmark.id));
+        const landmarkFeedback = feedbackRows.filter((item) =>
+          linkedLandmarkIds.has(item.landmarkId || item.markerId),
+        );
+        const mergedFeedback = [
+          ...directTourFeedback,
+          ...feedbackRows.filter((item) => item.tourId === tour.id),
+          ...landmarkFeedback,
+        ].filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index);
+        const feedbackStats = getRatingStats(mergedFeedback);
+        const landmarkRatingCount = linkedLandmarks.reduce(
+          (total, landmark) => total + findNumericValue(landmark, ["ratingCount"]),
+          0,
+        );
+        const landmarkRatingTotal = linkedLandmarks.reduce(
+          (total, landmark) => total + findNumericValue(landmark, ["ratingTotal"]),
+          0,
+        );
+        const ratingStats = feedbackStats.reviewCount > 0
+          ? feedbackStats
+          : {
+            reviewCount: landmarkRatingCount,
+            ratingTotal: landmarkRatingTotal,
+            average: landmarkRatingCount ? landmarkRatingTotal / landmarkRatingCount : null,
+            distribution: [],
+          };
+        return [tour.id, { ratingStats, views }];
+      }));
+      setTourMetrics(Object.fromEntries(metrics));
     } catch (err) {
       console.error("Error fetching tours:", err);
     } finally {
@@ -156,7 +202,11 @@ const MyTours = () => {
         updatedAt: serverTimestamp(),
       });
 
-      setTours([...tours, { id: docRef.id, ...newTour, moduleIds: [] }]);
+      setTours([...tours, { id: docRef.id, ...newTour, moduleIds: [], updatedAt: new Date() }]);
+      setTourMetrics((current) => ({
+        ...current,
+        [docRef.id]: { ratingStats: getRatingStats([]), views: 0 },
+      }));
       setIsCreateModalOpen(false);
       setNewTour({
         title: "",
@@ -189,7 +239,7 @@ const MyTours = () => {
       setSelectedTour({ ...selectedTour, moduleIds: newModules });
       setTours(
         tours.map((t) =>
-          t.id === selectedTour.id ? { ...t, moduleIds: newModules } : t,
+          t.id === selectedTour.id ? { ...t, moduleIds: newModules, updatedAt: new Date() } : t,
         ),
       );
     } catch (err) {
@@ -328,6 +378,28 @@ const MyTours = () => {
                   >
                     Manage
                   </button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.75rem", marginTop: "1.25rem", paddingTop: "1rem", borderTop: "1px solid #333" }}>
+                  <div>
+                    <small style={{ color: "#888" }}>Tour views</small>
+                    <strong style={{ display: "block", color: "#fff", marginTop: "0.25rem" }}>{tourMetrics[tour.id]?.views ?? 0}</strong>
+                  </div>
+                  <div>
+                    <small style={{ color: "#888" }}>Average rating</small>
+                    <strong style={{ display: "block", color: "#fff", marginTop: "0.25rem" }}>
+                      {tourMetrics[tour.id]?.ratingStats?.average === null || tourMetrics[tour.id]?.ratingStats?.average === undefined
+                        ? "No ratings"
+                        : `${tourMetrics[tour.id].ratingStats.average.toFixed(1)} / 5`}
+                    </strong>
+                  </div>
+                  <div>
+                    <small style={{ color: "#888" }}>Last updated</small>
+                    <strong style={{ display: "block", color: "#fff", marginTop: "0.25rem", fontSize: "0.85rem" }}>{formatAnalyticsDate(tour.updatedAt)}</strong>
+                  </div>
+                  <div>
+                    <small style={{ color: "#888" }}>Content items</small>
+                    <strong style={{ display: "block", color: "#fff", marginTop: "0.25rem" }}>{tour.moduleIds?.length || 0}</strong>
+                  </div>
                 </div>
               </div>
             </div>
