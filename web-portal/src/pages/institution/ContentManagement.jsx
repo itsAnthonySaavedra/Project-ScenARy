@@ -17,6 +17,7 @@ import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
+import { CONTENT_SCOPES } from "../../lib/contentScope";
 
 const getContentQualityIssues = (item) => {
   const issues = [];
@@ -25,9 +26,13 @@ const getContentQualityIssues = (item) => {
 
   if (!title) issues.push("Add a title");
   if (!item.type) issues.push("Select a content type");
+  if (!item.scope) issues.push("Select a content area");
 
   if (item.type === "Information" && !data.description?.trim()) {
     issues.push("Add a description");
+  }
+  if (item.type === "Fun Fact" && !data.fact?.trim()) {
+    issues.push("Add a fun fact");
   }
   if (
     item.type === "3D Model" &&
@@ -65,11 +70,13 @@ const InstituteContentManagement = () => {
   const [filter, setFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("");
+  const [formScope, setFormScope] = useState("");
   const [isEditMode, setIsEditMode] = useState(false);
   const [editDocId, setEditDocId] = useState(null);
   const [formTitle, setFormTitle] = useState("");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
+  const [formFactText, setFormFactText] = useState("");
   const [formAudioUrl, setFormAudioUrl] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
   const [modelFile, setModelFile] = useState(null);
@@ -118,7 +125,7 @@ const InstituteContentManagement = () => {
         contentSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter((item) =>
-            ["Information", "3D Model", "Quiz", "Audio"].includes(item.type),
+            ["Information", "3D Model", "Quiz", "Audio", "Fun Fact"].includes(item.type),
           ),
       );
     } catch (error) {
@@ -151,8 +158,10 @@ const InstituteContentManagement = () => {
     setIsEditMode(false);
     setEditDocId(null);
     setFormTitle("");
+    setFormScope("");
     setFormInfoUrl("");
     setFormInfoDesc("");
+    setFormFactText("");
     setFormAudioUrl("");
     setFormModelUrl("");
     setModelFile(null);
@@ -170,8 +179,10 @@ const InstituteContentManagement = () => {
     setEditDocId(item.id);
     setFormError("");
     setFormTitle(item.title || "");
+    setFormScope(item.scope || item.contentScope || "");
     setSelectedType(item.type || "");
     setFormAudioUrl(item.data?.audioUrl || "");
+    setFormFactText(item.data?.fact || "");
     setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
     setModelFile(null);
     setFormCustomData(
@@ -216,6 +227,8 @@ const InstituteContentManagement = () => {
           description: formInfoDesc,
           imageUrl: formInfoUrl || "",
         };
+      } else if (selectedType === "Fun Fact") {
+        contentData = { fact: formFactText };
       } else if (selectedType === "Quiz") {
         contentData = {
           quizzes: quizQuestions.map((q, index) => ({
@@ -244,6 +257,7 @@ const InstituteContentManagement = () => {
       const qualityIssues = getContentQualityIssues({
         title: formTitle,
         type: selectedType,
+        scope: formScope,
         data: contentData,
       });
       if (qualityIssues.length > 0) {
@@ -256,6 +270,7 @@ const InstituteContentManagement = () => {
         const docRef = doc(db, "content", editDocId);
         await updateDoc(docRef, {
           title: formTitle,
+          scope: formScope,
           data: contentData,
           needsAttention: formNeedsAttention,
           status: "Awaiting Content",
@@ -266,6 +281,7 @@ const InstituteContentManagement = () => {
         const payload = {
           title: formTitle,
           type: selectedType,
+          scope: formScope,
           institutionId: userInstitutionId.trim(),
           status: "Awaiting Content",
           needsAttention: formNeedsAttention,
@@ -283,8 +299,10 @@ const InstituteContentManagement = () => {
       setIsEditMode(false);
       setEditDocId(null);
       setFormTitle("");
+      setFormScope("");
       setFormInfoUrl("");
       setFormInfoDesc("");
+      setFormFactText("");
       setFormAudioUrl("");
       setFormModelUrl("");
       setModelFile(null);
@@ -378,6 +396,7 @@ const InstituteContentManagement = () => {
             <tr>
               <th>Title</th>
               <th>Type</th>
+              <th>Area</th>
               <th>Status</th>
               <th>Quality</th>
               <th>Actions</th>
@@ -391,6 +410,7 @@ const InstituteContentManagement = () => {
                     {item.title}
                   </td>
                   <td>{item.type}</td>
+                  <td>{item.scope || item.contentScope || "Unclassified"}</td>
                   <td>
                     <span
                       style={{
@@ -530,9 +550,24 @@ const InstituteContentManagement = () => {
             >
               <option value="">Select Type</option>
               <option value="Information">Info</option>
+              <option value="Fun Fact">Fun Fact</option>
               <option value="3D Model">3D Model (.glb URL)</option>
               <option value="Quiz">True / False Quiz</option>
               <option value="Audio">Sequential Audio Track</option>
+            </select>
+          </div>
+          <div className={commonStyles.formGroup}>
+            <label>Content Area</label>
+            <select
+              className={commonStyles.formControl}
+              value={formScope}
+              onChange={(e) => setFormScope(e.target.value)}
+              required
+            >
+              <option value="">Select Content Area</option>
+              {CONTENT_SCOPES.map((scope) => (
+                <option key={scope} value={scope}>{scope}</option>
+              ))}
             </select>
           </div>
 
@@ -587,6 +622,19 @@ const InstituteContentManagement = () => {
                     />
                   </div>
                 </>
+              )}
+
+              {selectedType === "Fun Fact" && (
+                <div className={commonStyles.formGroup}>
+                  <label>Fun Fact Text</label>
+                  <textarea
+                    className={commonStyles.formControl}
+                    rows={3}
+                    value={formFactText}
+                    onChange={(e) => setFormFactText(e.target.value)}
+                    required
+                  />
+                </div>
               )}
 
               {selectedType === "3D Model" && (

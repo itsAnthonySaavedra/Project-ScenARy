@@ -17,6 +17,7 @@ import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
+import { CONTENT_SCOPES } from "../../lib/contentScope";
 
 const ContentManagement = () => {
   const { currentUser, currentRole } = useAuth();
@@ -26,6 +27,7 @@ const ContentManagement = () => {
   const [filter, setFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("");
+  const [formScope, setFormScope] = useState("");
 
   // Edit Mode Tracking State Fields
   const [isEditMode, setIsEditMode] = useState(false);
@@ -65,7 +67,7 @@ const ContentManagement = () => {
         contentSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter((item) =>
-            ["Information", "3D Model", "Quiz", "Audio"].includes(item.type),
+            ["Information", "3D Model", "Quiz", "Audio", "Fun Fact"].includes(item.type),
           ),
       );
 
@@ -105,6 +107,7 @@ const ContentManagement = () => {
     setFormTitle("");
     setFormInstitutionId("");
     setFormStatus("Awaiting Content");
+    setFormScope("");
     setFormInfoUrl("");
     setFormInfoDesc("");
     setFormModelUrl("");
@@ -122,6 +125,7 @@ const ContentManagement = () => {
     setFormTitle(item.title || "");
     setFormInstitutionId(item.institutionId || "");
     setFormStatus(item.status || "Awaiting Content");
+    setFormScope(item.scope || item.contentScope || "");
     setSelectedType(item.type || "");
 
     if (item.type === "Information") {
@@ -212,6 +216,7 @@ const ContentManagement = () => {
         const docRef = doc(db, "content", editDocId);
         await updateDoc(docRef, {
           title: formTitle,
+          scope: formScope,
           institutionId: formInstitutionId,
           status: formStatus,
           data: contentData,
@@ -222,6 +227,7 @@ const ContentManagement = () => {
         const newShell = {
           title: formTitle,
           type: selectedType,
+          scope: formScope,
           institutionId: formInstitutionId,
           status: formStatus,
           data: contentData,
@@ -240,6 +246,7 @@ const ContentManagement = () => {
       setFormTitle("");
       setFormInstitutionId("");
       setFormStatus("Awaiting Content");
+      setFormScope("");
       setFormInfoUrl("");
       setFormInfoDesc("");
       setFormModelUrl("");
@@ -306,6 +313,7 @@ const ContentManagement = () => {
               <th>Title</th>
               <th>Institution</th>
               <th>Type</th>
+              <th>Area</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -322,6 +330,7 @@ const ContentManagement = () => {
                       ?.name || "Unassigned"}
                   </td>
                   <td>{item.type}</td>
+                  <td>{item.scope || item.contentScope || "Unclassified"}</td>
                   <td>
                     <span
                       style={{
@@ -458,6 +467,20 @@ const ContentManagement = () => {
               <option value="Quiz">True / False Quiz</option>
               <option value="3D Model">3D Model (Paste .glb Link)</option>
               <option value="Fun Fact">Fun Fact</option>
+            </select>
+          </div>
+          <div className={commonStyles.formGroup}>
+            <label>Content Area</label>
+            <select
+              className={commonStyles.formControl}
+              value={formScope}
+              onChange={(e) => setFormScope(e.target.value)}
+              required
+            >
+              <option value="">Select Content Area</option>
+              {CONTENT_SCOPES.map((scope) => (
+                <option key={scope} value={scope}>{scope}</option>
+              ))}
             </select>
           </div>
 

@@ -4,8 +4,7 @@ import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import { db } from "../../lib/firebase";
-
-const POI_ALLOWED_CONTENT_TYPES = ["Information", "3D Model", "Quiz", "Audio"];
+import { getContentScope } from "../../lib/contentScope";
 
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -32,7 +31,7 @@ const POIManagement = ({ adminMode = false }) => {
     setAvailableContent(
       contentSnap.docs
         .map((item) => ({ id: item.id, ...item.data() }))
-        .filter((item) => POI_ALLOWED_CONTENT_TYPES.includes(item.type)),
+        .filter((item) => getContentScope(item) === "POI"),
     );
     setLoading(false);
   };

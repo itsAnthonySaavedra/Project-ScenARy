@@ -9,10 +9,9 @@ import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import commonStyles from "../../components/common/Common.module.css";
+import { getContentScope } from "../../lib/contentScope";
 
 L.Marker.prototype.options.icon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
-
-const LANDMARK_ALLOWED_CONTENT_TYPES = ["Information", "Quiz"];
 
 const LandmarkManagement = () => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -34,7 +33,7 @@ const LandmarkManagement = () => {
     setAvailableContent(
       contentSnap.docs
         .map((item) => ({ id: item.id, ...item.data() }))
-        .filter((item) => LANDMARK_ALLOWED_CONTENT_TYPES.includes(item.type)),
+        .filter((item) => getContentScope(item) === "Landmark"),
     );
     setLoading(false);
   };
@@ -50,8 +49,6 @@ const LandmarkManagement = () => {
   }), []);
 
   const updateField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
-
-  const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId) || null;
 
   const selectLandmark = (landmark) => {
     setSelectedLandmarkId(landmark.id);

@@ -35,12 +35,21 @@ const ContentPreview = ({ content }) => {
         </div>
       )}
 
+      {content.type === "Fun Fact" && (
+        <div style={previewPanelStyle}>
+          <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+            {data.fact || "No fun fact provided."}
+          </p>
+        </div>
+      )}
+
       {content.type === "3D Model" && (
         modelUrl ? (
           <div>
             <model-viewer
               key={modelUrl}
               src={modelUrl}
+              crossOrigin="anonymous"
               alt={content.title || "3D model"}
               auto-rotate
               camera-controls

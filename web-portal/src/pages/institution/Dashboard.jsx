@@ -74,7 +74,7 @@ const InstituteDashboard = () => {
     if (error) return <div className={dashboardStyles.dashboardState}>{error}</div>;
 
     const ratingStats = getRatingStats(dashboard.feedback);
-    const contentTypes = ["Information", "Quiz", "3D Model", "Other"];
+    const contentTypes = ["Information", "Fun Fact", "Quiz", "3D Model", "Other"];
     const chartOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
     const doughnutData = {
         labels: contentTypes,
