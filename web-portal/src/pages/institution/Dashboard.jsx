@@ -1,229 +1,137 @@
-import React, { useState } from 'react';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement } from 'chart.js';
-import { Doughnut, Bar, Line } from 'react-chartjs-2';
-import Modal from '../../components/common/Modal';
+import React, { useEffect, useState } from "react";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from "chart.js";
+import { Doughnut, Bar } from "react-chartjs-2";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { useAuth } from "../../context/AuthContext";
+import { db } from "../../lib/firebase";
+import { getRatingStats, loadFeedback, loadUserAnalytics } from "../../lib/userAnalytics";
 import dashboardStyles from '../../components/features/dashboard/Dashboard.module.css';
-import commonStyles from '../../components/common/Common.module.css';
 
-ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement);
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 const InstituteDashboard = () => {
-    const [activeView, setActiveView] = useState('dashboard');
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const { currentUser } = useAuth();
+    const [dashboard, setDashboard] = useState({
+        institution: null,
+        content: 0,
+        published: 0,
+        landmarks: 0,
+        pois: 0,
+        interactions: 0,
+        byType: {},
+        feedback: [],
+    });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
 
-    const engagementData = {
-        labels: ['Fact', 'Info', 'Quiz'],
-        datasets: [{
-            data: [53.3, 13.3, 33.3],
-            backgroundColor: ['#d4af37', '#855e2e', '#4a4a4a'],
-            borderWidth: 0,
-        }],
-    };
+    useEffect(() => {
+        const loadDashboard = async () => {
+            if (!currentUser) return;
+            try {
+                const profileSnap = await getDoc(doc(db, "users", currentUser.uid));
+                const institutionId = profileSnap.data()?.institutionId;
+                if (!institutionId) {
+                    setError("No institution is linked to this account.");
+                    return;
+                }
 
-    const quizData = {
-        labels: ['7', '14'],
-        datasets: [{
-            data: [7, 14],
-            backgroundColor: '#d4af37',
-            barThickness: 20,
-        }],
-    };
+                const [institutionSnap, contentSnap, landmarkSnap, poiSnap, analyticsRows, feedbackRows] = await Promise.all([
+                    getDoc(doc(db, "institutions", institutionId)),
+                    getDocs(query(collection(db, "content"), where("institutionId", "==", institutionId))),
+                    getDocs(query(collection(db, "markers"), where("institutionId", "==", institutionId))),
+                    getDocs(query(collection(db, "pois"), where("institutionId", "==", institutionId))),
+                    loadUserAnalytics(institutionId),
+                    loadFeedback(institutionId),
+                ]);
+                const byType = contentSnap.docs.reduce((counts, item) => {
+                    const type = item.data().type || "Other";
+                    counts[type] = (counts[type] || 0) + 1;
+                    return counts;
+                }, {});
 
-    const viewsData = {
-        labels: ['2025-2', '2025-3', '2025-4', '2025-5', '2025-6'],
-        datasets: [{
-            data: [10, 20, 25, 22, 40],
-            borderColor: '#d4af37',
-            tension: 0.1,
-            pointRadius: 0,
-        }],
-    };
+                setDashboard({
+                    institution: institutionSnap.exists() ? institutionSnap.data() : null,
+                    content: contentSnap.size,
+                    published: contentSnap.docs.filter((item) => item.data().status === "Published").length,
+                    landmarks: landmarkSnap.size,
+                    pois: poiSnap.size,
+                    interactions: analyticsRows.reduce((total, item) => total + Number(item.interactionCount || 0), 0),
+                    byType,
+                    feedback: feedbackRows,
+                });
+            } catch (loadError) {
+                console.error("Unable to load institution dashboard:", loadError);
+                setError("Unable to load live dashboard data.");
+            } finally {
+                setLoading(false);
+            }
+        };
 
+        loadDashboard();
+    }, [currentUser]);
+
+    if (loading) return <div className={dashboardStyles.dashboardState}>Loading your institution dashboard...</div>;
+    if (error) return <div className={dashboardStyles.dashboardState}>{error}</div>;
+
+    const ratingStats = getRatingStats(dashboard.feedback);
+    const contentTypes = ["Information", "Quiz", "3D Model", "Other"];
     const chartOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
-    const doughnutOptions = { ...chartOptions, cutout: '40%' };
-    const axisOptions = {
-        ...chartOptions,
-        scales: {
-            y: { display: false },
-            x: { grid: { display: false }, ticks: { color: '#a8a29e' } }
-        }
+    const doughnutData = {
+        labels: contentTypes,
+        datasets: [{ data: contentTypes.map((type) => dashboard.byType[type] || 0), backgroundColor: ["#d4af37", "#5f8f88", "#bb8066", "#756f69"], borderWidth: 0 }],
     };
+    const inventoryData = {
+        labels: ["Content", "Published", "Landmarks", "POIs", "Interactions"],
+        datasets: [{ label: "Total", data: [dashboard.content, dashboard.published, dashboard.landmarks, dashboard.pois, dashboard.interactions], backgroundColor: ["#d4af37", "#e0c875", "#5f8f88", "#bb8066", "#756f69"], borderRadius: 5, barThickness: 24 }],
+    };
+    const institutionName = dashboard.institution?.name || "Your institution";
 
     return (
-        <div>
-            {/* Custom Sub-Navigation */}
-            <div style={{ marginBottom: '2rem', display: 'flex', gap: '1rem' }}>
-                <button
-                    className={`${commonStyles.tabBtn} ${activeView === 'dashboard' ? commonStyles.tabBtnActive : ''}`}
-                    onClick={() => setActiveView('dashboard')}
-                >
-                    Dashboard
-                </button>
-                <button
-                    className={`${commonStyles.tabBtn} ${activeView === 'content' ? commonStyles.tabBtnActive : ''}`}
-                    onClick={() => setActiveView('content')}
-                >
-                    Content
-                </button>
-                <button
-                    className={`${commonStyles.tabBtn} ${activeView === 'analytics' ? commonStyles.tabBtnActive : ''}`}
-                    onClick={() => setActiveView('analytics')}
-                >
-                    Analytics
-                </button>
-                <button
-                    className={`${commonStyles.tabBtn} ${activeView === 'settings' ? commonStyles.tabBtnActive : ''}`}
-                    onClick={() => setActiveView('settings')}
-                >
-                    Settings
-                </button>
-            </div>
-
-            {/* VIEW: DASHBOARD */}
-            {activeView === 'dashboard' && (
-                <div className={dashboardStyles.chartsGrid}>
-                    <div className={dashboardStyles.chartCard}>
-                        <h3>Total Engagement Type</h3>
-                        <div className={dashboardStyles.chartContainer}>
-                            <Doughnut data={engagementData} options={doughnutOptions} />
-                        </div>
-                        <div className="chart-legend" style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem', fontSize: '0.8rem', color: '#ccc' }}>
-                            <span><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#d4af37', marginRight: '5px' }}></span> Fact 53.3%</span>
-                            <span><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#855e2e', marginRight: '5px' }}></span> Info 13.3%</span>
-                            <span><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#4a4a4a', marginRight: '5px' }}></span> Quiz 33.3%</span>
-                        </div>
-                    </div>
-
-                    <div className={dashboardStyles.chartCard}>
-                        <h3>Frequent Site Quiz Update</h3>
-                        <div className={dashboardStyles.chartContainer}>
-                            <Bar data={quizData} options={axisOptions} />
-                        </div>
-                        <div style={{ textAlign: 'center', fontSize: '0.8rem', color: '#a8a29e', marginTop: '0.5rem' }}>Day</div>
-                    </div>
-
-                    <div className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`}>
-                        <h3>Daily User View of 3D Site</h3>
-                        <div className={dashboardStyles.chartContainer}>
-                            <Line data={viewsData} options={axisOptions} />
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* VIEW: CONTENT MANAGEMENT */}
-            {activeView === 'content' && (
+        <div className={dashboardStyles.institutionDashboard}>
+            <section className={dashboardStyles.dashboardIntro}>
                 <div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '2rem' }}>
-                        <button className={`${commonStyles.btnPrimary} btn-add`} onClick={() => setIsAddModalOpen(true)}>
-                            <i className="fa-solid fa-plus"></i> ADD
-                        </button>
-                        <button className={`${commonStyles.btnOutline} btn-edit`} onClick={() => setIsEditModalOpen(true)}>
-                            <i className="fa-solid fa-pen-to-square"></i> EDIT
-                        </button>
-                    </div>
+                    <p className={dashboardStyles.eyebrow}>Institution overview</p>
+                    <h1>{institutionName}</h1>
+                    <p className={dashboardStyles.introMeta}>{dashboard.institution?.location || "Institution workspace"}</p>
+                </div>
+                <div className={dashboardStyles.institutionMeta}>
+                    <span><i className="fa-solid fa-user-tie"></i> Curated by</span>
+                    <strong>{dashboard.institution?.curator || "Institution team"}</strong>
+                </div>
+            </section>
 
-                    <div className={commonStyles.contentCard}>
-                        <div className={commonStyles.contentImage}>
-                            {/* Assuming assets are at root /assets */}
-                            <img src="/assets/images/fort_san_pedro.png" alt="Fort San Pedro" />
-                        </div>
-                        <div className={commonStyles.contentDetails}>
-                            <p className={commonStyles.contentDescription}>
-                                Fuerza de San Pedro is a military defense structure in Cebu (Philippines), built by the Spanish under
-                                the command of Miguel López de Legazpi. It is located in the area now called Plaza Independencia...
-                            </p>
-                            <div style={{ marginBottom: '1rem', color: 'var(--color-accent-gold)' }}>
-                                <i className="fa-solid fa-chevron-down"></i>
-                            </div>
-                            <a href="#" className={commonStyles.contentLink}>INFORMATION <i className="fa-solid fa-chevron-right"></i></a>
-                        </div>
-                        <div className={commonStyles.contentTitleOverlay}>
-                            <h3>Fort San Pedro</h3>
-                            <p>Plaza Independencia, Cebu City</p>
-                        </div>
+            <section className={dashboardStyles.statsGrid}>
+                {[
+                    ["Content items", dashboard.content, "fa-layer-group"],
+                    ["Published", dashboard.published, "fa-circle-check"],
+                    ["Landmarks", dashboard.landmarks, "fa-landmark"],
+                    ["POIs", dashboard.pois, "fa-location-dot"],
+                    ["User interactions", dashboard.interactions, "fa-hand-pointer"],
+                    ["Average rating", ratingStats.average === null ? "-" : `${ratingStats.average.toFixed(1)} / 5`, "fa-star"],
+                ].map(([label, value, icon]) => (
+                    <div className={dashboardStyles.statCard} key={label}>
+                        <div className={dashboardStyles.statIcon}><i className={`fa-solid ${icon}`}></i></div>
+                        <div className={dashboardStyles.statInfo}><h3>{label}</h3><div className={dashboardStyles.value}>{value}</div></div>
                     </div>
-                </div>
-            )}
+                ))}
+            </section>
 
-            {/* VIEW: ANALYTICS */}
-            {activeView === 'analytics' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-                    <button className={dashboardStyles.chartCard} style={{ cursor: 'pointer', textAlign: 'center', height: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 'bold' }}>Engagement</button>
-                    <button className={dashboardStyles.chartCard} style={{ cursor: 'pointer', textAlign: 'center', height: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 'bold' }}>Education</button>
-                    <button className={dashboardStyles.chartCard} style={{ cursor: 'pointer', textAlign: 'center', height: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 'bold' }}>Historical Trend</button>
-                    <button className={dashboardStyles.chartCard} style={{ cursor: 'pointer', textAlign: 'center', height: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 'bold' }}>Feedback</button>
+            <section className={dashboardStyles.dashboardCharts}>
+                <div className={dashboardStyles.chartCard}>
+                    <div className={dashboardStyles.cardHeading}><div><p className={dashboardStyles.eyebrow}>Library health</p><h3>Content mix</h3></div><span>{dashboard.content} total</span></div>
+                    <div className={dashboardStyles.chartContainer}><Doughnut data={doughnutData} options={{ ...chartOptions, cutout: "68%" }} /></div>
+                    <div className={dashboardStyles.chartLegend}>{contentTypes.map((type) => <span key={type}><i className={dashboardStyles.legendDot}></i>{type}<strong>{dashboard.byType[type] || 0}</strong></span>)}</div>
                 </div>
-            )}
+                <div className={dashboardStyles.chartCard}>
+                    <div className={dashboardStyles.cardHeading}><div><p className={dashboardStyles.eyebrow}>Activity snapshot</p><h3>Reach across your space</h3></div><span>All time</span></div>
+                    <div className={dashboardStyles.chartContainer}><Bar data={inventoryData} options={{ ...chartOptions, scales: { y: { beginAtZero: true, grid: { color: "rgba(255,255,255,.06)" }, ticks: { color: "#a8a29e" } }, x: { grid: { display: false }, ticks: { color: "#a8a29e" } } } }} /></div>
+                </div>
+            </section>
 
-            {/* VIEW: SETTINGS */}
-            {activeView === 'settings' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-                    <div className={dashboardStyles.chartCard} style={{ textAlign: 'center', padding: '3rem' }}>
-                        <div style={{ width: '80px', height: '80px', background: 'rgba(212, 175, 55, 0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', color: '#d4af37', fontSize: '2rem' }}>
-                            <i className="fa-solid fa-shapes"></i>
-                        </div>
-                        <div style={{ marginBottom: '0.5rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                <i className="fa-solid fa-pen" style={{ fontSize: '0.8rem', color: '#666' }}></i>
-                                <h2 style={{ fontSize: '1.5rem', margin: 0 }}>Fort San Pedro</h2>
-                            </div>
-                            <p style={{ color: '#888' }}>Institute Name</p>
-                        </div>
-                        <div style={{ marginTop: '2rem', fontSize: '0.9rem', color: '#d4af37', border: '1px solid #d4af37', display: 'inline-block', padding: '0.2rem 1rem', borderRadius: '20px' }}>Institute Profile</div>
-                    </div>
-
-                    <div className={dashboardStyles.chartCard} style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-                        <div style={{ position: 'relative', width: '60px', height: '30px' }}>
-                            {/* Simple Toggle Switch Mockup */}
-                            <div style={{ width: '100%', height: '100%', background: '#333', borderRadius: '15px', position: 'relative' }}>
-                                <div style={{ width: '26px', height: '26px', background: '#fff', borderRadius: '50%', position: 'absolute', top: '2px', left: '2px' }}></div>
-                            </div>
-                        </div>
-                        <div>
-                            <h3 style={{ margin: '0 0 0.5rem 0' }}>Maintenance Mode</h3>
-                            <p style={{ color: '#888', fontSize: '0.9rem', margin: 0 }}>Read, quiz, and fact will be unavailable for user when turned on</p>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODALS */}
-            <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="New Information">
-                <div className="upload-area" style={{ border: '2px dashed #444', borderRadius: '8px', padding: '2rem', textAlign: 'center', marginBottom: '1.5rem', color: '#888' }}>
-                    <i className="fa-regular fa-image" style={{ fontSize: '2rem', marginBottom: '1rem' }}></i>
-                    <p>Upload your photo here</p>
-                    <button className={commonStyles.btnOutline} style={{ marginTop: '1rem' }}>Browse File</button>
-                </div>
-                <textarea className={commonStyles.formControl} style={{ minHeight: '100px', marginBottom: '1.5rem' }} placeholder="Enter historical details here..."></textarea>
-                <div className={commonStyles.modalActions}>
-                    <button className={commonStyles.btnCancel} onClick={() => setIsAddModalOpen(false)}>Cancel</button>
-                    <button className={commonStyles.btnUpdate}>Publish</button>
-                </div>
-            </Modal>
-
-            <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)}>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '1rem', fontSize: '0.9rem' }}>
-                    <div style={{ color: '#ef4444', cursor: 'pointer' }}><i className="fa-regular fa-trash-can"></i> Delete Entry</div>
-                    <div style={{ color: '#d4af37', cursor: 'pointer' }}><i className="fa-solid fa-pen"></i> Edit Text</div>
-                </div>
-                <div style={{ display: 'flex', gap: '2rem' }}>
-                    <div style={{ flex: 1 }}>
-                        <img src="/assets/images/fort_san_pedro.png" style={{ width: '100%', borderRadius: '8px', marginBottom: '1rem' }} alt="Preview" />
-                        <p style={{ fontSize: '0.8rem', color: '#666', fontStyle: 'italic' }}>Notice: Photo cannot be edited.</p>
-                        <h4>Fort San Pedro</h4>
-                        <p style={{ fontSize: '0.8rem', color: '#888' }}>Plaza Independencia, Cebu City</p>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                        <textarea className={commonStyles.formControl} style={{ height: '100%' }} defaultValue="Fuerza de San Pedro..." />
-                    </div>
-                </div>
-                <div className={commonStyles.modalActions} style={{ marginTop: '2rem' }}>
-                    <button className={commonStyles.btnCancel} onClick={() => setIsEditModalOpen(false)}>Cancel</button>
-                    <button className={commonStyles.btnUpdate}>Update</button>
-                </div>
-            </Modal>
+            <section className={dashboardStyles.feedbackCard}>
+                <div className={dashboardStyles.cardHeading}><div><p className={dashboardStyles.eyebrow}>Visitor voice</p><h3>Recent feedback</h3></div><span>{dashboard.feedback.length} responses</span></div>
+                {dashboard.feedback.length === 0 ? <p className={dashboardStyles.emptyState}>No feedback has been submitted yet.</p> : dashboard.feedback.slice(0, 4).map((item) => <div className={dashboardStyles.feedbackItem} key={item.id}><span className={dashboardStyles.feedbackRating}><i className="fa-solid fa-star"></i> {item.rating || "-"}</span><p>{item.comment || "Rated without a comment"}</p></div>)}
+            </section>
         </div>
     );
 };

@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
-import { uploadStorageFile } from "../../lib/storageUpload";
+import { inspectGlbTextures, uploadStorageFile } from "../../lib/storageUpload";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
@@ -591,10 +591,10 @@ const InstituteContentManagement = () => {
 
               {selectedType === "3D Model" && (
                 <div className={commonStyles.formGroup}>
-                  <label>Upload 3D Model (.glb, .gltf, or .bin)</label>
+                  <label>Upload 3D Model (.glb)</label>
                   <input
                     type="file"
-                    accept=".glb,.gltf,.bin,model/gltf-binary,model/gltf+json,application/octet-stream"
+                    accept=".glb,model/gltf-binary,application/octet-stream"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
@@ -605,19 +605,23 @@ const InstituteContentManagement = () => {
                       }
                       setUploadingModel(true);
                       try {
+                        const textureInfo = await inspectGlbTextures(file);
+                        if (textureInfo.externalImageUris.length > 0) {
+                          throw new Error("This GLB references external texture files. Export it with textures embedded, then try again.");
+                        }
                         const uploaded = await uploadStorageFile(file, `content-models/${userInstitutionId}`);
                         setModelFile(uploaded);
                         setFormModelUrl(uploaded.url);
                       } catch (error) {
                         console.error("Model upload error:", error);
-                        alert("Unable to upload the 3D model. Check Firebase Storage permissions.");
+                        alert(error.message || "Unable to upload the 3D model. Check Firebase Storage permissions.");
                       } finally {
                         setUploadingModel(false);
                       }
                     }}
                     style={{ color: "#ccc", marginBottom: "0.75rem" }}
                   />
-                  <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>Upload a GLB, GLTF, or BIN file, maximum 100 MB.</small>
+                  <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>Upload a GLB file, maximum 100 MB. GLB keeps the model, geometry, and textures together.</small>
                   {modelFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {modelFile.fileName}</small>}
                   {uploadingModel && <small style={{ display: "block", color: "#fbbf24", marginBottom: "0.75rem" }}>Uploading model...</small>}
                   <label>Or use an existing model URL</label>

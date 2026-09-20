@@ -52,7 +52,7 @@ const ContentPreview = ({ content }) => {
             ></model-viewer>
             {modelState === "loading" && (
               <p style={{ ...previewPanelStyle, color: "#fbbf24" }}>
-                Loading 3D model (51 MB can take a while)...
+                Loading 3D model (Uploading can take a while)...
               </p>
             )}
             {modelState === "error" && (

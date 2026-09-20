@@ -195,3 +195,217 @@
     border-radius: 50%;
     margin-right: 4px;
 }
+
+.institutionDashboard {
+    max-width: 1440px;
+}
+
+.dashboardIntro {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 2rem;
+    margin-bottom: 2rem;
+    padding: 2rem;
+    background: linear-gradient(120deg, rgba(212, 175, 55, 0.16), rgba(95, 143, 136, 0.08) 55%, rgba(20, 20, 20, 0.35));
+    border: 1px solid rgba(212, 175, 55, 0.2);
+    border-radius: 16px;
+}
+
+.dashboardIntro h1 {
+    margin: 0.25rem 0 0;
+    color: var(--color-text-light);
+    font-size: clamp(1.8rem, 3vw, 3rem);
+}
+
+.eyebrow {
+    margin: 0;
+    color: var(--color-accent-gold);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.introMeta,
+.institutionMeta span,
+.cardHeading > span {
+    color: var(--color-text-muted);
+}
+
+.introMeta {
+    margin: 0.35rem 0 0;
+}
+
+.institutionMeta {
+    min-width: 190px;
+    display: grid;
+    gap: 0.4rem;
+    padding-left: 1.5rem;
+    border-left: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.institutionMeta span {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    font-size: 0.8rem;
+}
+
+.institutionMeta strong {
+    color: var(--color-text-light);
+    font-size: 0.95rem;
+}
+
+.dashboardCharts {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.8fr) minmax(400px, 1.2fr);
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.cardHeading {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.cardHeading h3 {
+    margin: 0.3rem 0 0;
+}
+
+.cardHeading > span {
+    white-space: nowrap;
+    font-size: 0.8rem;
+}
+
+.chartLegend {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.chartLegend span {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.chartLegend strong {
+    margin-left: auto;
+    color: var(--color-text-light);
+}
+
+.legendDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-accent-gold);
+}
+
+.feedbackCard {
+    composes: chartCard;
+}
+
+.feedbackItem {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+    padding: 0.85rem 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.feedbackItem p,
+.emptyState {
+    margin: 0;
+    color: #d6d3d1;
+}
+
+.feedbackRating {
+    min-width: 48px;
+    color: var(--color-accent-gold);
+    font-size: 0.85rem;
+}
+
+.dashboardState {
+    padding: 2rem;
+    color: var(--color-text-muted);
+}
+
+.feedbackSummary {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 1.5rem 0;
+}
+
+.feedbackSummary strong {
+    color: var(--color-text-light);
+    font-size: 2.8rem;
+    font-family: var(--font-display);
+}
+
+.feedbackSummary span {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+}
+
+.ratingRow {
+    display: grid;
+    grid-template-columns: 65px 1fr 28px;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.ratingRow > div {
+    height: 7px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.ratingRow i {
+    display: block;
+    height: 100%;
+    background: var(--color-accent-gold);
+}
+
+.ratingRow strong {
+    color: var(--color-text-light);
+    text-align: right;
+}
+
+@media (max-width: 900px) {
+    .dashboardCharts {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 600px) {
+    .dashboardIntro {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 1.25rem;
+    }
+
+    .institutionMeta {
+        width: 100%;
+        padding: 1rem 0 0;
+        border-left: 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .dashboardCharts {
+        gap: 1rem;
+    }
+
+    .chartCard {
+        padding: 1.15rem;
+    }
+}
