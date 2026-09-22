@@ -100,7 +100,7 @@ const Dashboard: React.FC = () => {
   if (error) return <div className={styles.dashboardState}>{error}</div>;
 
   const ratingStats = getRatingStats(data.feedback);
-  const contentTypes = ["Information", "Fun Fact", "3D Model", "Quiz", "Audio", "Other"];
+  const contentTypes = ["Information", "Fun Fact", "3D Model", "Quiz", "Other"];
   const typeCounts = contentTypes.map((type) => type === "Other"
     ? data.content.filter((item) => !contentTypes.slice(0, -1).includes(item.type || "")).length
     : data.content.filter((item) => item.type === type).length);

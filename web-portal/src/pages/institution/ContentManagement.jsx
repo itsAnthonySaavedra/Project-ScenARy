@@ -18,6 +18,7 @@ import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
 import { CONTENT_SCOPES } from "../../lib/contentScope";
+import { CONTENT_TYPES } from "../../lib/contentTypes";
 
 const getContentQualityIssues = (item) => {
   const issues = [];
@@ -49,16 +50,6 @@ const getContentQualityIssues = (item) => {
   ) {
     issues.push("Complete every quiz question");
   }
-  if (item.type === "Audio" && !data.audioUrl?.trim()) {
-    issues.push("Add an audio URL");
-  }
-  if (
-    item.type === "Audio" &&
-    (!Number.isInteger(Number(data.sequence)) || Number(data.sequence) < 1)
-  ) {
-    issues.push("Use a sequence number of 1 or higher");
-  }
-
   return issues;
 };
 
@@ -76,13 +67,13 @@ const InstituteContentManagement = () => {
   const [formTitle, setFormTitle] = useState("");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
+  const [infoImageFile, setInfoImageFile] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [formFactText, setFormFactText] = useState("");
-  const [formAudioUrl, setFormAudioUrl] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
   const [modelFile, setModelFile] = useState(null);
   const [uploadingModel, setUploadingModel] = useState(false);
   const [formCustomData, setFormCustomData] = useState("");
-  const [formAudioSequence, setFormAudioSequence] = useState("1");
   const [formNeedsAttention, setFormNeedsAttention] = useState(false);
   const [userInstitutionId, setUserInstitutionId] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -124,9 +115,7 @@ const InstituteContentManagement = () => {
       setContents(
         contentSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((item) =>
-            ["Information", "3D Model", "Quiz", "Audio", "Fun Fact"].includes(item.type),
-          ),
+          .filter((item) => CONTENT_TYPES.includes(item.type)),
       );
     } catch (error) {
       console.error("Isolated Fetch Error:", error);
@@ -161,12 +150,11 @@ const InstituteContentManagement = () => {
     setFormScope("");
     setFormInfoUrl("");
     setFormInfoDesc("");
+    setInfoImageFile(null);
     setFormFactText("");
-    setFormAudioUrl("");
     setFormModelUrl("");
     setModelFile(null);
     setFormCustomData("");
-    setFormAudioSequence("1");
     setFormNeedsAttention(false);
     setSelectedType("");
     setQuizQuestions([{ question: "", answer: "True" }]);
@@ -181,19 +169,18 @@ const InstituteContentManagement = () => {
     setFormTitle(item.title || "");
     setFormScope(item.scope || item.contentScope || "");
     setSelectedType(item.type || "");
-    setFormAudioUrl(item.data?.audioUrl || "");
     setFormFactText(item.data?.fact || "");
     setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
     setModelFile(null);
     setFormCustomData(
       item.data?.customData ? JSON.stringify(item.data.customData, null, 2) : "",
     );
-    setFormAudioSequence(item.data?.sequence?.toString() || "1");
     setFormNeedsAttention(item.needsAttention === true);
 
     if (item.type === "Information") {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
+      setInfoImageFile(null);
     } else if (item.type === "Quiz") {
       setQuizQuestions(
         item.data?.quizzes?.length
@@ -226,6 +213,7 @@ const InstituteContentManagement = () => {
         contentData = {
           description: formInfoDesc,
           imageUrl: formInfoUrl || "",
+          ...(infoImageFile ? { imageStoragePath: infoImageFile.storagePath, imageFileName: infoImageFile.fileName } : {}),
         };
       } else if (selectedType === "Fun Fact") {
         contentData = { fact: formFactText };
@@ -241,11 +229,6 @@ const InstituteContentManagement = () => {
         contentData = {
           modelUrl: formModelUrl.trim(),
           ...(modelFile ? { modelFileName: modelFile.fileName, modelFileType: modelFile.fileType, modelStoragePath: modelFile.storagePath } : {}),
-        };
-      } else if (selectedType === "Audio") {
-        contentData = {
-          audioUrl: formAudioUrl.trim(),
-          sequence: Number(formAudioSequence) || 1,
         };
       }
 
@@ -302,12 +285,11 @@ const InstituteContentManagement = () => {
       setFormScope("");
       setFormInfoUrl("");
       setFormInfoDesc("");
+      setInfoImageFile(null);
       setFormFactText("");
-      setFormAudioUrl("");
       setFormModelUrl("");
       setModelFile(null);
       setFormCustomData("");
-      setFormAudioSequence("1");
       setFormNeedsAttention(false);
       setSelectedType("");
       setQuizQuestions([{ question: "", answer: "True" }]);
@@ -549,11 +531,7 @@ const InstituteContentManagement = () => {
               style={{ opacity: isEditMode ? 0.6 : 1 }}
             >
               <option value="">Select Type</option>
-              <option value="Information">Info</option>
-              <option value="Fun Fact">Fun Fact</option>
-              <option value="3D Model">3D Model (.glb URL)</option>
-              <option value="Quiz">True / False Quiz</option>
-              <option value="Audio">Sequential Audio Track</option>
+              {CONTENT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
             </select>
           </div>
           <div className={commonStyles.formGroup}>
@@ -601,7 +579,36 @@ const InstituteContentManagement = () => {
               {selectedType === "Information" && (
                 <>
                   <div className={commonStyles.formGroup}>
-                    <label>Image URL</label>
+                    <label>Upload Picture</label>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 10 * 1024 * 1024) {
+                          alert("Pictures must be 10 MB or smaller.");
+                          e.target.value = "";
+                          return;
+                        }
+                        setUploadingImage(true);
+                        try {
+                          const uploaded = await uploadStorageFile(file, `content-images/${userInstitutionId}`);
+                          setInfoImageFile(uploaded);
+                          setFormInfoUrl(uploaded.url);
+                        } catch (error) {
+                          console.error("Picture upload error:", error);
+                          alert("Unable to upload the picture. Check Firebase Storage permissions.");
+                        } finally {
+                          setUploadingImage(false);
+                        }
+                      }}
+                      style={{ color: "#ccc", marginBottom: "0.75rem" }}
+                    />
+                    <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>PNG, JPG, or WEBP. Maximum 10 MB.</small>
+                    {infoImageFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {infoImageFile.fileName}</small>}
+                    {uploadingImage && <small style={{ display: "block", color: "#fbbf24", marginBottom: "0.75rem" }}>Uploading picture...</small>}
+                    <label>Or use an existing image URL</label>
                     <input
                       name="imageUrl"
                       className={commonStyles.formControl}
@@ -776,32 +783,6 @@ const InstituteContentManagement = () => {
                     + Add Question
                   </button>
                 </div>
-              )}
-
-              {selectedType === "Audio" && (
-                <>
-                  <div className={commonStyles.formGroup}>
-                    <label>Audio URL</label>
-                    <input
-                      className={commonStyles.formControl}
-                      placeholder="https://.../poi-audio.mp3"
-                      value={formAudioUrl}
-                      onChange={(e) => setFormAudioUrl(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className={commonStyles.formGroup}>
-                    <label>Traversal Sequence</label>
-                    <input
-                      type="number"
-                      min="1"
-                      className={commonStyles.formControl}
-                      value={formAudioSequence}
-                      onChange={(e) => setFormAudioSequence(e.target.value)}
-                      required
-                    />
-                  </div>
-                </>
               )}
 
               <div className={commonStyles.formGroup}>

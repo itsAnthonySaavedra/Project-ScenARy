@@ -18,6 +18,7 @@ import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
 import { CONTENT_SCOPES } from "../../lib/contentScope";
+import { CONTENT_TYPES } from "../../lib/contentTypes";
 
 const ContentManagement = () => {
   const { currentUser, currentRole } = useAuth();
@@ -43,6 +44,8 @@ const ContentManagement = () => {
   const [formStatus, setFormStatus] = useState("Awaiting Content");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
+  const [infoImageFile, setInfoImageFile] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [formModelUrl, setFormModelUrl] = useState("");
   const [modelFile, setModelFile] = useState(null);
   const [uploadingModel, setUploadingModel] = useState(false);
@@ -66,9 +69,7 @@ const ContentManagement = () => {
       setContents(
         contentSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((item) =>
-            ["Information", "3D Model", "Quiz", "Audio", "Fun Fact"].includes(item.type),
-          ),
+          .filter((item) => CONTENT_TYPES.includes(item.type)),
       );
 
       const instSnap = await getDocs(collection(db, "institutions"));
@@ -110,6 +111,7 @@ const ContentManagement = () => {
     setFormScope("");
     setFormInfoUrl("");
     setFormInfoDesc("");
+    setInfoImageFile(null);
     setFormModelUrl("");
     setModelFile(null);
     setFormFactText("");
@@ -131,6 +133,7 @@ const ContentManagement = () => {
     if (item.type === "Information") {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
+      setInfoImageFile(null);
     } else if (item.type === "3D Model") {
       setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
       setModelFile(null);
@@ -192,6 +195,7 @@ const ContentManagement = () => {
         contentData = {
           description: formInfoDesc,
           imageUrl: formInfoUrl || "",
+          ...(infoImageFile ? { imageStoragePath: infoImageFile.storagePath, imageFileName: infoImageFile.fileName } : {}),
         };
       } else if (selectedType === "3D Model") {
         contentData = {
@@ -217,7 +221,7 @@ const ContentManagement = () => {
         await updateDoc(docRef, {
           title: formTitle,
           scope: formScope,
-          institutionId: formInstitutionId,
+          institutionId: formInstitutionId.trim(),
           status: formStatus,
           data: contentData,
           updatedAt: serverTimestamp(),
@@ -228,7 +232,7 @@ const ContentManagement = () => {
           title: formTitle,
           type: selectedType,
           scope: formScope,
-          institutionId: formInstitutionId,
+          institutionId: formInstitutionId.trim(),
           status: formStatus,
           data: contentData,
           createdAt: serverTimestamp(),
@@ -249,6 +253,7 @@ const ContentManagement = () => {
       setFormScope("");
       setFormInfoUrl("");
       setFormInfoDesc("");
+      setInfoImageFile(null);
       setFormModelUrl("");
       setModelFile(null);
       setFormFactText("");
@@ -461,12 +466,11 @@ const ContentManagement = () => {
               style={{ opacity: isEditMode ? 0.6 : 1 }}
             >
               <option value="">Select Type</option>
-              <option value="Information">
-                Information (Image & Description)
-              </option>
-              <option value="Quiz">True / False Quiz</option>
-              <option value="3D Model">3D Model (Paste .glb Link)</option>
-              <option value="Fun Fact">Fun Fact</option>
+              {CONTENT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type === "Information" ? "Information (Image & Description)" : type === "Quiz" ? "True / False Quiz" : type === "3D Model" ? "3D Model (Paste .glb Link)" : type}
+                </option>
+              ))}
             </select>
           </div>
           <div className={commonStyles.formGroup}>
@@ -511,7 +515,36 @@ const ContentManagement = () => {
               {selectedType === "Information" && (
                 <>
                   <div className={commonStyles.formGroup}>
-                    <label>Image URL</label>
+                    <label>Upload Picture</label>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 10 * 1024 * 1024) {
+                          alert("Pictures must be 10 MB or smaller.");
+                          e.target.value = "";
+                          return;
+                        }
+                        setUploadingImage(true);
+                        try {
+                          const uploaded = await uploadStorageFile(file, `content-images/${formInstitutionId || "unassigned"}`);
+                          setInfoImageFile(uploaded);
+                          setFormInfoUrl(uploaded.url);
+                        } catch (error) {
+                          console.error("Picture upload error:", error);
+                          alert("Unable to upload the picture. Check Firebase Storage permissions.");
+                        } finally {
+                          setUploadingImage(false);
+                        }
+                      }}
+                      style={{ color: "#ccc", marginBottom: "0.75rem" }}
+                    />
+                    <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>PNG, JPG, or WEBP. Maximum 10 MB.</small>
+                    {infoImageFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {infoImageFile.fileName}</small>}
+                    {uploadingImage && <small style={{ display: "block", color: "#fbbf24", marginBottom: "0.75rem" }}>Uploading picture...</small>}
+                    <label>Or use an existing image URL</label>
                     <input
                       name="imageUrl"
                       className={commonStyles.formControl}

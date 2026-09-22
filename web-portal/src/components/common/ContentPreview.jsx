@@ -75,19 +75,6 @@ const ContentPreview = ({ content }) => {
         )
       )}
 
-      {content.type === "Audio" && (
-        <div style={previewPanelStyle}>
-          {data.audioUrl ? (
-            <audio controls src={data.audioUrl} style={{ width: "100%" }}>
-              Your browser does not support audio playback.
-            </audio>
-          ) : (
-            "No audio URL provided."
-          )}
-          <p>Sequence: {data.sequence || "Not set"}</p>
-        </div>
-      )}
-
       {content.type === "Quiz" && (
         <div style={previewPanelStyle}>
           {data.quizzes?.length ? (

@@ -267,10 +267,6 @@ const MyTours = () => {
       Number.isFinite(item.data?.latitude) &&
       Number.isFinite(item.data?.longitude),
   );
-  const orderedAudio = availableContent
-    .filter((item) => item.type === "Audio" && item.entityType === "POI")
-    .sort((first, second) => (first.data?.sequence || 0) - (second.data?.sequence || 0));
-
   return (
     <div style={{ padding: "20px" }}>
       {/* DEBUG HEADER */}
@@ -518,7 +514,7 @@ const MyTours = () => {
               gap: "5px",
             }}
           >
-            {["Information", "3D Model", "Quiz", "Audio", "Tour Map"].map((tab) => {
+              {["Information", "3D Model", "Quiz", "Tour Map"].map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <button
@@ -546,9 +542,7 @@ const MyTours = () => {
                     ? "Map"
                     : tab === "3D Model"
                       ? "3D Models"
-                      : tab === "Audio"
-                        ? "Audio Sequence"
-                        : tab === "Information"
+                      : tab === "Information"
                     ? "ℹ️ Information"
                     : "❓ Quizzes"}
                 </button>
@@ -599,32 +593,6 @@ const MyTours = () => {
                   </p>
                 )}
               </div>
-            ) : activeTab === "Audio" ? (
-              orderedAudio.length === 0 ? (
-                <div style={{ textAlign: "center", color: "#555", padding: "3rem 1rem" }}>
-                  No POI audio tracks found.
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {orderedAudio.map((item) => (
-                    <div
-                      key={item.id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        background: "rgba(255,255,255,0.03)",
-                        padding: "12px",
-                        borderRadius: "6px",
-                      }}
-                    >
-                      <span style={{ color: "#fff" }}>{item.title}</span>
-                      <span style={{ color: "#C19A4B" }}>
-                        Stop {item.data?.sequence || "-"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )
             ) : filteredTabItems.length === 0 ? (
               <div
                 style={{
