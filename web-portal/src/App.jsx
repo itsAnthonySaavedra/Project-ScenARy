@@ -10,6 +10,7 @@ import Layout from "./components/layout/Layout";
 /* Public Pages */
 import Landing from "./pages/Landing";
 import CollabPage from "./pages/CollabPage";
+import PublicFloorPlan from "./pages/PublicFloorPlan";
 
 /* Auth */
 import Login from "./pages/auth/Login";
@@ -63,6 +64,7 @@ function AppRoutes() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/collab" element={<CollabPage />} />
+      <Route path="/institution-map/:institutionId" element={<PublicFloorPlan />} />
 
       {/* Admin Routes */}
       <Route

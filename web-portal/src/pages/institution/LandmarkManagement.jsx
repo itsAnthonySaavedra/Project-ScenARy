@@ -135,6 +135,13 @@ const LandmarkManagement = () => {
               <Popup>
                 <div style={{ color: "#111827", minWidth: 220, textAlign: "center" }}>
                   <strong style={{ fontSize: "1rem" }}>{landmark.landmarkName || landmark.institutionName}</strong>
+                  {landmark.imageUrl && (
+                    <img
+                      src={landmark.imageUrl}
+                      alt={landmark.landmarkName || landmark.institutionName || "Landmark"}
+                      style={{ width: "100%", maxHeight: "140px", objectFit: "cover", borderRadius: "4px", marginTop: "8px" }}
+                    />
+                  )}
                   {(landmark.info?.description || landmark.description) && (
                     <p style={{ margin: "8px 0", color: "#4b5563", fontSize: "0.9rem", lineHeight: 1.4 }}>
                       {landmark.info?.description || landmark.description}
