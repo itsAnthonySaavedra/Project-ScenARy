@@ -8,6 +8,7 @@ import { getContentScope } from "../../lib/contentScope";
 
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
+  const [institutions, setInstitutions] = useState([]);
   const [landmarks, setLandmarks] = useState([]);
   const [pois, setPois] = useState([]);
   const [availableContent, setAvailableContent] = useState([]);
@@ -19,9 +20,14 @@ const POIManagement = ({ adminMode = false }) => {
   const [formError, setFormError] = useState("");
   const qrCanvasRef = useRef(null);
   const loadData = useCallback(async (id) => {
-      const [landmarkSnap, poiSnap, contentSnap] = await Promise.all(adminMode ? [
-        getDocs(collection(db, "markers")), getDocs(collection(db, "pois")), getDocs(collection(db, "content")),
-    ] : [
+    if (!id) {
+      setLandmarks([]);
+      setPois([]);
+      setAvailableContent([]);
+      setLoading(false);
+      return;
+    }
+    const [landmarkSnap, poiSnap, contentSnap] = await Promise.all([
       getDocs(query(collection(db, "markers"), where("institutionId", "==", id))),
       getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
       getDocs(query(collection(db, "content"), where("institutionId", "==", id))),
@@ -34,12 +40,14 @@ const POIManagement = ({ adminMode = false }) => {
         .filter((item) => getContentScope(item) === "POI"),
     );
     setLoading(false);
-  }, [adminMode]);
+  }, []);
 
   useEffect(() => onAuthStateChanged(getAuth(), async (user) => {
     if (!user) { setLoading(false); return; }
     if (adminMode) {
-      await loadData(null);
+      const institutionSnap = await getDocs(collection(db, "institutions"));
+      setInstitutions(institutionSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setLoading(false);
       return;
     }
     const profile = await getDoc(doc(db, "users", user.uid));
@@ -55,8 +63,23 @@ const POIManagement = ({ adminMode = false }) => {
   const resetForm = () => {
     setSelectedPoiId(null);
     setSelectedContentIds([]);
-    setForm({ institutionId: "", landmarkId: "", name: "", qrCode: "" });
+    setForm({ institutionId: adminMode ? institutionId || "" : "", landmarkId: "", name: "", qrCode: "" });
     setFormError("");
+  };
+
+  const selectInstitution = async (id) => {
+    setInstitutionId(id);
+    setSelectedPoiId(null);
+    setSelectedContentIds([]);
+    setForm({ institutionId: id, landmarkId: "", name: "", qrCode: "" });
+    setFormError("");
+    setLandmarks([]);
+    setPois([]);
+    setAvailableContent([]);
+    if (id) {
+      setLoading(true);
+      await loadData(id);
+    }
   };
 
   const generateLandmarkPoiQr = async (landmarkId = form.landmarkId) => {
@@ -159,10 +182,16 @@ const POIManagement = ({ adminMode = false }) => {
   return <div style={{ padding: 20, color: "#ccc" }}>
     <h2 style={{ color: "#d4af37" }}>{adminMode ? "POI Administration" : "Points of Interest"}</h2>
     <p>POIs are child objects identified by their own QR codes. Landmark QR codes are managed from the landmark pin.</p>
-    {landmarks.length === 0 ? <div style={{ color: "#fbbf24" }}>Create a landmark before adding a POI.</div> : <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 420px) 1fr", gap: 20 }}>
+    {adminMode && <div style={{ maxWidth: 420, marginBottom: 20 }}>
+      <label htmlFor="poi-institution-select" style={{ display: "block", color: "#fff", marginBottom: 8 }}>Select institution</label>
+      <select id="poi-institution-select" className={commonStyles.formControl} value={institutionId || ""} onChange={(event) => selectInstitution(event.target.value)}>
+        <option value="">Choose an institution</option>
+        {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name || institution.id}</option>)}
+      </select>
+    </div>}
+    {adminMode && !institutionId ? <div style={{ color: "#888" }}>Choose an institution to view and manage its POIs.</div> : landmarks.length === 0 ? <div style={{ color: "#fbbf24" }}>Create a landmark before adding a POI.</div> : <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 420px) 1fr", gap: 20 }}>
       <form onSubmit={savePoi} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 10, padding: 20 }}>
         <h3 style={{ color: "#fff" }}>{selectedPoiId ? "Edit POI" : "Add POI"}</h3>
-        {adminMode && <select className={commonStyles.formControl} value={form.institutionId} onChange={(e) => { updateField("institutionId", e.target.value); updateField("landmarkId", ""); }} required><option value="">Select institution</option>{[...new Map(landmarks.map((landmark) => [landmark.institutionId, landmark.institutionName])).entries()].map(([id, name]) => <option key={id} value={id}>{name || id}</option>)}</select>}
         <select className={commonStyles.formControl} value={form.landmarkId} onChange={(e) => {
           const selectedLandmark = landmarks.find((landmark) => landmark.id === e.target.value);
           updateField("landmarkId", e.target.value);
