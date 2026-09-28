@@ -34,7 +34,7 @@ const ContentManagementHub = () => {
           <h3 style={{ color: "#fff" }}>Landmark Content</h3>
           <p style={{ color: "#999", minHeight: "48px" }}>
             Configure the landmarks created by the administrator, including information,
-            3D model, quiz, and custom data.
+            AR/VR model, quiz, and custom data.
           </p>
           <button
             className={commonStyles.btnPrimary}

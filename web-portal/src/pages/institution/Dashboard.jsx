@@ -5,6 +5,7 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import { useAuth } from "../../context/AuthContext";
 import { db } from "../../lib/firebase";
 import { getRatingStats, loadFeedback, loadUserAnalytics } from "../../lib/userAnalytics";
+import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 import dashboardStyles from '../../components/features/dashboard/Dashboard.module.css';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
@@ -44,7 +45,7 @@ const InstituteDashboard = () => {
                     loadFeedback(institutionId),
                 ]);
                 const byType = contentSnap.docs.reduce((counts, item) => {
-                    const type = item.data().type || "Other";
+                    const type = normalizeContentType(item.data().type || "Other");
                     counts[type] = (counts[type] || 0) + 1;
                     return counts;
                 }, {});
@@ -74,7 +75,7 @@ const InstituteDashboard = () => {
     if (error) return <div className={dashboardStyles.dashboardState}>{error}</div>;
 
     const ratingStats = getRatingStats(dashboard.feedback);
-    const contentTypes = ["Information", "Fun Fact", "Quiz", "3D Model", "Other"];
+    const contentTypes = ["Information", "Fun Fact", "Quiz", MODEL_CONTENT_TYPE, "Other"];
     const chartOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
     const doughnutData = {
         labels: contentTypes,

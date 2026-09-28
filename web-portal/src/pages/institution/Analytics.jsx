@@ -24,6 +24,7 @@ import {
   loadUserAnalytics,
   toRating,
 } from "../../lib/userAnalytics";
+import { MODEL_CONTENT_TYPE, LEGACY_MODEL_CONTENT_TYPE } from "../../lib/contentTypes";
 import dashboardStyles from "../../components/features/dashboard/Dashboard.module.css";
 
 ChartJS.register(
@@ -108,10 +109,12 @@ const InstituteAnalytics = () => {
   }, []);
 
   const typeLabels = Object.keys(analytics.byType);
-  const contentTypeOrder = ["Information", "Quiz", "3D Model"];
+  const contentTypeOrder = ["Information", "Quiz", MODEL_CONTENT_TYPE];
   const contentTypeCounts = contentTypeOrder.map((type) => ({
     type,
-    count: analytics.byType[type] || 0,
+    count: type === MODEL_CONTENT_TYPE
+      ? (analytics.byType[type] || 0) + (analytics.byType[LEGACY_MODEL_CONTENT_TYPE] || 0)
+      : analytics.byType[type] || 0,
   }));
   const ratingStats = getRatingStats(feedback);
   const engagementData = {

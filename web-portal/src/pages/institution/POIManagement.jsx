@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { QRCodeCanvas } from "qrcode.react";
@@ -18,9 +18,9 @@ const POIManagement = ({ adminMode = false }) => {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const qrCanvasRef = useRef(null);
-  const loadData = async (id) => {
-    const [landmarkSnap, poiSnap, contentSnap] = await Promise.all(adminMode ? [
-      getDocs(collection(db, "markers")), getDocs(collection(db, "pois")), getDocs(collection(db, "content")),
+  const loadData = useCallback(async (id) => {
+      const [landmarkSnap, poiSnap, contentSnap] = await Promise.all(adminMode ? [
+        getDocs(collection(db, "markers")), getDocs(collection(db, "pois")), getDocs(collection(db, "content")),
     ] : [
       getDocs(query(collection(db, "markers"), where("institutionId", "==", id))),
       getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
@@ -34,17 +34,21 @@ const POIManagement = ({ adminMode = false }) => {
         .filter((item) => getContentScope(item) === "POI"),
     );
     setLoading(false);
-  };
+  }, [adminMode]);
 
   useEffect(() => onAuthStateChanged(getAuth(), async (user) => {
     if (!user) { setLoading(false); return; }
+    if (adminMode) {
+      await loadData(null);
+      return;
+    }
     const profile = await getDoc(doc(db, "users", user.uid));
     if (profile.exists()) {
       const id = profile.data().institutionId;
       setInstitutionId(id);
       await loadData(id);
     } else setLoading(false);
-  }), []);
+  }), [adminMode, loadData]);
 
   const updateField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
 

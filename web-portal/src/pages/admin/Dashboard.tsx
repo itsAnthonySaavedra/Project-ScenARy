@@ -11,6 +11,7 @@ import {
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { findNumericValue, getRatingStats, loadFeedback, loadUserAnalytics } from "../../lib/userAnalytics";
+import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 import styles from "../../components/features/dashboard/Dashboard.module.css";
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip);
@@ -100,10 +101,10 @@ const Dashboard: React.FC = () => {
   if (error) return <div className={styles.dashboardState}>{error}</div>;
 
   const ratingStats = getRatingStats(data.feedback);
-  const contentTypes = ["Information", "Fun Fact", "3D Model", "Quiz", "Other"];
+  const contentTypes = ["Information", "Fun Fact", MODEL_CONTENT_TYPE, "Quiz", "Other"];
   const typeCounts = contentTypes.map((type) => type === "Other"
-    ? data.content.filter((item) => !contentTypes.slice(0, -1).includes(item.type || "")).length
-    : data.content.filter((item) => item.type === type).length);
+    ? data.content.filter((item) => !contentTypes.slice(0, -1).includes(normalizeContentType(item.type || ""))).length
+    : data.content.filter((item) => normalizeContentType(item.type) === type).length);
   const published = data.content.filter((item) => item.status === "Published").length;
   const chartOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
   const statItems: [string, number, string][] = [

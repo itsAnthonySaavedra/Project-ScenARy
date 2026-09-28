@@ -20,6 +20,7 @@ import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import { findNumericValue, formatAnalyticsDate, getRatingStats, loadFeedback, loadTourFeedback, loadTourViews } from "../../lib/userAnalytics";
+import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 
 L.Marker.prototype.options.icon = L.icon({
   iconUrl: markerIcon,
@@ -169,7 +170,7 @@ const MyTours = () => {
         where("status", "==", "Published"),
       );
       const snap = await getDocs(q);
-      setAvailableContent(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setAvailableContent(snap.docs.map((d) => ({ id: d.id, ...d.data(), type: normalizeContentType(d.data().type) })));
     } catch (err) {
       console.error("Error fetching content:", err);
     }
@@ -514,7 +515,7 @@ const MyTours = () => {
               gap: "5px",
             }}
           >
-              {["Information", "3D Model", "Quiz", "Tour Map"].map((tab) => {
+              {["Information", MODEL_CONTENT_TYPE, "Quiz", "Tour Map"].map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <button
@@ -540,8 +541,8 @@ const MyTours = () => {
                 >
                   {tab === "Tour Map"
                     ? "Map"
-                    : tab === "3D Model"
-                      ? "3D Models"
+                    : tab === MODEL_CONTENT_TYPE
+                      ? MODEL_CONTENT_TYPE
                       : tab === "Information"
                     ? "ℹ️ Information"
                     : "❓ Quizzes"}

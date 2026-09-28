@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "@google/model-viewer";
+import { isModelContentType } from "../../lib/contentTypes";
 
 const previewPanelStyle = {
   background: "#0a0a0a",
@@ -43,14 +44,14 @@ const ContentPreview = ({ content }) => {
         </div>
       )}
 
-      {content.type === "3D Model" && (
+      {isModelContentType(content.type) && (
         modelUrl ? (
           <div>
             <model-viewer
               key={modelUrl}
               src={modelUrl}
               crossOrigin="anonymous"
-              alt={content.title || "3D model"}
+              alt={content.title || "AR/VR model"}
               auto-rotate
               camera-controls
               camera-orbit="0deg 75deg auto"
@@ -61,7 +62,7 @@ const ContentPreview = ({ content }) => {
             ></model-viewer>
             {modelState === "loading" && (
               <p style={{ ...previewPanelStyle, color: "#fbbf24" }}>
-                Loading 3D model (Uploading can take a while)...
+                Loading AR/VR model (Uploading can take a while)...
               </p>
             )}
             {modelState === "error" && (

@@ -56,7 +56,11 @@ const LandmarkManagement = () => {
       name: landmark.landmarkName || landmark.institutionName || "",
       description: landmark.info?.description ?? landmark.description ?? "",
     });
-    setSelectedContentIds(landmark.contentIds || []);
+    setSelectedContentIds(
+      (landmark.contentIds || []).filter((contentId) =>
+        availableContent.some((item) => item.id === contentId),
+      ),
+    );
   };
 
   const saveLandmark = async (event) => {
@@ -71,7 +75,9 @@ const LandmarkManagement = () => {
         institutionName: name || undefined,
         description,
         info: { description },
-        contentIds: selectedContentIds,
+        contentIds: selectedContentIds.filter((contentId) =>
+          availableContent.some((item) => item.id === contentId),
+        ),
         updatedAt: serverTimestamp(),
       });
       setForm({ ...form, name, description });

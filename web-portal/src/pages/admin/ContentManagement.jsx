@@ -17,8 +17,8 @@ import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
-import { CONTENT_SCOPES } from "../../lib/contentScope";
-import { CONTENT_TYPES } from "../../lib/contentTypes";
+import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
+import { CONTENT_TYPES, MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 
 const ContentManagement = () => {
   const { currentUser, currentRole } = useAuth();
@@ -26,6 +26,7 @@ const ContentManagement = () => {
   const [contents, setContents] = useState([]);
   const [institutions, setInstitutions] = useState([]);
   const [filter, setFilter] = useState("All");
+  const [scopeFilter, setScopeFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("");
   const [formScope, setFormScope] = useState("");
@@ -68,7 +69,7 @@ const ContentManagement = () => {
       const contentSnap = await getDocs(collection(db, "content"));
       setContents(
         contentSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+          .map((d) => ({ id: d.id, ...d.data(), type: normalizeContentType(d.data().type) }))
           .filter((item) => CONTENT_TYPES.includes(item.type)),
       );
 
@@ -128,13 +129,13 @@ const ContentManagement = () => {
     setFormInstitutionId(item.institutionId || "");
     setFormStatus(item.status || "Awaiting Content");
     setFormScope(item.scope || item.contentScope || "");
-    setSelectedType(item.type || "");
+    setSelectedType(normalizeContentType(item.type || ""));
 
     if (item.type === "Information") {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
       setInfoImageFile(null);
-    } else if (item.type === "3D Model") {
+    } else if (normalizeContentType(item.type) === MODEL_CONTENT_TYPE) {
       setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
       setModelFile(null);
     } else if (item.type === "Quiz") {
@@ -197,7 +198,7 @@ const ContentManagement = () => {
           imageUrl: formInfoUrl || "",
           ...(infoImageFile ? { imageStoragePath: infoImageFile.storagePath, imageFileName: infoImageFile.fileName } : {}),
         };
-      } else if (selectedType === "3D Model") {
+      } else if (selectedType === MODEL_CONTENT_TYPE) {
         contentData = {
           modelUrl: formModelUrl.trim(),
           ...(modelFile ? { modelFileName: modelFile.fileName, modelFileType: modelFile.fileType, modelStoragePath: modelFile.storagePath } : {}),
@@ -274,6 +275,7 @@ const ContentManagement = () => {
 
   const filteredContents = contents
     .filter((c) => (filter === "All" ? true : c.status === "Awaiting Content"))
+    .filter((c) => scopeFilter === "All" || getContentScope(c) === scopeFilter)
     .filter((c) => c.title?.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
@@ -295,6 +297,15 @@ const ContentManagement = () => {
           </button>
         </div>
         <div style={{ display: "flex", gap: "1rem" }}>
+          <select
+            className={commonStyles.formControl}
+            aria-label="Filter content by area"
+            value={scopeFilter}
+            onChange={(e) => setScopeFilter(e.target.value)}
+          >
+            <option value="All">All Areas</option>
+            {CONTENT_SCOPES.map((scope) => <option key={scope} value={scope}>{scope}</option>)}
+          </select>
           <input
             type="text"
             className={tableStyles.searchBar}
@@ -468,7 +479,7 @@ const ContentManagement = () => {
               <option value="">Select Type</option>
               {CONTENT_TYPES.map((type) => (
                 <option key={type} value={type}>
-                  {type === "Information" ? "Information (Image & Description)" : type === "Quiz" ? "True / False Quiz" : type === "3D Model" ? "3D Model (Paste .glb Link)" : type}
+                  {type === "Information" ? "Information (Image & Description)" : type === "Quiz" ? "True / False Quiz" : type === MODEL_CONTENT_TYPE ? "AR/VR Model (.glb)" : type}
                 </option>
               ))}
             </select>
@@ -567,10 +578,10 @@ const ContentManagement = () => {
                 </>
               )}
 
-              {/* 3D MODEL LINK */}
-              {selectedType === "3D Model" && (
+              {/* AR/VR MODEL LINK */}
+              {selectedType === MODEL_CONTENT_TYPE && (
                 <div className={commonStyles.formGroup}>
-                  <label>Upload 3D Model (.glb)</label>
+                  <label>Upload AR/VR Model (.glb)</label>
                   <input
                     type="file"
                     accept=".glb,model/gltf-binary,application/octet-stream"
@@ -578,7 +589,7 @@ const ContentManagement = () => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       if (file.size > 100 * 1024 * 1024) {
-                        alert("3D models must be 100 MB or smaller.");
+                        alert("AR/VR models must be 100 MB or smaller.");
                         e.target.value = "";
                         return;
                       }
@@ -593,7 +604,7 @@ const ContentManagement = () => {
                         setFormModelUrl(uploaded.url);
                       } catch (error) {
                         console.error("Model upload error:", error);
-                        alert(error.message || "Unable to upload the 3D model. Check Firebase Storage permissions.");
+                        alert(error.message || "Unable to upload the AR/VR model. Check Firebase Storage permissions.");
                       } finally {
                         setUploadingModel(false);
                       }

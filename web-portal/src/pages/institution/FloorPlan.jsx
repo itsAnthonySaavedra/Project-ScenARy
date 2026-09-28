@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDocs, getDoc, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDocs, getDoc, query, serverTimestamp, setDoc, updateDoc, where, deleteField } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import commonStyles from "../../components/common/Common.module.css";
 import { db, storage } from "../../lib/firebase";
@@ -121,6 +121,31 @@ const FloorPlan = () => {
     }
   };
 
+  const removeSelectedPoiPin = async () => {
+    if (!selectedPoiId) return;
+    setSavingMarker(true);
+    setMessage("");
+    try {
+      await updateDoc(doc(db, "pois", selectedPoiId), {
+        floorPlanPosition: deleteField(),
+        updatedAt: serverTimestamp(),
+      });
+      setPois((current) => current.map((poi) => {
+        if (poi.id !== selectedPoiId) return poi;
+        const updatedPoi = { ...poi };
+        delete updatedPoi.floorPlanPosition;
+        return updatedPoi;
+      }));
+      setPlacementMode(false);
+      setMessage("Pin removed successfully.");
+    } catch (error) {
+      console.error("Unable to remove POI pin:", error);
+      setMessage("Unable to remove the POI pin.");
+    } finally {
+      setSavingMarker(false);
+    }
+  };
+
   const handlePointerMove = (event) => {
     if (!dragStart) return;
     setOffset({ x: event.clientX - dragStart.x, y: event.clientY - dragStart.y });
@@ -154,12 +179,15 @@ const FloorPlan = () => {
           {floorPlan ? floorPlan.fileType === "application/pdf" ? <iframe title="Uploaded floor plan" src={floorPlan.url} style={{ width: "100%", height: 600, border: "1px solid #444", background: "#fff" }} /> : <>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
               <select value={selectedPoiId} onChange={(event) => setSelectedPoiId(event.target.value)} style={{ minWidth: 220, padding: 8 }}>
-                <option value="">Select a POI to place</option>
+                <option value="">Select a POI to place or move</option>
                 {pois.map((poi) => <option key={poi.id} value={poi.id}>{poi.name}</option>)}
               </select>
               <button type="button" className={commonStyles.btnPrimary} disabled={!selectedPoiId || savingMarker} onClick={() => setPlacementMode((current) => !current)}>
-                {placementMode ? "Click the floorplan..." : "Place POI pin"}
+                  {placementMode ? "Click the floorplan..." : pois.some((poi) => poi.id === selectedPoiId && poi.floorPlanPosition) ? "Move POI pin" : "Place POI pin"}
               </button>
+                <button type="button" className={commonStyles.btnOutline} disabled={!selectedPoiId || savingMarker || !pois.some((poi) => poi.id === selectedPoiId && poi.floorPlanPosition)} onClick={removeSelectedPoiPin}>
+                  Remove pin
+                </button>
               {pois.length === 0 && <small style={{ color: "#888" }}>Create POIs first, then place them here.</small>}
             </div>
             <div onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => setDragStart(null)} onPointerCancel={() => setDragStart(null)} style={{ height: 600, overflow: "hidden", background: "#f5f5f5", border: placementMode ? "2px solid #d4af37" : "1px solid #444", cursor: placementMode ? "crosshair" : dragStart ? "grabbing" : "grab", touchAction: "none" }}>
