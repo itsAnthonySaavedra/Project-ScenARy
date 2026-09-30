@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Bar, Doughnut } from "react-chartjs-2";
 import {
   ArcElement,
@@ -47,6 +48,7 @@ const formatDate = (value: any) => {
 };
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -137,6 +139,13 @@ const Dashboard: React.FC = () => {
             <div className={styles.statInfo}><h3>{title}</h3><div className={styles.value}>{value}</div></div>
           </div>
         ))}
+      </section>
+
+      <section className={styles.quickActions} aria-label="Quick actions">
+        <button type="button" className={styles.quickAction} onClick={() => navigate("/admin/content")}><i className="fa-solid fa-layer-group" /> Manage content</button>
+        <button type="button" className={styles.quickAction} onClick={() => navigate("/admin/users")}><i className="fa-solid fa-users" /> Manage users</button>
+        <button type="button" className={styles.quickAction} onClick={() => navigate("/admin/analytics")}><i className="fa-solid fa-chart-pie" /> Open analytics</button>
+        <button type="button" className={styles.quickAction} onClick={() => navigate("/admin/activity-logs")}><i className="fa-solid fa-list-check" /> Review activity</button>
       </section>
 
       <section className={styles.dashboardCharts}>

@@ -3,6 +3,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
+import { downloadCsv } from "../../lib/exportCsv";
 import {
     findNumericValue,
     formatAnalyticsDate,
@@ -49,6 +50,19 @@ const AdminAnalytics = () => {
     const selectedUserFeedback = selectedUser
         ? selectedFeedback.filter((item) => item.userId === (selectedUser.userId || selectedUser.id))
         : [];
+    const exportAnalytics = () => downloadCsv("scenary-analytics.csv", selectedRows.map((item) => {
+        const metrics = getUserAnalyticsMetrics(item);
+        return {
+            user: item.username,
+            institution: institutionNames[item.institutionId] || "Unassigned",
+            interactions: findNumericValue(item, ["interactionCount"]),
+            comments: metrics.commentCount,
+            ratingAverage: metrics.ratingAverage === null ? "" : metrics.ratingAverage.toFixed(2),
+            quizAverage: metrics.quizAverage === null ? "" : metrics.quizAverage.toFixed(2),
+            quizAttempts: metrics.quizAttempts,
+            lastActive: formatAnalyticsDate(item.lastInteractionAt),
+        };
+    }));
 
     const handleRemoveFeedback = async (feedbackId) => {
         if (!window.confirm("Remove this feedback permanently?")) return;
@@ -74,6 +88,7 @@ const AdminAnalytics = () => {
                     <option value="all">All institutions</option>
                     {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name}</option>)}
                 </select>
+                <button type="button" onClick={exportAnalytics} disabled={!selectedRows.length} className="btn-outline" style={{ padding: "0.65rem 0.9rem", cursor: selectedRows.length ? "pointer" : "not-allowed" }}><i className="fa-solid fa-download" style={{ marginRight: "0.4rem" }} />Export CSV</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>
                 <div className="chart-card"><h3>Cached Interactions</h3><strong style={{ fontSize: "2rem", color: "#d4af37" }}>{totalInteractions}</strong></div>

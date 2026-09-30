@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from "chart.js";
 import { Doughnut, Bar } from "react-chartjs-2";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
@@ -12,6 +13,7 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 
 const InstituteDashboard = () => {
     const { currentUser } = useAuth();
+    const navigate = useNavigate();
     const [dashboard, setDashboard] = useState({
         institution: null,
         content: 0,
@@ -115,6 +117,13 @@ const InstituteDashboard = () => {
                         <div className={dashboardStyles.statInfo}><h3>{label}</h3><div className={dashboardStyles.value}>{value}</div></div>
                     </div>
                 ))}
+            </section>
+
+            <section className={dashboardStyles.quickActions} aria-label="Quick actions">
+                <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/content")}><i className="fa-solid fa-layer-group" /> Manage content</button>
+                <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/landmarks")}><i className="fa-solid fa-landmark" /> Manage landmarks</button>
+                <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/pois")}><i className="fa-solid fa-location-dot" /> Manage POIs</button>
+                <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/analytics")}><i className="fa-solid fa-chart-bar" /> Open analytics</button>
             </section>
 
             <section className={dashboardStyles.dashboardCharts}>

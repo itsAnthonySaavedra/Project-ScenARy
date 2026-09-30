@@ -200,6 +200,23 @@
     max-width: 1440px;
 }
 
+@media (max-width: 760px) {
+    .chartsGrid,
+    .dashboardCharts {
+        grid-template-columns: 1fr;
+    }
+
+    .fullWidth {
+        grid-column: auto;
+    }
+
+    .dashboardIntro {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 1.25rem;
+    }
+}
+
 .dashboardIntro {
     display: flex;
     justify-content: space-between;
@@ -408,4 +425,30 @@
     .chartCard {
         padding: 1.15rem;
     }
+}
+
+.quickActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 2.5rem;
+}
+
+.quickAction {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.7rem 1rem;
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    border-radius: 6px;
+    background: rgba(212, 175, 55, 0.08);
+    color: var(--color-text-light);
+    cursor: pointer;
+    font: inherit;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.quickAction:hover {
+    background: rgba(212, 175, 55, 0.16);
+    border-color: var(--color-accent-gold);
 }

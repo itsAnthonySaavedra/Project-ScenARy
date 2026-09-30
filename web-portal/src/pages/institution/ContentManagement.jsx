@@ -392,6 +392,7 @@ const InstituteContentManagement = () => {
           <thead>
             <tr>
               <th>Title</th>
+              <th>Institution</th>
               <th>Type</th>
               <th>Area</th>
               <th>Status</th>
@@ -405,6 +406,12 @@ const InstituteContentManagement = () => {
                 <tr key={item.id}>
                   <td style={{ color: "#fff", fontWeight: "500" }}>
                     {item.title}
+                  </td>
+                  <td>
+                    <span style={{ color: "#4ade80", whiteSpace: "nowrap" }}>
+                      <i className="fa-solid fa-link" style={{ marginRight: "0.4rem" }} />
+                      Linked to this institution
+                    </span>
                   </td>
                   <td>{item.type}</td>
                   <td>{item.scope || item.contentScope || "Unclassified"}</td>
@@ -467,7 +474,7 @@ const InstituteContentManagement = () => {
             ) : (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={7}
                   style={{
                     textAlign: "center",
                     padding: "2rem",

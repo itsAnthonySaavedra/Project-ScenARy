@@ -27,6 +27,7 @@ const ContentManagement = () => {
   const [institutions, setInstitutions] = useState([]);
   const [filter, setFilter] = useState("All");
   const [scopeFilter, setScopeFilter] = useState("All");
+  const [institutionFilter, setInstitutionFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("");
   const [formScope, setFormScope] = useState("");
@@ -61,22 +62,37 @@ const ContentManagement = () => {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [currentContent, setCurrentContent] = useState(null);
+  const [usageByContent, setUsageByContent] = useState({});
   const [loading, setLoading] = useState(false);
 
   // --- FETCH DATA ---
   const fetchData = async () => {
     try {
-      const contentSnap = await getDocs(collection(db, "content"));
+      const [contentSnap, instSnap, markerSnap, poiSnap, tourSnap] = await Promise.all([
+        getDocs(collection(db, "content")),
+        getDocs(collection(db, "institutions")),
+        getDocs(collection(db, "markers")),
+        getDocs(collection(db, "pois")),
+        getDocs(collection(db, "tours")),
+      ]);
       setContents(
         contentSnap.docs
           .map((d) => ({ id: d.id, ...d.data(), type: normalizeContentType(d.data().type) }))
           .filter((item) => CONTENT_TYPES.includes(item.type)),
       );
 
-      const instSnap = await getDocs(collection(db, "institutions"));
       setInstitutions(
         instSnap.docs.map((d) => ({ id: d.id, name: d.data().name })),
       );
+      const usage = {};
+      const addUsage = (contentIds, source) => (contentIds || []).forEach((contentId) => {
+        usage[contentId] = usage[contentId] || { landmarks: 0, pois: 0, tours: 0 };
+        usage[contentId][source] += 1;
+      });
+      markerSnap.docs.forEach((item) => addUsage(item.data().contentIds, "landmarks"));
+      poiSnap.docs.forEach((item) => addUsage(item.data().contentIds, "pois"));
+      tourSnap.docs.forEach((item) => addUsage(item.data().moduleIds, "tours"));
+      setUsageByContent(usage);
     } catch (err) {
       console.error("Error fetching data:", err);
     }
@@ -276,6 +292,7 @@ const ContentManagement = () => {
   const filteredContents = contents
     .filter((c) => (filter === "All" ? true : c.status === "Awaiting Content"))
     .filter((c) => scopeFilter === "All" || getContentScope(c) === scopeFilter)
+    .filter((c) => institutionFilter === "All" || (institutionFilter === "Unassigned" ? !c.institutionId : c.institutionId === institutionFilter))
     .filter((c) => c.title?.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
@@ -306,6 +323,16 @@ const ContentManagement = () => {
             <option value="All">All Areas</option>
             {CONTENT_SCOPES.map((scope) => <option key={scope} value={scope}>{scope}</option>)}
           </select>
+          <select
+            className={commonStyles.formControl}
+            aria-label="Filter content by institution"
+            value={institutionFilter}
+            onChange={(e) => setInstitutionFilter(e.target.value)}
+          >
+            <option value="All">All Institutions</option>
+            <option value="Unassigned">Unassigned</option>
+            {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name}</option>)}
+          </select>
           <input
             type="text"
             className={tableStyles.searchBar}
@@ -330,6 +357,7 @@ const ContentManagement = () => {
               <th>Institution</th>
               <th>Type</th>
               <th>Area</th>
+              <th>Usage</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -342,11 +370,31 @@ const ContentManagement = () => {
                     {item.title}
                   </td>
                   <td>
-                    {institutions.find((i) => i.id === item.institutionId)
-                      ?.name || "Unassigned"}
+                    {item.institutionId ? (
+                      <span style={{ color: "#4ade80" }}>
+                        <i className="fa-solid fa-link" style={{ marginRight: "0.4rem" }} />
+                        {institutions.find((i) => i.id === item.institutionId)?.name || "Linked institution"}
+                      </span>
+                    ) : (
+                      <span style={{ color: "#fbbf24" }}>
+                        <i className="fa-solid fa-link-slash" style={{ marginRight: "0.4rem" }} />
+                        Unassigned
+                      </span>
+                    )}
                   </td>
                   <td>{item.type}</td>
                   <td>{item.scope || item.contentScope || "Unclassified"}</td>
+                  <td>
+                    {(() => {
+                      const usage = usageByContent[item.id] || { landmarks: 0, pois: 0, tours: 0 };
+                      const total = usage.landmarks + usage.pois + usage.tours;
+                      const linked = total > 0;
+                      return <span style={{ color: linked ? "#4ade80" : "#fbbf24" }} title={linked ? `${usage.landmarks} landmarks, ${usage.pois} POIs, ${usage.tours} tours` : "Not assigned to a landmark, POI, or tour"}>
+                        <i className={`fa-solid ${linked ? "fa-link" : "fa-link-slash"}`} style={{ marginRight: "0.4rem" }} />
+                        {linked ? `${total} linked` : "Unused"}
+                      </span>;
+                    })()}
+                  </td>
                   <td>
                     <span
                       style={{
@@ -402,7 +450,7 @@ const ContentManagement = () => {
             ) : (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={7}
                   style={{
                     textAlign: "center",
                     padding: "2rem",

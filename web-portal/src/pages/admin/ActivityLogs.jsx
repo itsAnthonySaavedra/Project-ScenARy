@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import tableStyles from "../../components/common/Tables.module.css";
+import { downloadCsv } from "../../lib/exportCsv";
 
 const formatDate = (value) => {
   if (!value) return "Unknown";
@@ -58,6 +59,13 @@ const ActivityLogs = () => {
       .toLowerCase()
       .includes(searchTerm.toLowerCase());
   });
+  const exportLogs = () => downloadCsv("scenary-activity-logs.csv", filteredLogs.map((log) => ({
+    date: formatDate(log.createdAt),
+    action: log.action || "",
+    entity: log.entityType || "",
+    actor: log.actorName || usersById[log.actorId] || "System",
+    source: log.source || "",
+  })));
 
   return (
     <div className={tableStyles.pageWrapper}>
@@ -80,6 +88,7 @@ const ActivityLogs = () => {
           <option value="all">All institutions</option>
           {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name}</option>)}
         </select>
+        <button type="button" onClick={exportLogs} disabled={!filteredLogs.length} className="btn-outline" style={{ padding: "0.8rem 1rem", cursor: filteredLogs.length ? "pointer" : "not-allowed" }}><i className="fa-solid fa-download" style={{ marginRight: "0.4rem" }} />Export CSV</button>
       </div>
 
       <div className={tableStyles.tableContainer}>

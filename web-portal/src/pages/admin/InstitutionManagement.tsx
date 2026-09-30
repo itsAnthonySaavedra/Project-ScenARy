@@ -25,13 +25,7 @@ const InstitutionManagement = () => {
      LOAD FROM FIREBASE
   ===================== */
   const fetchInstitutions = async () => {
-    console.log("Fetching institutions...");
     const snap = await getDocs(collection(db, "institutions"));
-
-    console.log("Docs count:", snap.size);
-    snap.docs.forEach((d) => {
-      console.log("Doc:", d.id, d.data());
-    });
 
     setInstitutions(
       snap.docs.map((d) => ({

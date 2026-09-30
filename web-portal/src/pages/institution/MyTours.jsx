@@ -113,7 +113,6 @@ const MyTours = () => {
         loadFeedback(instId.trim()),
       ]);
 
-      console.log("Tours found for this ID:", snap.size);
       const tourList = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const landmarks = landmarkSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setTours(tourList);
@@ -270,20 +269,6 @@ const MyTours = () => {
   );
   return (
     <div style={{ padding: "20px" }}>
-      {/* DEBUG HEADER */}
-      <div
-        style={{
-          background: userInstitutionId ? "#C19A4B" : "#dc2626",
-          color: "#000",
-          padding: "10px",
-          marginBottom: "20px",
-          borderRadius: "4px",
-        }}
-      >
-        Current Tours in State: {tours.length} | ID:{" "}
-        {userInstitutionId || "NONE (Null in DB)"}
-      </div>
-
       <div
         style={{
           display: "flex",

@@ -16,7 +16,6 @@ export default function CollabPage() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log('Collaboration proposal submitted:', formData);
     alert('Thank you! Our institutional collaboration team will review your proposal shortly.');
   };
 
