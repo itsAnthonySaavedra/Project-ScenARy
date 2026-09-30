@@ -122,7 +122,7 @@ const UserManagement: React.FC = () => {
       action: nextStatus === "Banned" ? "user.banned" : "user.unbanned",
       entityType: "user",
       entityId: user.id,
-      metadata: { email: user.email },
+      metadata: { email: user.email, institutionId: user.institutionId || null },
     });
   };
 

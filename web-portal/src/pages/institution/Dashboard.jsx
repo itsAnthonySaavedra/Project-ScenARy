@@ -4,7 +4,7 @@ import { Doughnut, Bar } from "react-chartjs-2";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { useAuth } from "../../context/AuthContext";
 import { db } from "../../lib/firebase";
-import { getRatingStats, loadFeedback, loadUserAnalytics } from "../../lib/userAnalytics";
+import { cleanFeedbackComment, getRatingStats, loadFeedback, loadUserAnalytics } from "../../lib/userAnalytics";
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 import dashboardStyles from '../../components/features/dashboard/Dashboard.module.css';
 
@@ -131,7 +131,7 @@ const InstituteDashboard = () => {
 
             <section className={dashboardStyles.feedbackCard}>
                 <div className={dashboardStyles.cardHeading}><div><p className={dashboardStyles.eyebrow}>Visitor voice</p><h3>Recent feedback</h3></div><span>{dashboard.feedback.length} responses</span></div>
-                {dashboard.feedback.length === 0 ? <p className={dashboardStyles.emptyState}>No feedback has been submitted yet.</p> : dashboard.feedback.slice(0, 4).map((item) => <div className={dashboardStyles.feedbackItem} key={item.id}><span className={dashboardStyles.feedbackRating}><i className="fa-solid fa-star"></i> {item.rating || "-"}</span><p>{item.comment || "Rated without a comment"}</p></div>)}
+                {dashboard.feedback.length === 0 ? <p className={dashboardStyles.emptyState}>No feedback has been submitted yet.</p> : dashboard.feedback.slice(0, 4).map((item) => <div className={dashboardStyles.feedbackItem} key={item.id}><span className={dashboardStyles.feedbackRating}><i className="fa-solid fa-star"></i> {item.rating || "-"}</span><p>{cleanFeedbackComment(item.comment) || "Rated without a comment"}</p></div>)}
             </section>
         </div>
     );

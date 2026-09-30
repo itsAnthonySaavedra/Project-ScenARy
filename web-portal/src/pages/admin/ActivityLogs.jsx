@@ -11,6 +11,9 @@ const formatDate = (value) => {
 
 const ActivityLogs = () => {
   const [logs, setLogs] = useState([]);
+  const [usersById, setUsersById] = useState({});
+  const [institutions, setInstitutions] = useState([]);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -18,7 +21,11 @@ const ActivityLogs = () => {
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const snapshot = await getDocs(collection(db, "auditLogs"));
+        const [snapshot, usersSnapshot, institutionsSnapshot] = await Promise.all([
+          getDocs(collection(db, "auditLogs")),
+          getDocs(collection(db, "users")),
+          getDocs(collection(db, "institutions")),
+        ]);
         const loadedLogs = snapshot.docs
           .map((item) => ({ id: item.id, ...item.data() }))
           .sort((left, right) => {
@@ -27,6 +34,11 @@ const ActivityLogs = () => {
             return rightTime - leftTime;
           });
         setLogs(loadedLogs);
+        setUsersById(Object.fromEntries(usersSnapshot.docs.map((item) => {
+          const profile = item.data();
+          return [item.id, profile.username || profile.name || profile.displayName || profile.email?.split("@")[0] || "Unknown user"];
+        })));
+        setInstitutions(institutionsSnapshot.docs.map((item) => ({ id: item.id, name: item.data().name || "Unnamed institution" })));
       } catch (fetchError) {
         console.error("Error fetching activity logs:", fetchError);
         setError("Unable to load activity logs.");
@@ -40,7 +52,9 @@ const ActivityLogs = () => {
 
   const filteredLogs = logs.filter((log) => {
     const metadata = JSON.stringify(log.metadata || {});
-    return `${log.action} ${log.entityType} ${log.actorId || ""} ${metadata}`
+    const institutionId = log.institutionId || log.metadata?.institutionId || (log.entityType === "institution" ? log.entityId : "");
+    const institutionMatches = selectedInstitutionId === "all" || institutionId === selectedInstitutionId;
+    return institutionMatches && `${log.action} ${log.entityType} ${log.actorName || usersById[log.actorId] || ""} ${log.actorId || ""} ${metadata}`
       .toLowerCase()
       .includes(searchTerm.toLowerCase());
   });
@@ -54,7 +68,7 @@ const ActivityLogs = () => {
         </p>
       </div>
 
-      <div className={tableStyles.controls} style={{ justifyContent: "flex-start" }}>
+      <div className={tableStyles.controls} style={{ justifyContent: "flex-start", gap: "0.75rem", flexWrap: "wrap" }}>
         <input
           className={tableStyles.searchBar}
           type="search"
@@ -62,6 +76,10 @@ const ActivityLogs = () => {
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
         />
+        <select value={selectedInstitutionId} onChange={(event) => setSelectedInstitutionId(event.target.value)} aria-label="Filter activity by institution" style={{ minWidth: "240px", padding: "0.8rem", background: "#0a0a0a", color: "#fff", border: "1px solid #333", borderRadius: "6px" }}>
+          <option value="all">All institutions</option>
+          {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name}</option>)}
+        </select>
       </div>
 
       <div className={tableStyles.tableContainer}>
@@ -87,8 +105,8 @@ const ActivityLogs = () => {
                 <tr key={log.id}>
                   <td>{formatDate(log.createdAt)}</td>
                   <td>{log.action || "-"}</td>
-                  <td>{`${log.entityType || "-"}${log.entityId ? ` (${log.entityId})` : ""}`}</td>
-                  <td>{log.actorId || "System"}</td>
+                  <td>{log.entityType === "user" ? usersById[log.entityId] || "User" : log.entityType === "institution" ? institutions.find((item) => item.id === log.entityId)?.name || "Institution" : log.entityType || "-"}</td>
+                  <td>{log.actorName || usersById[log.actorId] || (log.actorId ? "Unknown user" : "System")}</td>
                   <td>{log.source || "-"}</td>
                 </tr>
               ))}

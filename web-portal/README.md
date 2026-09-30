@@ -4,12 +4,12 @@
 
 The analytics screens read two Firestore collections. They are intentionally read-only until the phone app or a trusted backend begins writing data:
 
-- `userAnalytics/{userId}`: `userId`, `institutionId`, `displayName` or `email`, `interactionCount`, `ratingCount`, `ratingTotal`, `commentCount`, and `lastInteractionAt`. Optional detailed metrics are `quizAttempts`, `quizScoreTotal` (percentage points), `clickCount`, `sessionCount`, and `totalSessionDurationSeconds`.
+- `userAnalytics/{userId}`: `userId`, `institutionId`, `displayName` or `email`, `interactionCount`, `ratingCount`, `ratingTotal`, `commentCount`, and `lastInteractionAt`. Quiz metrics may use `quizTotalScore` (total correct answers) with `quizTotalQuestions`, or legacy `quizScoreTotal` (percentage points) with `quizAttempts`. Other optional metrics are `clickCount`, `sessionCount`, and `totalSessionDurationSeconds`.
 - `feedback/{feedbackId}`: `userId`, `institutionId`, optional `landmarkId` or `contentId`, `rating` from 1 to 5, optional `comment`, and `createdAt`.
 
 The summary document is the cached reporting layer. A later phone integration can batch events locally and update this summary periodically, while submitting feedback as individual records. For stronger trust, move those writes behind a Firebase Cloud Function before treating the values as audit data.
 
-The portal derives per-user rating average, quiz average, clicks per session, and average session duration from these optional fields. Existing summary documents remain valid and display `-` until the phone app or trusted backend begins writing the detailed metrics.
+The portal derives per-user rating average, quiz accuracy from score/question totals when available, legacy quiz average from percentage points per attempt, clicks per session, and average session duration from these optional fields. Existing summary documents remain valid and display `-` until the phone app or trusted backend begins writing the detailed metrics.
 
 ## Audit actions
 

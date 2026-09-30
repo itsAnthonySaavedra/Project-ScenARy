@@ -90,6 +90,8 @@ USER_ANALYTICS
   ratingTotal        int          14
   quizAttempts       int          0
   quizScoreTotal     double       0
+  quizTotalScore     int          0
+  quizTotalQuestions int          0
   clickCount         int          0
   sessionCount       int          0
   totalSessionDurationSeconds int 0
@@ -161,7 +163,9 @@ IMPLEMENTATION NOTES
    the current portal reads those fields but does not create feedback or
    analytics documents itself.
 5. The optional USER_ANALYTICS metrics are aggregate values per user. The
-  portal derives rating average = ratingTotal / ratingCount, quiz average =
-  quizScoreTotal / quizAttempts, clicks per session = clickCount /
-  sessionCount, and average session duration = totalSessionDurationSeconds /
-  sessionCount. Existing documents may omit these fields.
+  portal derives rating average = ratingTotal / ratingCount, quiz accuracy =
+  quizTotalScore / quizTotalQuestions when question totals exist, or the
+  legacy percentage-point average = quizScoreTotal / quizAttempts. Clicks per
+  session = clickCount / sessionCount, and average session duration =
+  totalSessionDurationSeconds / sessionCount. Existing documents may omit
+  these fields.

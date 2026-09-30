@@ -1,4 +1,5 @@
-import { collection, deleteDoc, doc, getDocs, query, where } from "firebase/firestore";
+import leoProfanity from "leo-profanity";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "./firebase";
 
 // Cached summary contract: users/{uid}/analytics/summary is represented here
@@ -8,8 +9,27 @@ export const loadUserAnalytics = async (institutionId = null) => {
     ? query(collection(db, "userAnalytics"), where("institutionId", "==", institutionId))
     : query(collection(db, "userAnalytics"));
   const snapshot = await getDocs(analyticsQuery);
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return Promise.all(snapshot.docs.map(async (item) => {
+    const data = item.data();
+    const userId = data.userId || item.id;
+    let profile = {};
+    try {
+      const profileSnapshot = await getDoc(doc(db, "users", userId));
+      if (profileSnapshot.exists()) profile = profileSnapshot.data();
+    } catch {
+      profile = {};
+    }
+    const label = profile.username || profile.name || profile.displayName || data.username || data.displayName || profile.email || data.email;
+    return {
+      id: item.id,
+      ...data,
+      username: label ? String(label).split("@")[0] : "Unknown user",
+    };
+  }));
 };
+
+export const cleanFeedbackComment = (comment) =>
+  leoProfanity.clean(String(comment || ""));
 
 export const loadFeedback = async (institutionId = null) => {
   const feedbackQuery = institutionId
@@ -71,17 +91,21 @@ export const getUserAnalyticsMetrics = (summary) => {
   const ratingCount = findNumericValue(summary, ["ratingCount"]);
   const ratingTotal = findNumericValue(summary, ["ratingTotal"]);
   const quizAttempts = findNumericValue(summary, ["quizAttempts", "quizzesTaken"]);
-  const quizScoreTotal = findNumericValue(summary, ["quizScoreTotal", "quizTotalScore"]);
+  const quizScoreTotal = findNumericValue(summary, ["quizScoreTotal"]);
   const sessionCount = findNumericValue(summary, ["sessionCount"]);
   const clickCount = findNumericValue(summary, ["clickCount", "interactionCount"]);
   const totalSessionDurationSeconds = findNumericValue(summary, ["totalSessionDurationSeconds"]);
   const commentCount = findNumericValue(summary, ["commentCount"]);
   const totalQuizQuestions = findNumericValue(summary, ["quizTotalQuestions"]);
+  const hasRawQuizScore = summary?.quizTotalScore !== undefined && summary.quizTotalScore !== null && summary.quizTotalScore !== "";
   const lastQuizAt = summary?.lastQuizAt || summary?.["lastQuizAt"] || null;
+  const quizAverage = hasRawQuizScore
+    ? totalQuizQuestions > 0 ? (Number(summary.quizTotalScore) / totalQuizQuestions) * 100 : null
+    : quizAttempts ? quizScoreTotal / quizAttempts : null;
 
   return {
     ratingAverage: ratingCount ? ratingTotal / ratingCount : null,
-    quizAverage: quizAttempts ? quizScoreTotal / quizAttempts : null,
+    quizAverage,
     clicksPerSession: sessionCount ? clickCount / sessionCount : null,
     averageSessionDurationSeconds: sessionCount ? totalSessionDurationSeconds / sessionCount : null,
     commentCount,
@@ -101,7 +125,7 @@ export const formatDuration = (seconds) => {
 export const getRatingStats = (feedback) => {
   const ratings = feedback
     .map((item) => Number(item.rating))
-    .filter((rating) => Number.isInteger(rating) && rating >= 0 && rating <= 5);
+    .filter((rating) => Number.isInteger(rating) && rating >= 1 && rating <= 5);
   const total = ratings.reduce((sum, rating) => sum + rating, 0);
   const distribution = [0, 1, 2, 3, 4, 5].map((rating) => ({
     rating,
