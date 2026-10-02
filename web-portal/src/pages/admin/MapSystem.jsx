@@ -19,6 +19,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { uploadStorageFile } from "../../lib/storageUpload";
+import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
@@ -48,9 +49,8 @@ const MapSystem = () => {
   const [markerImage, setMarkerImage] = useState(null);
   const [savingMarker, setSavingMarker] = useState(false);
 
-  // NEW: Track the active tours for the currently clicked marker
-  const [activeTours, setActiveTours] = useState({});
-  const [loadingTours, setLoadingTours] = useState({});
+  const [activeExperiences, setActiveExperiences] = useState({});
+  const [loadingExperiences, setLoadingExperiences] = useState({});
 
   useEffect(() => {
     const unsubInst = onSnapshot(collection(db, "institutions"), (snapshot) => {
@@ -69,24 +69,28 @@ const MapSystem = () => {
     };
   }, []);
 
-  // NEW: Fetch tours whenever a user opens a marker popup
   const handleMarkerClick = async (institutionId) => {
-    if (activeTours[institutionId]) return; // Already fetched
+    if (Object.hasOwn(activeExperiences, institutionId)) return;
 
-    setLoadingTours((prev) => ({ ...prev, [institutionId]: true }));
+    setLoadingExperiences((prev) => ({ ...prev, [institutionId]: true }));
     try {
-      const q = query(
-        collection(db, "tours"),
-        where("institutionId", "==", institutionId.trim()),
+      const [poiSnap, contentSnap] = await Promise.all([
+        getDocs(query(collection(db, "pois"), where("institutionId", "==", institutionId.trim()))),
+        getDocs(query(collection(db, "content"), where("institutionId", "==", institutionId.trim()))),
+      ]);
+      const institutionLandmarks = markers.filter(
+        (marker) => marker.institutionId === institutionId,
       );
-      const snap = await getDocs(q);
-      const toursList = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-      setActiveTours((prev) => ({ ...prev, [institutionId]: toursList }));
+      const experiences = buildGeneratedExperiences(
+        institutionLandmarks,
+        poiSnap.docs.map((item) => ({ id: item.id, ...item.data() })),
+        contentSnap.docs.map((item) => ({ id: item.id, ...item.data() })),
+      );
+      setActiveExperiences((prev) => ({ ...prev, [institutionId]: experiences }));
     } catch (err) {
-      console.error("Error fetching tours for marker:", err);
+      console.error("Error generating landmark experiences:", err);
     } finally {
-      setLoadingTours((prev) => ({ ...prev, [institutionId]: false }));
+      setLoadingExperiences((prev) => ({ ...prev, [institutionId]: false }));
     }
   };
 
@@ -219,12 +223,12 @@ const MapSystem = () => {
                   >
                     Available Experiences:
                   </span>
-                  {loadingTours[marker.institutionId] ? (
-                    <div style={{ fontSize: "0.8rem" }}>Loading tours...</div>
-                  ) : activeTours[marker.institutionId]?.length > 0 ? (
-                    activeTours[marker.institutionId].map((tour) => (
+                  {loadingExperiences[marker.institutionId] ? (
+                    <div style={{ fontSize: "0.8rem" }}>Loading experiences...</div>
+                  ) : activeExperiences[marker.institutionId]?.length > 0 ? (
+                    activeExperiences[marker.institutionId].map((experience) => (
                       <div
-                        key={tour.id}
+                        key={experience.id}
                         style={{
                           fontSize: "0.85rem",
                           padding: "4px 0",
@@ -233,15 +237,15 @@ const MapSystem = () => {
                           justifyContent: "space-between",
                         }}
                       >
-                        <span>📍 {tour.title}</span>
+                        <span>📍 {experience.title}</span>
                         <span style={{ color: "#C19A4B" }}>
-                          {tour.duration}m
+                          {experience.poiCount} POIs · {experience.contentItems.length} items
                         </span>
                       </div>
                     ))
                   ) : (
                     <div style={{ fontSize: "0.8rem", color: "#888" }}>
-                      No tours available yet.
+                      No landmarks configured yet.
                     </div>
                   )}
                 </div>

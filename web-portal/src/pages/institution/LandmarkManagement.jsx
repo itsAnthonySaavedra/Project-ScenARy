@@ -10,6 +10,7 @@ import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import commonStyles from "../../components/common/Common.module.css";
 import { getContentScope } from "../../lib/contentScope";
+import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
 
 L.Marker.prototype.options.icon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
 
@@ -17,6 +18,7 @@ const LandmarkManagement = () => {
   const [institutionId, setInstitutionId] = useState(null);
   const [landmarks, setLandmarks] = useState([]);
   const [pois, setPois] = useState([]);
+  const [allContent, setAllContent] = useState([]);
   const [availableContent, setAvailableContent] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
   const [selectedLandmarkId, setSelectedLandmarkId] = useState("");
@@ -28,13 +30,13 @@ const LandmarkManagement = () => {
     const landmarkSnap = await getDocs(query(collection(db, "markers"), where("institutionId", "==", id)));
     const poiSnap = await getDocs(query(collection(db, "pois"), where("institutionId", "==", id)));
     const contentSnap = await getDocs(query(collection(db, "content"), where("institutionId", "==", id)));
-    setLandmarks(landmarkSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
-    setPois(poiSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
-    setAvailableContent(
-      contentSnap.docs
-        .map((item) => ({ id: item.id, ...item.data() }))
-        .filter((item) => getContentScope(item) === "Landmark"),
-    );
+    const landmarkItems = landmarkSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    const poiItems = poiSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    const contentItems = contentSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    setLandmarks(landmarkItems);
+    setPois(poiItems);
+    setAllContent(contentItems);
+    setAvailableContent(contentItems.filter((item) => getContentScope(item) === "Landmark"));
     setLoading(false);
   };
 
@@ -86,6 +88,8 @@ const LandmarkManagement = () => {
       alert("Unable to save landmark details.");
     } finally { setSaving(false); }
   };
+
+  const generatedExperiences = buildGeneratedExperiences(landmarks, pois, allContent);
 
   if (loading) return <div style={{ padding: 20, color: "#fff" }}>Loading landmarks...</div>;
 
@@ -158,7 +162,20 @@ const LandmarkManagement = () => {
             </Marker>
           ))}
         </MapContainer>
-        <div style={{ marginTop: 12 }}>{landmarks.map((landmark) => <div key={landmark.id} style={{ padding: 10, borderBottom: "1px solid #333" }}><strong>{landmark.landmarkName || landmark.institutionName}</strong> <span style={{ color: "#888" }}>({pois.filter((poi) => poi.landmarkId === landmark.id).length} POIs)</span></div>)}</div>
+        <div style={{ marginTop: 12 }}>
+          <h3 style={{ color: "#fff" }}>Generated experience preview</h3>
+          {generatedExperiences.map((experience) => (
+            <div key={experience.id} style={{ padding: 10, borderBottom: "1px solid #333" }}>
+              <strong>{experience.title}</strong>
+              <span style={{ color: "#888" }}> ({experience.poiCount} POIs, {experience.contentItems.length} published items)</span>
+              {experience.contentItems.length > 0 ? (
+                <ul style={{ margin: "8px 0 0", paddingLeft: 20, color: "#aaa" }}>
+                  {experience.contentItems.map((item) => <li key={item.id}>{item.title}</li>)}
+                </ul>
+              ) : <div style={{ color: "#888", marginTop: 6 }}>No published content is linked yet.</div>}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   </div>;

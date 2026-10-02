@@ -49,7 +49,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
     { path: "/admin/pois", icon: "fa-location-dot", label: "POIs" },
     { path: "/admin/users", icon: "fa-users", label: "User Management" },
     { path: "/admin/content", icon: "fa-layer-group", label: "Content" },
-    { path: "/admin/tours", icon: "fa-route", label: "Tours" },
     { path: "/admin/activity-logs", icon: "fa-list-check", label: "Activity Logs" },
     { path: "/admin/analytics", icon: "fa-chart-pie", label: "Analytics" },
     { path: "/admin/settings", icon: "fa-cog", label: "Settings" },
@@ -57,7 +56,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
 
   const instituteLinks = [
     { path: "/institution/dashboard", icon: "fa-home", label: "Dashboard" },
-    { path: "/institution/tours", icon: "fa-vr-cardboard", label: "My Tours" },
     {
       path: "/institution/content",
       icon: "fa-folder-open",

@@ -19,7 +19,6 @@ import Login from "./pages/auth/Login";
 import AdminDashboard from "./pages/admin/Dashboard";
 import UserManagement from "./pages/admin/UserManagement";
 import ContentManagement from "./pages/admin/ContentManagement";
-import TourManagement from "./pages/admin/TourManagement";
 import ActivityLogs from "./pages/admin/ActivityLogs";
 import AdminAnalytics from "./pages/admin/Analytics";
 import Settings from "./pages/CommonSettings";
@@ -27,7 +26,6 @@ import MapSystem from "./pages/admin/MapSystem";
 
 /* Institute Pages */
 import InstituteDashboard from "./pages/institution/Dashboard";
-import InstituteTours from "./pages/institution/MyTours";
 import InstituteAnalytics from "./pages/institution/Analytics";
 import LandmarkManagement from "./pages/institution/LandmarkManagement";
 import POIManagement from "./pages/institution/POIManagement";
@@ -81,7 +79,7 @@ function AppRoutes() {
         <Route path="pois" element={<POIManagement adminMode />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="content" element={<ContentManagement />} />
-        <Route path="tours" element={<TourManagement />} />
+        <Route path="tours" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="activity-logs" element={<ActivityLogs />} />
         <Route path="analytics" element={<AdminAnalytics />} />
         <Route path="settings" element={<Settings />} />
@@ -98,7 +96,7 @@ function AppRoutes() {
       >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<InstituteDashboard />} />
-        <Route path="tours" element={<InstituteTours />} />
+        <Route path="tours" element={<Navigate to="/institution/dashboard" replace />} />
         <Route path="content" element={<InstituteContentManagement />} />
         <Route path="landmarks" element={<LandmarkManagement />} />
         <Route path="pois" element={<POIManagement />} />
