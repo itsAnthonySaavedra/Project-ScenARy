@@ -22,7 +22,7 @@ const Landing = () => {
         </div>
         <div className="nav-links">
           <Link to="/login?type=institution" className={styles.btnOutline}>
-            Institute Login
+            Institution Login
           </Link>
         </div>
       </nav>
@@ -76,7 +76,7 @@ const Landing = () => {
           </div>
           <div className={styles.footerLinks}>
             <Link to="/collab">Collab</Link>
-            <a href="#">Create for Institute</a>
+            <a href="#">Create for Institution</a>
             <Link to="/login?type=admin">Admin</Link>
           </div>
         </div>

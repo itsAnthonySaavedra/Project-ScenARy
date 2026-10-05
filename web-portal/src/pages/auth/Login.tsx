@@ -98,7 +98,7 @@ const Login: React.FC = () => {
                 type="email"
                 className={styles.formControl}
                 placeholder={
-                  isAdmin ? "admin@scenary.com" : "contact@institute.com"
+                  isAdmin ? "admin@scenary.com" : "contact@institution.com"
                 }
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -127,7 +127,7 @@ const Login: React.FC = () => {
             >
               {loading
                 ? "Logging in..."
-                : `Login as ${isAdmin ? "Admin" : "Institute"}`}
+                : `Login as ${isAdmin ? "Admin" : "Institution"}`}
             </button>
           </form>
 

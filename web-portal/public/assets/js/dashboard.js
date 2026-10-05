@@ -1,3 +1,6 @@
+/* global Chart */
+/* eslint-disable no-unused-vars */
+
 function switchDashboardView(viewName) {
     const views = document.querySelectorAll('.dashboard-view');
     views.forEach(view => view.style.display = 'none');

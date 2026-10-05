@@ -1,3 +1,5 @@
+/* eslint-disable no-unused-vars */
+
 function switchAdminView(viewName) {
     const views = document.querySelectorAll('.admin-view');
     views.forEach(view => view.style.display = 'none');
