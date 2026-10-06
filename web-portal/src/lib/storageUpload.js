@@ -1,27 +1,25 @@
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { storage } from "./firebase";
 
+export const MAX_GLB_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
+
 export const inspectGlbTextures = async (file) => {
-  const buffer = await file.arrayBuffer();
-  const view = new DataView(buffer);
-  if (view.byteLength < 20 || view.getUint32(0, true) !== 0x46546c67) {
+  if (file.size < 20) {
     throw new Error("The selected file is not a valid GLB file.");
   }
 
-  let offset = 12;
-  let json = null;
-  while (offset + 8 <= view.byteLength) {
-    const chunkLength = view.getUint32(offset, true);
-    const chunkType = view.getUint32(offset + 4, true);
-    if (chunkType === 0x4e4f534a) {
-      const bytes = new Uint8Array(buffer, offset + 8, chunkLength);
-      json = JSON.parse(new TextDecoder().decode(bytes).replace(/\0+$/, ""));
-      break;
-    }
-    offset += 8 + chunkLength;
+  const header = new DataView(await file.slice(0, 20).arrayBuffer());
+  const declaredLength = header.getUint32(8, true);
+  const jsonLength = header.getUint32(12, true);
+  if (header.getUint32(0, true) !== 0x46546c67 || declaredLength !== file.size) {
+    throw new Error("The selected file is not a valid GLB file.");
+  }
+  if (header.getUint32(16, true) !== 0x4e4f534a || jsonLength > declaredLength - 20) {
+    throw new Error("The GLB is missing its JSON scene description.");
   }
 
-  if (!json) throw new Error("The GLB is missing its JSON scene description.");
+  const jsonBuffer = await file.slice(20, 20 + jsonLength).arrayBuffer();
+  const json = JSON.parse(new TextDecoder().decode(jsonBuffer).replace(/\0+$/, ""));
 
   const externalImageUris = (json.images || [])
     .map((image) => image.uri)
@@ -42,7 +40,7 @@ export const uploadStorageFile = async (file, folder) => {
   const contentType = file.name.toLowerCase().endsWith(".glb")
     ? "model/gltf-binary"
     : file.type || "application/octet-stream";
-  await uploadBytes(fileRef, file, { contentType });
+  await uploadBytesResumable(fileRef, file, { contentType });
   const url = await getDownloadURL(fileRef);
 
   return {

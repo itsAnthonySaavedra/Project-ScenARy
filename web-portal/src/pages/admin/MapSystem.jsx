@@ -47,10 +47,22 @@ const MapSystem = () => {
   const [tempCoords, setTempCoords] = useState(null);
   const [description, setDescription] = useState("");
   const [markerImage, setMarkerImage] = useState(null);
+  const [markerImagePreview, setMarkerImagePreview] = useState("");
   const [savingMarker, setSavingMarker] = useState(false);
 
   const [activeExperiences, setActiveExperiences] = useState({});
   const [loadingExperiences, setLoadingExperiences] = useState({});
+
+  useEffect(() => {
+    if (!markerImage) {
+      setMarkerImagePreview("");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(markerImage);
+    setMarkerImagePreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [markerImage]);
 
   useEffect(() => {
     const unsubInst = onSnapshot(collection(db, "institutions"), (snapshot) => {
@@ -357,6 +369,16 @@ const MapSystem = () => {
                 style={{ color: "#ccc", width: "100%" }}
               />
               <small style={{ color: "#888" }}>PNG, JPG, or WEBP, maximum 10 MB.</small>
+              {markerImage && (
+                <div>
+                  <small style={{ color: "#4ade80", display: "block", marginTop: 6 }}>Selected: {markerImage.name}</small>
+                  <img
+                    src={markerImagePreview}
+                    alt="Marker picture preview"
+                    style={{ display: "block", width: "100%", maxHeight: 180, objectFit: "contain", marginTop: 8, borderRadius: 4, background: "#111" }}
+                  />
+                </div>
+              )}
             </div>
 
             <div

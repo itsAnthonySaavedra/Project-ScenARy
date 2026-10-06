@@ -616,6 +616,7 @@ const UserManagement: React.FC = () => {
                 <label>Head Curator</label>
                 <input name="curator" className={commonStyles.formControl} defaultValue={currentInst?.curator} required />
               </div>
+
             </form>
           </Modal>
         </>

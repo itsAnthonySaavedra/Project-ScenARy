@@ -3,6 +3,7 @@ import { collection, getDocs, query, where, updateDoc, doc, serverTimestamp } fr
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { uploadStorageFile } from "../../lib/storageUpload";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -22,9 +23,22 @@ const LandmarkManagement = () => {
   const [availableContent, setAvailableContent] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
   const [selectedLandmarkId, setSelectedLandmarkId] = useState("");
-  const [form, setForm] = useState({ name: "", description: "" });
+  const [form, setForm] = useState({ name: "", description: "", imageUrl: "", imageStoragePath: "", imageFileName: "", imageFileType: "" });
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreview("");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(imageFile);
+    setImagePreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [imageFile]);
 
   const loadData = async (id) => {
     const landmarkSnap = await getDocs(query(collection(db, "markers"), where("institutionId", "==", id)));
@@ -57,7 +71,12 @@ const LandmarkManagement = () => {
     setForm({
       name: landmark.landmarkName || landmark.institutionName || "",
       description: landmark.info?.description ?? landmark.description ?? "",
+      imageUrl: landmark.imageUrl || "",
+      imageStoragePath: landmark.imageStoragePath || "",
+      imageFileName: landmark.imageFileName || "",
+      imageFileType: landmark.imageFileType || "",
     });
+    setImageFile(null);
     setSelectedContentIds(
       (landmark.contentIds || []).filter((contentId) =>
         availableContent.some((item) => item.id === contentId),
@@ -72,17 +91,35 @@ const LandmarkManagement = () => {
     const description = form.description.trim();
     setSaving(true);
     try {
+      const uploadedImage = imageFile
+        ? await uploadStorageFile(imageFile, `markers/${institutionId}`)
+        : null;
       await updateDoc(doc(db, "markers", selectedLandmarkId), {
         landmarkName: name,
         institutionName: name || undefined,
         description,
         info: { description },
+        imageUrl: uploadedImage?.url || form.imageUrl,
+        imageStoragePath: uploadedImage?.storagePath || form.imageStoragePath,
+        imageFileName: uploadedImage?.fileName || form.imageFileName,
+        imageFileType: uploadedImage?.fileType || form.imageFileType,
         contentIds: selectedContentIds.filter((contentId) =>
           availableContent.some((item) => item.id === contentId),
         ),
         updatedAt: serverTimestamp(),
       });
-      setForm({ ...form, name, description });
+      setForm({
+        ...form,
+        name,
+        description,
+        ...(uploadedImage ? {
+          imageUrl: uploadedImage.url,
+          imageStoragePath: uploadedImage.storagePath,
+          imageFileName: uploadedImage.fileName,
+          imageFileType: uploadedImage.fileType,
+        } : {}),
+      });
+      setImageFile(null);
       await loadData(institutionId);
     } catch {
       alert("Unable to save landmark details.");
@@ -109,6 +146,36 @@ const LandmarkManagement = () => {
         </select>
         <input className={commonStyles.formControl} placeholder="Museum name" value={form.name} onChange={(e) => updateField("name", e.target.value)} required />
         <textarea className={commonStyles.formControl} placeholder="Landmark information" value={form.description} onChange={(e) => updateField("description", e.target.value)} required />
+        <div>
+          <label htmlFor="landmark-image" style={{ color: "#fff", display: "block", marginBottom: 8 }}>Landmark picture</label>
+          <input
+            id="landmark-image"
+            key={selectedLandmarkId}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              if (file.size > 10 * 1024 * 1024) {
+                alert("Pictures must be 10 MB or smaller.");
+                event.target.value = "";
+                return;
+              }
+              setImageFile(file);
+            }}
+            style={{ color: "#ccc" }}
+          />
+          <small style={{ display: "block", color: "#888", marginTop: 6 }}>PNG, JPG, or WEBP. Maximum 10 MB. The picture uploads when you save.</small>
+          {imageFile && <small style={{ display: "block", color: "#4ade80", marginTop: 6 }}>Selected: {imageFile.name}</small>}
+          {!imageFile && form.imageFileName && <small style={{ display: "block", color: "#888", marginTop: 6 }}>Current picture: {form.imageFileName}</small>}
+          {(imagePreview || form.imageUrl) && (
+            <img
+              src={imagePreview || form.imageUrl}
+              alt="Landmark picture preview"
+              style={{ display: "block", width: "100%", maxHeight: 180, objectFit: "contain", marginTop: 10, borderRadius: 4, background: "#111" }}
+            />
+          )}
+        </div>
         <div>
           <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
             Assign Existing Content

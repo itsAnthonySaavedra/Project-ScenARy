@@ -10,7 +10,7 @@ import {
 } from "firebase/firestore";
 import "@google/model-viewer";
 import { db } from "../../lib/firebase";
-import { deleteStorageFile, inspectGlbTextures, uploadStorageFile } from "../../lib/storageUpload";
+import { deleteStorageFile, inspectGlbTextures, MAX_GLB_FILE_SIZE_BYTES, uploadStorageFile } from "../../lib/storageUpload";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
 import tableStyles from "../../components/common/Tables.module.css";
@@ -636,8 +636,8 @@ const ContentManagement = () => {
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      if (file.size > 100 * 1024 * 1024) {
-                        alert("AR/VR models must be 100 MB or smaller.");
+                      if (file.size > MAX_GLB_FILE_SIZE_BYTES) {
+                        alert("AR/VR models must be 1 GB or smaller.");
                         e.target.value = "";
                         return;
                       }
@@ -659,7 +659,7 @@ const ContentManagement = () => {
                     }}
                     style={{ color: "#ccc", marginBottom: "0.75rem" }}
                   />
-                  <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>Upload a GLB file, maximum 100 MB. GLB keeps the model, geometry, and textures together.</small>
+                  <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>Upload a GLB file, maximum 1 GB. GLB keeps the model, geometry, and textures together.</small>
                   {modelFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {modelFile.fileName}</small>}
                   {uploadingModel && <small style={{ display: "block", color: "#fbbf24", marginBottom: "0.75rem" }}>Uploading model...</small>}
                   <label>Or use an existing model URL</label>
