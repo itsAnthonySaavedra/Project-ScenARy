@@ -33,14 +33,26 @@ export const inspectGlbTextures = async (file) => {
   };
 };
 
-export const uploadStorageFile = async (file, folder) => {
+export const uploadStorageFile = async (file, folder, onProgress) => {
   const safeName = file.name.replace(/[^a-z0-9._-]/gi, "-");
   const storagePath = `${folder}/${Date.now()}-${safeName}`;
   const fileRef = ref(storage, storagePath);
   const contentType = file.name.toLowerCase().endsWith(".glb")
     ? "model/gltf-binary"
     : file.type || "application/octet-stream";
-  await uploadBytesResumable(fileRef, file, { contentType });
+  const uploadTask = uploadBytesResumable(fileRef, file, { contentType });
+  await new Promise((resolve, reject) => {
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        if (snapshot.totalBytes > 0) {
+          onProgress?.((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        }
+      },
+      reject,
+      resolve,
+    );
+  });
   const url = await getDownloadURL(fileRef);
 
   return {

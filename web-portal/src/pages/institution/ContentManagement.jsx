@@ -74,6 +74,7 @@ const InstituteContentManagement = () => {
   const [formModelUrl, setFormModelUrl] = useState("");
   const [modelFile, setModelFile] = useState(null);
   const [uploadingModel, setUploadingModel] = useState(false);
+  const [modelUploadProgress, setModelUploadProgress] = useState(0);
   const [formCustomData, setFormCustomData] = useState("");
   const [formNeedsAttention, setFormNeedsAttention] = useState(false);
   const [userInstitutionId, setUserInstitutionId] = useState(null);
@@ -687,12 +688,13 @@ const InstituteContentManagement = () => {
                         return;
                       }
                       setUploadingModel(true);
+                      setModelUploadProgress(0);
                       try {
                         const textureInfo = await inspectGlbTextures(file);
                         if (textureInfo.externalImageUris.length > 0) {
                           throw new Error("This GLB references external texture files. Export it with textures embedded, then try again.");
                         }
-                        const uploaded = await uploadStorageFile(file, `content-models/${userInstitutionId}`);
+                        const uploaded = await uploadStorageFile(file, `content-models/${userInstitutionId}`, setModelUploadProgress);
                         setModelFile(uploaded);
                         setFormModelUrl(uploaded.url);
                       } catch (error) {
@@ -706,7 +708,12 @@ const InstituteContentManagement = () => {
                   />
                   <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>Upload a GLB file, maximum 1 GB. GLB keeps the model, geometry, and textures together.</small>
                   {modelFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {modelFile.fileName}</small>}
-                  {uploadingModel && <small style={{ display: "block", color: "#fbbf24", marginBottom: "0.75rem" }}>Uploading model...</small>}
+                  {uploadingModel && (
+                    <div style={{ marginBottom: "0.75rem" }}>
+                      <small style={{ display: "block", color: "#fbbf24" }}>Uploading model... {Math.floor(modelUploadProgress)}%</small>
+                      <progress value={modelUploadProgress} max="100" aria-label="GLB upload progress" style={{ width: "100%", marginTop: 6 }} />
+                    </div>
+                  )}
                   <label>Or use an existing model URL</label>
                   <input
                     className={commonStyles.formControl}

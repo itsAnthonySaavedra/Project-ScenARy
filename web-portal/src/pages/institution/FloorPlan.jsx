@@ -171,7 +171,7 @@ const FloorPlan = () => {
           <button className={commonStyles.btnPrimary} disabled={!file || uploading}>{uploading ? "Uploading..." : "Upload Floor Plan"}</button>
         </form>
 
-        <section className={commonStyles.contentCard} style={{ padding: 16 }}>
+        <section className={commonStyles.contentCard} style={{ padding: 16, display: "flex", flexDirection: "column", minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
             <div><h3 style={{ color: "#fff", marginBottom: 2 }}>{floorPlan?.name || "No floor plan uploaded"}</h3><small style={{ color: "#888" }}>{floorPlan ? "Interactive preview" : "Upload a file to begin"}</small></div>
             {floorPlan && floorPlan.fileType !== "application/pdf" && <div style={{ display: "flex", gap: 6 }}><button type="button" className={commonStyles.btnOutline} onClick={() => setScale((value) => Math.min(value + 0.25, 4))}>Zoom in</button><button type="button" className={commonStyles.btnOutline} onClick={() => setScale((value) => Math.max(value - 0.25, 0.5))}>Zoom out</button><button type="button" className={commonStyles.btnOutline} onClick={resetViewer}>Reset</button></div>}
@@ -190,9 +190,9 @@ const FloorPlan = () => {
                 </button>
               {pois.length === 0 && <small style={{ color: "#888" }}>Create POIs first, then place them here.</small>}
             </div>
-            <div onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => setDragStart(null)} onPointerCancel={() => setDragStart(null)} style={{ height: 600, overflow: "hidden", background: "#f5f5f5", border: placementMode ? "2px solid #d4af37" : "1px solid #444", cursor: placementMode ? "crosshair" : dragStart ? "grabbing" : "grab", touchAction: "none" }}>
-              <div onClick={placeSelectedPoi} style={{ position: "relative", display: "inline-block", transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`, transformOrigin: "top left" }}>
-                <img src={floorPlan.url} alt={floorPlan.name} draggable="false" style={{ display: "block", maxWidth: "none", userSelect: "none" }} />
+            <div onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => setDragStart(null)} onPointerCancel={() => setDragStart(null)} style={{ display: "flex", justifyContent: "center", alignItems: "center", width: "100%", height: 600, overflow: "hidden", background: "#f5f5f5", border: placementMode ? "2px solid #d4af37" : "1px solid #444", cursor: placementMode ? "crosshair" : dragStart ? "grabbing" : "grab", touchAction: "none" }}>
+              <div onClick={placeSelectedPoi} style={{ position: "relative", display: "inline-block", height: "100%", maxWidth: "100%", transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`, transformOrigin: "top left" }}>
+                <img src={floorPlan.url} alt={floorPlan.name} draggable="false" style={{ display: "block", width: "auto", height: "100%", maxWidth: "100%", maxHeight: "100%", userSelect: "none" }} />
                 {pois.filter((poi) => poi.floorPlanPosition).map((poi) => <button key={poi.id} type="button" title={poi.name} onClick={(event) => { event.stopPropagation(); setSelectedPoiId(poi.id); }} style={{ position: "absolute", left: `${poi.floorPlanPosition.x}%`, top: `${poi.floorPlanPosition.y}%`, transform: "translate(-50%, -50%)", width: 34, height: 34, borderRadius: "50%", border: "2px solid #fff", background: poi.id === selectedPoiId ? "#ef4444" : "#d4af37", color: "#111", cursor: "pointer", boxShadow: "0 2px 7px #0008", fontWeight: 700 }}>•</button>)}
               </div>
             </div>
