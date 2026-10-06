@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import AdminActivityFeed from './AdminActivityFeed';
 import PropTypes from 'prop-types';
 import styles from './Layout.module.css';
 
@@ -32,6 +33,7 @@ const Layout = ({ role }) => {
             <Sidebar role={role} />
             <main className={styles.mainContent}>
                 <Header title={title} />
+                {role === 'admin' && <AdminActivityFeed />}
                 <Outlet />
             </main>
         </div>

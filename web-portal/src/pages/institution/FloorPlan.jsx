@@ -4,6 +4,7 @@ import { collection, doc, getDocs, getDoc, query, serverTimestamp, setDoc, updat
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import commonStyles from "../../components/common/Common.module.css";
 import { db, storage } from "../../lib/firebase";
+import { writeAuditLog } from "../../lib/auditLog";
 
 const FloorPlan = () => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -82,6 +83,14 @@ const FloorPlan = () => {
         updatedAt: serverTimestamp(),
       };
       await setDoc(doc(db, "floorPlans", institutionId), floorPlanData, { merge: true });
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: "institution",
+        action: "floorPlan.uploaded",
+        entityType: "floorPlan",
+        entityId: institutionId,
+        metadata: { institutionId, fileName: file.name, fileType: file.type },
+      });
       setFloorPlan({ ...floorPlanData, id: institutionId });
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -112,6 +121,14 @@ const FloorPlan = () => {
       const position = { x: Number(x.toFixed(3)), y: Number(y.toFixed(3)) };
       await updateDoc(doc(db, "pois", selectedPoiId), { floorPlanPosition: position, updatedAt: serverTimestamp() });
       setPois((current) => current.map((poi) => poi.id === selectedPoiId ? { ...poi, floorPlanPosition: position } : poi));
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: "institution",
+        action: "floorPlan.poi_placed",
+        entityType: "poi",
+        entityId: selectedPoiId,
+        metadata: { institutionId, name: pois.find((poi) => poi.id === selectedPoiId)?.name || "" },
+      });
       setPlacementMode(false);
     } catch (error) {
       console.error("Unable to place POI on floor plan:", error);
@@ -129,6 +146,14 @@ const FloorPlan = () => {
       await updateDoc(doc(db, "pois", selectedPoiId), {
         floorPlanPosition: deleteField(),
         updatedAt: serverTimestamp(),
+      });
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: "institution",
+        action: "floorPlan.poi_pin_removed",
+        entityType: "poi",
+        entityId: selectedPoiId,
+        metadata: { institutionId, name: pois.find((poi) => poi.id === selectedPoiId)?.name || "" },
       });
       setPois((current) => current.map((poi) => {
         if (poi.id !== selectedPoiId) return poi;

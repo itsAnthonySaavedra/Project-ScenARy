@@ -5,6 +5,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import { db } from "../../lib/firebase";
 import { getContentScope } from "../../lib/contentScope";
+import { writeAuditLog } from "../../lib/auditLog";
 
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -91,6 +92,14 @@ const POIManagement = ({ adminMode = false }) => {
     const generatedQrCode = `SCENARY|POI_GROUP|${id}`;
     try {
       await updateDoc(doc(db, "markers", landmarkId), { poiQrCode: generatedQrCode });
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: adminMode ? "admin" : "institution",
+        action: "landmark.poi_qr_generated",
+        entityType: "landmark",
+        entityId: landmarkId,
+        metadata: { institutionId, landmarkId },
+      });
       setForm((current) => ({ ...current, qrCode: generatedQrCode }));
       setFormError("");
       await loadData(institutionId);
@@ -135,6 +144,14 @@ const POIManagement = ({ adminMode = false }) => {
   const removePoi = async (poi) => {
     if (!window.confirm(`Remove ${poi.name}?`)) return;
     await deleteDoc(doc(db, "pois", poi.id));
+    await writeAuditLog({
+      actorId: getAuth().currentUser?.uid,
+      actorRole: adminMode ? "admin" : "institution",
+      action: "poi.deleted",
+      entityType: "poi",
+      entityId: poi.id,
+      metadata: { institutionId: poi.institutionId || institutionId, name: poi.name || "" },
+    });
     if (selectedPoiId === poi.id) resetForm();
     await loadData(institutionId);
   };
@@ -162,14 +179,24 @@ const POIManagement = ({ adminMode = false }) => {
         contentIds: selectedContentIds,
         updatedAt: serverTimestamp(),
       };
+      let savedPoiId = selectedPoiId;
       if (selectedPoiId) {
         await updateDoc(doc(db, "pois", selectedPoiId), poiData);
       } else {
-        await addDoc(collection(db, "pois"), {
+        const createdPoi = await addDoc(collection(db, "pois"), {
           ...poiData,
           createdAt: serverTimestamp(),
         });
+        savedPoiId = createdPoi.id;
       }
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: adminMode ? "admin" : "institution",
+        action: selectedPoiId ? "poi.updated" : "poi.created",
+        entityType: "poi",
+        entityId: savedPoiId,
+        metadata: { institutionId: ownerId, landmarkId: form.landmarkId, name: form.name.trim() },
+      });
       resetForm();
       await loadData(institutionId);
     } catch {

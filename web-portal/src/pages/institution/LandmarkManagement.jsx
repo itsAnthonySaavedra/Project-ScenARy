@@ -12,6 +12,7 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import commonStyles from "../../components/common/Common.module.css";
 import { getContentScope } from "../../lib/contentScope";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
+import { writeAuditLog } from "../../lib/auditLog";
 
 L.Marker.prototype.options.icon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
 
@@ -107,6 +108,18 @@ const LandmarkManagement = () => {
           availableContent.some((item) => item.id === contentId),
         ),
         updatedAt: serverTimestamp(),
+      });
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: "institution",
+        action: "landmark.updated",
+        entityType: "landmark",
+        entityId: selectedLandmarkId,
+        metadata: {
+          institutionId,
+          name,
+          ...(uploadedImage ? { imageFileName: uploadedImage.fileName } : {}),
+        },
       });
       setForm({
         ...form,

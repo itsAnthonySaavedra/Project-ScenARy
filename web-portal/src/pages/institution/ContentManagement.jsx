@@ -13,6 +13,7 @@ import {
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
 import { inspectGlbTextures, MAX_GLB_FILE_SIZE_BYTES, uploadStorageFile } from "../../lib/storageUpload";
+import { writeAuditLog } from "../../lib/auditLog";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
@@ -254,6 +255,7 @@ const InstituteContentManagement = () => {
         return;
       }
 
+      let savedContentId = editDocId;
       if (isEditMode && editDocId) {
         // Enforce Firestore Document Patch Update
         const docRef = doc(db, "content", editDocId);
@@ -278,8 +280,24 @@ const InstituteContentManagement = () => {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
-        await addDoc(collection(db, "content"), payload);
+        const createdContent = await addDoc(collection(db, "content"), payload);
+        savedContentId = createdContent.id;
       }
+
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: "institution",
+        action: isEditMode ? "content.updated" : "content.created",
+        entityType: "content",
+        entityId: savedContentId,
+        metadata: {
+          title: formTitle,
+          type: selectedType,
+          scope: formScope,
+          institutionId: userInstitutionId,
+          fileName: contentData.modelFileName || contentData.imageFileName || null,
+        },
+      });
 
       await fetchInstitutionData(userInstitutionId);
 
