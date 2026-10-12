@@ -9,6 +9,7 @@ import {
   doc,
   getDoc,
   serverTimestamp,
+  arrayUnion,
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
@@ -18,8 +19,10 @@ import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
+import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
 import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
 import { CONTENT_TYPES, MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
+import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 
 const getContentQualityIssues = (item) => {
   const issues = [];
@@ -59,6 +62,11 @@ const isContentReady = (item) =>
 
 const InstituteContentManagement = () => {
   const [contents, setContents] = useState([]);
+  const [assignmentTargets, setAssignmentTargets] = useState([]);
+  const [selectedContentIds, setSelectedContentIds] = useState([]);
+  const [selectedTargetId, setSelectedTargetId] = useState("");
+  const [bulkMessage, setBulkMessage] = useState("");
+  const [assigningContent, setAssigningContent] = useState(false);
   const [filter, setFilter] = useState("All");
   const [scopeFilter, setScopeFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
@@ -73,6 +81,8 @@ const InstituteContentManagement = () => {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [formFactText, setFormFactText] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
+  const [formModelSpawnPoint, setFormModelSpawnPoint] = useState(createDefaultModelSpawnPoint);
+  const [modelSpawnPointEnabled, setModelSpawnPointEnabled] = useState(false);
   const [modelFile, setModelFile] = useState(null);
   const [uploadingModel, setUploadingModel] = useState(false);
   const [modelUploadProgress, setModelUploadProgress] = useState(0);
@@ -112,14 +122,20 @@ const InstituteContentManagement = () => {
   const fetchInstitutionData = async (instId) => {
     if (!instId) return;
     try {
-      const contentSnap = await getDocs(
-        query(collection(db, "content"), where("institutionId", "==", instId.trim())),
-      );
+      const [contentSnap, landmarkSnap, poiSnap] = await Promise.all([
+        getDocs(query(collection(db, "content"), where("institutionId", "==", instId.trim()))),
+        getDocs(query(collection(db, "markers"), where("institutionId", "==", instId.trim()))),
+        getDocs(query(collection(db, "pois"), where("institutionId", "==", instId.trim()))),
+      ]);
       setContents(
         contentSnap.docs
           .map((d) => ({ id: d.id, ...d.data(), type: normalizeContentType(d.data().type) }))
           .filter((item) => CONTENT_TYPES.includes(item.type)),
       );
+      setAssignmentTargets([
+        ...landmarkSnap.docs.map((item) => ({ id: item.id, targetKey: `markers:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "markers", scope: "Landmark" })),
+        ...poiSnap.docs.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI" })),
+      ]);
     } catch (error) {
       console.error("Isolated Fetch Error:", error);
     }
@@ -156,6 +172,8 @@ const InstituteContentManagement = () => {
     setInfoImageFile(null);
     setFormFactText("");
     setFormModelUrl("");
+    setFormModelSpawnPoint(createDefaultModelSpawnPoint());
+    setModelSpawnPointEnabled(false);
     setModelFile(null);
     setFormCustomData("");
     setFormNeedsAttention(false);
@@ -174,6 +192,8 @@ const InstituteContentManagement = () => {
     setSelectedType(normalizeContentType(item.type || ""));
     setFormFactText(item.data?.fact || "");
     setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
+    setFormModelSpawnPoint(normalizeModelSpawnPoint(item.data));
+    setModelSpawnPointEnabled(item.data?.spawnX !== undefined || item.data?.SpawnZ !== undefined || Boolean(item.data?.spawnPoint));
     setModelFile(null);
     setFormCustomData(
       item.data?.customData ? JSON.stringify(item.data.customData, null, 2) : "",
@@ -196,6 +216,65 @@ const InstituteContentManagement = () => {
     }
 
     setIsAddModalOpen(true);
+  };
+
+  const handleDuplicateClick = (item) => {
+    const data = item.data || {};
+    handleOpenCreateModal();
+    setFormTitle(`${item.title || "Untitled content"} (copy)`);
+    setFormScope(getContentScope(item));
+    setSelectedType(normalizeContentType(item.type || ""));
+    setFormNeedsAttention(item.needsAttention === true);
+    setFormInfoUrl(data.imageUrl || "");
+    setFormInfoDesc(data.description || "");
+    setFormFactText(data.fact || "");
+    setFormModelUrl(data.modelUrl || data.modelPath || "");
+    setFormModelSpawnPoint(normalizeModelSpawnPoint(data));
+    setModelSpawnPointEnabled(data.spawnX !== undefined || data.SpawnZ !== undefined || Boolean(data.spawnPoint));
+    setFormCustomData(data.customData ? JSON.stringify(data.customData, null, 2) : "");
+    if (item.type === "Quiz") {
+      setQuizQuestions(data.quizzes?.length
+        ? data.quizzes.map((quiz) => ({ question: quiz.question || "", answer: quiz.correctAnswer || "True" }))
+        : [{ question: "", answer: "True" }]);
+    }
+  };
+
+  const assignSelectedContent = async () => {
+    const target = assignmentTargets.find((item) => item.targetKey === selectedTargetId);
+    if (!target || selectedContentIds.length === 0) return;
+    const compatibleIds = selectedContentIds.filter((id) => {
+      const item = contents.find((content) => content.id === id);
+      return item && getContentScope(item) === target.scope;
+    });
+    if (compatibleIds.length === 0) {
+      setBulkMessage(`Select content scoped to ${target.scope} to assign it to this target.`);
+      return;
+    }
+    setAssigningContent(true);
+    setBulkMessage("");
+    try {
+      await updateDoc(doc(db, target.collectionName, target.id), { contentIds: arrayUnion(...compatibleIds) });
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: "institution",
+        action: "content.bulk_assigned",
+        entityType: target.scope.toLowerCase(),
+        entityId: target.id,
+        metadata: { institutionId: userInstitutionId, contentIds: compatibleIds },
+      });
+      setSelectedContentIds([]);
+      setSelectedTargetId("");
+      setBulkMessage(`${compatibleIds.length} item${compatibleIds.length === 1 ? "" : "s"} assigned to ${target.name}.`);
+      if (compatibleIds.length < selectedContentIds.length) {
+        setBulkMessage(`${compatibleIds.length} compatible item${compatibleIds.length === 1 ? " was" : "s were"} assigned to ${target.name}; items from other content areas were skipped.`);
+      }
+      await fetchInstitutionData(userInstitutionId);
+    } catch (error) {
+      console.error("Unable to bulk assign content:", error);
+      setBulkMessage("Unable to assign content. Please try again.");
+    } finally {
+      setAssigningContent(false);
+    }
   };
 
   // --- SUBMIT HANDLING (INTEGRATED FOR BOTH WRITE AND UPDATE OPERATIONS) ---
@@ -235,6 +314,7 @@ const InstituteContentManagement = () => {
       } else if (selectedType === MODEL_CONTENT_TYPE) {
         contentData = {
           modelUrl: formModelUrl.trim(),
+          ...(modelSpawnPointEnabled ? serializeModelSpawnPoint(formModelSpawnPoint) : {}),
           ...(modelFile ? { modelFileName: modelFile.fileName, modelFileType: modelFile.fileType, modelStoragePath: modelFile.storagePath } : {}),
         };
       }
@@ -312,6 +392,8 @@ const InstituteContentManagement = () => {
       setInfoImageFile(null);
       setFormFactText("");
       setFormModelUrl("");
+      setFormModelSpawnPoint(createDefaultModelSpawnPoint());
+      setModelSpawnPointEnabled(false);
       setModelFile(null);
       setFormCustomData("");
       setFormNeedsAttention(false);
@@ -332,7 +414,7 @@ const InstituteContentManagement = () => {
   };
 
   const filteredContents = contents
-    .filter((c) => (filter === "All" ? true : c.status === "Awaiting Content"))
+    .filter((c) => filter === "All" || (filter === "Needs attention" ? !isContentReady(c) : c.status === filter))
     .filter((c) => scopeFilter === "All" || getContentScope(c) === scopeFilter)
     .filter((c) => c.title?.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -353,18 +435,11 @@ const InstituteContentManagement = () => {
       {/* CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
-          <button
-            className={`${tableStyles.tabBtn} ${filter === "All" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("All")}
-          >
-            All Content
-          </button>
-          <button
-            className={`${tableStyles.tabBtn} ${filter === "Pending" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("Pending")}
-          >
-            Awaiting Content
-          </button>
+          {["All", "Awaiting Content", "Published", "Rejected", "Needs attention"].map((status) => (
+            <button key={status} className={`${tableStyles.tabBtn} ${filter === status ? tableStyles.active : ""}`} onClick={() => setFilter(status)}>
+              {status === "All" ? "All Content" : status}
+            </button>
+          ))}
         </div>
         <div style={{ display: "flex", gap: "1rem" }}>
           <select
@@ -394,6 +469,16 @@ const InstituteContentManagement = () => {
       <p style={{ color: "#888", marginBottom: "1.5rem" }}>
         Create reusable content here, then assign it from the Landmark or POI management page.
       </p>
+      {selectedContentIds.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+        <span style={{ color: "#ddd" }}>{selectedContentIds.length} selected</span>
+        <select className={commonStyles.formControl} aria-label="Choose assignment target" value={selectedTargetId} onChange={(event) => setSelectedTargetId(event.target.value)} style={{ maxWidth: 320 }}>
+          <option value="">Assign to landmark or POI...</option>
+          {assignmentTargets.map((target) => <option key={target.targetKey} value={target.targetKey}>{target.scope}: {target.name}</option>)}
+        </select>
+        <button type="button" className={commonStyles.btnPrimary} disabled={!selectedTargetId || assigningContent} onClick={assignSelectedContent}>{assigningContent ? "Assigning..." : "Assign selected"}</button>
+        <button type="button" className={commonStyles.btnCancel} onClick={() => setSelectedContentIds([])}>Clear selection</button>
+      </div>}
+      {bulkMessage && <p role="status" style={{ color: bulkMessage.startsWith("Unable") || bulkMessage.startsWith("Select") ? "#fbbf24" : "#86efac" }}>{bulkMessage}</p>}
       <div
         style={{
           color: incompleteCount > 0 ? "#fbbf24" : "#4ade80",
@@ -410,6 +495,7 @@ const InstituteContentManagement = () => {
         <table className={tableStyles.adminTable}>
           <thead>
             <tr>
+              <th><span className="sr-only">Select</span></th>
               <th>Title</th>
               <th>Institution</th>
               <th>Type</th>
@@ -423,6 +509,7 @@ const InstituteContentManagement = () => {
             {filteredContents.length > 0 ? (
               filteredContents.map((item) => (
                 <tr key={item.id}>
+                  <td><input type="checkbox" aria-label={`Select ${item.title || "content"}`} checked={selectedContentIds.includes(item.id)} onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /></td>
                   <td style={{ color: "#fff", fontWeight: "500" }}>
                     {item.title}
                   </td>
@@ -486,6 +573,9 @@ const InstituteContentManagement = () => {
                       >
                         <i className="fa-solid fa-edit"></i>
                       </button>
+                      <button className={tableStyles.btnAction} onClick={() => handleDuplicateClick(item)} title="Duplicate content">
+                        <i className="fa-solid fa-copy"></i>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -493,7 +583,7 @@ const InstituteContentManagement = () => {
             ) : (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   style={{
                     textAlign: "center",
                     padding: "2rem",
@@ -740,6 +830,7 @@ const InstituteContentManagement = () => {
                     onChange={(e) => setFormModelUrl(e.target.value)}
                     required
                   />
+                  <ModelSpawnPointEditor enabled={modelSpawnPointEnabled} onEnabledChange={setModelSpawnPointEnabled} value={formModelSpawnPoint} onChange={setFormModelSpawnPoint} modelUrl={formModelUrl} />
                 </div>
               )}
 

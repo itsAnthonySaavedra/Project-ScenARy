@@ -17,6 +17,7 @@ const FloorPlan = () => {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragStart, setDragStart] = useState(null);
   const [pois, setPois] = useState([]);
+  const [poiSearch, setPoiSearch] = useState("");
   const [selectedPoiId, setSelectedPoiId] = useState("");
   const [placementMode, setPlacementMode] = useState(false);
   const [savingMarker, setSavingMarker] = useState(false);
@@ -178,6 +179,9 @@ const FloorPlan = () => {
 
   if (loading) return <div style={{ padding: 20, color: "#fff" }}>Loading floor plan...</div>;
 
+  const unplacedPois = pois.filter((poi) => !poi.floorPlanPosition);
+  const matchingUnplacedPois = unplacedPois.filter((poi) => poi.name?.toLowerCase().includes(poiSearch.trim().toLowerCase()));
+
   return (
     <div style={{ padding: 20, color: "#ccc" }}>
       <div style={{ marginBottom: 20 }}>
@@ -215,6 +219,15 @@ const FloorPlan = () => {
                 </button>
               {pois.length === 0 && <small style={{ color: "#888" }}>Create POIs first, then place them here.</small>}
             </div>
+            <section aria-label="Unplaced points of interest" style={{ marginBottom: 12, padding: 12, border: "1px solid #444", background: "#171717" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                <strong style={{ color: "#fff" }}>Unplaced POIs <span style={{ color: "#d4af37" }}>({unplacedPois.length})</span></strong>
+                <input type="search" aria-label="Search unplaced POIs" placeholder="Search unplaced POIs" value={poiSearch} onChange={(event) => setPoiSearch(event.target.value)} style={{ minWidth: 220, padding: 8 }} />
+              </div>
+              {matchingUnplacedPois.length === 0 ? <small style={{ color: "#888" }}>{unplacedPois.length ? "No unplaced POIs match this search." : "All POIs have been placed."}</small> : <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {matchingUnplacedPois.map((poi) => <button key={poi.id} type="button" className={commonStyles.btnOutline} onClick={() => { setSelectedPoiId(poi.id); setPlacementMode(true); }}>{poi.name || "Unnamed POI"} · Place</button>)}
+              </div>}
+            </section>
             <div onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => setDragStart(null)} onPointerCancel={() => setDragStart(null)} style={{ display: "flex", justifyContent: "center", alignItems: "center", width: "100%", height: 600, overflow: "hidden", background: "#f5f5f5", border: placementMode ? "2px solid #d4af37" : "1px solid #444", cursor: placementMode ? "crosshair" : dragStart ? "grabbing" : "grab", touchAction: "none" }}>
               <div onClick={placeSelectedPoi} style={{ position: "relative", display: "inline-block", height: "100%", maxWidth: "100%", transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`, transformOrigin: "top left" }}>
                 <img src={floorPlan.url} alt={floorPlan.name} draggable="false" style={{ display: "block", width: "auto", height: "100%", maxWidth: "100%", maxHeight: "100%", userSelect: "none" }} />

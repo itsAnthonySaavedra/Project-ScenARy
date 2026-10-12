@@ -17,8 +17,10 @@ import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
+import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
 import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
 import { CONTENT_TYPES, MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
+import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 
 const ContentManagement = () => {
   const { currentUser, currentRole } = useAuth();
@@ -49,6 +51,8 @@ const ContentManagement = () => {
   const [infoImageFile, setInfoImageFile] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [formModelUrl, setFormModelUrl] = useState("");
+  const [formModelSpawnPoint, setFormModelSpawnPoint] = useState(createDefaultModelSpawnPoint);
+  const [modelSpawnPointEnabled, setModelSpawnPointEnabled] = useState(false);
   const [modelFile, setModelFile] = useState(null);
   const [uploadingModel, setUploadingModel] = useState(false);
   const [modelUploadProgress, setModelUploadProgress] = useState(0);
@@ -131,6 +135,8 @@ const ContentManagement = () => {
     setFormInfoDesc("");
     setInfoImageFile(null);
     setFormModelUrl("");
+    setFormModelSpawnPoint(createDefaultModelSpawnPoint());
+    setModelSpawnPointEnabled(false);
     setModelFile(null);
     setFormFactText("");
     setSelectedType("");
@@ -154,6 +160,8 @@ const ContentManagement = () => {
       setInfoImageFile(null);
     } else if (normalizeContentType(item.type) === MODEL_CONTENT_TYPE) {
       setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
+      setFormModelSpawnPoint(normalizeModelSpawnPoint(item.data));
+      setModelSpawnPointEnabled(item.data?.spawnX !== undefined || item.data?.SpawnZ !== undefined || Boolean(item.data?.spawnPoint));
       setModelFile(null);
     } else if (item.type === "Quiz") {
       if (item.data?.quizzes && item.data.quizzes.length > 0) {
@@ -218,6 +226,7 @@ const ContentManagement = () => {
       } else if (selectedType === MODEL_CONTENT_TYPE) {
         contentData = {
           modelUrl: formModelUrl.trim(),
+          ...(modelSpawnPointEnabled ? serializeModelSpawnPoint(formModelSpawnPoint) : {}),
           ...(modelFile ? { modelFileName: modelFile.fileName, modelFileType: modelFile.fileType, modelStoragePath: modelFile.storagePath } : {}),
         };
       } else if (selectedType === "Quiz") {
@@ -273,6 +282,8 @@ const ContentManagement = () => {
       setFormInfoDesc("");
       setInfoImageFile(null);
       setFormModelUrl("");
+      setFormModelSpawnPoint(createDefaultModelSpawnPoint());
+      setModelSpawnPointEnabled(false);
       setModelFile(null);
       setFormFactText("");
       setSelectedType("");
@@ -678,6 +689,7 @@ const ContentManagement = () => {
                     onChange={(e) => setFormModelUrl(e.target.value)}
                     required
                   />
+                  <ModelSpawnPointEditor enabled={modelSpawnPointEnabled} onEnabledChange={setModelSpawnPointEnabled} value={formModelSpawnPoint} onChange={setFormModelSpawnPoint} modelUrl={formModelUrl} />
                 </div>
               )}
 
