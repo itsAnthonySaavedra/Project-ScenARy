@@ -480,11 +480,12 @@ const ContentManagement = () => {
       {/* MODAL: CREATE / EDIT CONTENT */}
       <Modal
         isOpen={isAddModalOpen}
+        size="wide"
         onClose={() => {
           setIsAddModalOpen(false);
           setSelectedType("");
         }}
-        title={isEditMode ? "Edit Content Component Node" : "Add New Content"}
+        title={isEditMode ? "Edit Content" : "Add New Content"}
         actions={
           <button
             className={commonStyles.btnCancel}
@@ -494,10 +495,7 @@ const ContentManagement = () => {
           </button>
         }
       >
-        <form
-          onSubmit={handleFormSubmit}
-          style={{ maxHeight: "75vh", overflowY: "auto", paddingRight: "10px" }}
-        >
+        <form onSubmit={handleFormSubmit}>
           <div className={commonStyles.formGroup}>
             <label>Title</label>
             <input
@@ -826,6 +824,7 @@ const ContentManagement = () => {
         isOpen={isViewModalOpen}
         onClose={() => setIsViewModalOpen(false)}
         title={currentContent?.title}
+        size={normalizeContentType(currentContent?.type) === MODEL_CONTENT_TYPE ? "wide" : "default"}
         actions={
           <button
             className={commonStyles.btnCancel}

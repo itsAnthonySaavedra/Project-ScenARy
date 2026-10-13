@@ -12,17 +12,44 @@ export const loadUserAnalytics = async (institutionId = null) => {
   return Promise.all(snapshot.docs.map(async (item) => {
     const data = item.data();
     const userId = data.userId || item.id;
-    let profile = {};
-    try {
-      const profileSnapshot = await getDoc(doc(db, "users", userId));
-      if (profileSnapshot.exists()) profile = profileSnapshot.data();
-    } catch {
-      profile = {};
-    }
+    const [profileSnapshot, buttonClicksSnapshot, quizStatsSnapshot] = await Promise.all([
+      getDoc(doc(db, "users", userId)).catch(() => null),
+      getDocs(collection(db, "userAnalytics", item.id, "buttonClicks")).catch(() => null),
+      getDocs(collection(db, "userAnalytics", item.id, "quizStats")).catch(() => null),
+    ]);
+    const profile = profileSnapshot?.exists() ? profileSnapshot.data() : {};
+    const scopedInstitutionId = institutionId || data.institutionId;
+    const buttonClickRows = (buttonClicksSnapshot?.docs || [])
+      .map((child) => child.data())
+      .filter((child) => !scopedInstitutionId || !child.institutionId || child.institutionId === scopedInstitutionId);
+    const quizStatRows = (quizStatsSnapshot?.docs || [])
+      .map((child) => child.data())
+      .filter((child) => !scopedInstitutionId || !child.institutionId || child.institutionId === scopedInstitutionId);
+    const sumField = (rows, field) => rows.reduce((total, row) => total + Number(row[field] || 0), 0);
+    const latestQuizAt = quizStatRows
+      .map((row) => row.lastAttemptAt)
+      .filter(Boolean)
+      .sort((left, right) => timestampValue(right) - timestampValue(left))[0] || null;
+    const latestClickAt = buttonClickRows
+      .map((row) => row.lastClickAt)
+      .filter(Boolean)
+      .sort((left, right) => timestampValue(right) - timestampValue(left))[0] || null;
     const label = profile.username || profile.name || profile.displayName || data.username || data.displayName || profile.email || data.email;
     return {
       id: item.id,
       ...data,
+      buttonClicks: {
+        arClicks: sumField(buttonClickRows, "arClicks"),
+        vrClicks: sumField(buttonClickRows, "vrClicks"),
+        quizClicks: sumField(buttonClickRows, "quizClicks"),
+        lastClickAt: latestClickAt,
+      },
+      quizStats: {
+        quizzesTaken: sumField(quizStatRows, "quizzesTaken"),
+        totalQuestions: sumField(quizStatRows, "totalQuestions"),
+        totalScore: sumField(quizStatRows, "totalScore"),
+        lastAttemptAt: latestQuizAt,
+      },
       username: label ? String(label).split("@")[0] : "Unknown user",
     };
   }));
@@ -90,17 +117,26 @@ export const toRating = (summary) =>
 export const getUserAnalyticsMetrics = (summary) => {
   const ratingCount = findNumericValue(summary, ["ratingCount"]);
   const ratingTotal = findNumericValue(summary, ["ratingTotal"]);
-  const quizAttempts = findNumericValue(summary, ["quizAttempts", "quizzesTaken"]);
+  const quizAttempts = findNumericValue(summary?.quizStats, ["quizzesTaken", "quizAttempts"])
+    || findNumericValue(summary, ["quizAttempts", "quizzesTaken"]);
   const quizScoreTotal = findNumericValue(summary, ["quizScoreTotal"]);
   const sessionCount = findNumericValue(summary, ["sessionCount"]);
-  const clickCount = findNumericValue(summary, ["clickCount", "interactionCount"]);
-  const totalSessionDurationSeconds = findNumericValue(summary, ["totalSessionDurationSeconds"]);
+  const arClicks = findNumericValue(summary?.buttonClicks, ["arClicks"]);
+  const vrClicks = findNumericValue(summary?.buttonClicks, ["vrClicks"]);
+  const quizClicks = findNumericValue(summary?.buttonClicks, ["quizClicks"]);
+  const buttonClickTotal = arClicks + vrClicks + quizClicks;
+  const clickCount = findNumericValue(summary, ["clickCount"]) || buttonClickTotal || findNumericValue(summary, ["interactionCount"]);
+  const totalSessionDurationSeconds = findNumericValue(summary, ["totalSessionDurationSeconds", "totalSessionSeconds"]);
   const commentCount = findNumericValue(summary, ["commentCount"]);
-  const totalQuizQuestions = findNumericValue(summary, ["quizTotalQuestions"]);
-  const hasRawQuizScore = summary?.quizTotalScore !== undefined && summary.quizTotalScore !== null && summary.quizTotalScore !== "";
-  const lastQuizAt = summary?.lastQuizAt || summary?.["lastQuizAt"] || null;
+  const totalQuizQuestions = findNumericValue(summary?.quizStats, ["totalQuestions"])
+    || findNumericValue(summary, ["quizTotalQuestions"]);
+  const quizTotalScore = findNumericValue(summary?.quizStats, ["totalScore"])
+    || findNumericValue(summary, ["quizTotalScore"]);
+  const hasRawQuizScore = summary?.quizStats?.totalScore !== undefined
+    || (summary?.quizTotalScore !== undefined && summary.quizTotalScore !== null && summary.quizTotalScore !== "");
+  const lastQuizAt = summary?.quizStats?.lastAttemptAt || summary?.lastQuizAt || null;
   const quizAverage = hasRawQuizScore
-    ? totalQuizQuestions > 0 ? (Number(summary.quizTotalScore) / totalQuizQuestions) * 100 : null
+    ? totalQuizQuestions > 0 ? (quizTotalScore / totalQuizQuestions) * 100 : null
     : quizAttempts ? quizScoreTotal / quizAttempts : null;
 
   return {
@@ -108,9 +144,22 @@ export const getUserAnalyticsMetrics = (summary) => {
     quizAverage,
     clicksPerSession: sessionCount ? clickCount / sessionCount : null,
     averageSessionDurationSeconds: sessionCount ? totalSessionDurationSeconds / sessionCount : null,
+    arClicks,
+    vrClicks,
+    quizClicks,
+    buttonClickTotal,
+    clickCount,
     commentCount,
     quizAttempts,
     totalQuizQuestions,
+    sessionCount,
+    totalSessionDurationSeconds,
+    lastSessionDurationSeconds: findNumericValue(summary, ["lastSessionDurationSeconds"]),
+    lastSessionAt: summary?.lastSessionAt || null,
+    lastClickAt: summary?.buttonClicks?.lastClickAt || summary?.lastClickAt || null,
+    lastActiveAt: [summary?.lastSessionAt, summary?.lastInteractionAt]
+      .filter(Boolean)
+      .sort((left, right) => timestampValue(right) - timestampValue(left))[0] || null,
     lastQuizAt,
   };
 };

@@ -96,6 +96,7 @@ const ModelSpawnPointEditor = ({ enabled, onEnabledChange, value, onChange, mode
             <button
               type="button"
               slot="hotspot-spawn-editor"
+              key={`${formatVector(spawnPoint.position)}|${formatVector(spawnPoint.surfaceNormal || { x: 0, y: 1, z: 0 })}`}
               data-position={formatVector(spawnPoint.position)}
               data-normal={formatVector(spawnPoint.surfaceNormal || { x: 0, y: 1, z: 0 })}
               onClick={(event) => {

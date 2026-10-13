@@ -130,6 +130,12 @@
     max-height: 90vh;
 }
 
+.modalContentWide {
+    max-width: min(1280px, calc(100vw - 3rem));
+    max-height: 94vh;
+    padding: clamp(1.25rem, 3vw, 2.5rem);
+}
+
 .modalHeader {
     text-align: center;
     margin-bottom: 1.5rem;

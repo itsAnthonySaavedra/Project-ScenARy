@@ -112,7 +112,7 @@
 }
 
 .scrollArea {
-  max-height: 190px;
+  max-height: 270px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-color: #6d5a2c rgba(255, 255, 255, 0.04);

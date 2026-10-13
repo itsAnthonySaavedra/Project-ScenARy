@@ -601,6 +601,7 @@ const InstituteContentManagement = () => {
       {/* MODAL: INPUT FIELDS CONFIGURATION WORKSPACE CONTAINER */}
       <Modal
         isOpen={isAddModalOpen}
+        size="wide"
         onClose={() => {
           setIsAddModalOpen(false);
           setSelectedType("");
@@ -608,7 +609,7 @@ const InstituteContentManagement = () => {
         }}
         title={
           isEditMode
-            ? "Edit Content Component Node"
+            ? "Edit Content"
             : "Add New Institution Content"
         }
         actions={
@@ -620,10 +621,7 @@ const InstituteContentManagement = () => {
           </button>
         }
       >
-        <form
-          onSubmit={handleFormSubmit}
-          style={{ maxHeight: "75vh", overflowY: "auto", paddingRight: "10px" }}
-        >
+        <form onSubmit={handleFormSubmit}>
           {formError && (
             <div
               role="alert"
@@ -962,6 +960,7 @@ const InstituteContentManagement = () => {
         isOpen={isViewModalOpen}
         onClose={() => setIsViewModalOpen(false)}
         title={currentContent?.title}
+        size={normalizeContentType(currentContent?.type) === MODEL_CONTENT_TYPE ? "wide" : "default"}
         actions={
           <button
             className={commonStyles.btnCancel}

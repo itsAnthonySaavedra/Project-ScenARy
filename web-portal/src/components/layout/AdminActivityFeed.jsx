@@ -48,8 +48,7 @@ const AdminActivityFeed = () => {
     return onSnapshot(recentLogs, (snapshot) => {
       const institutionActivities = snapshot.docs
         .map((item) => ({ id: item.id, ...item.data({ serverTimestamps: "estimate" }) }))
-        .filter((item) => item.actorRole === "institution" && relevantActions.has(item.action))
-        .slice(0, 20);
+        .filter((item) => item.actorRole === "institution" && relevantActions.has(item.action));
       setActivities(institutionActivities);
       setLoading(false);
       setHasError(false);
@@ -63,7 +62,7 @@ const AdminActivityFeed = () => {
   const visibleActivities = activities.filter((activity) => {
     const timestamp = activity.createdAt?.toMillis?.() || 0;
     return timestamp > clearedAt;
-  });
+  }).slice(0, 5);
 
   const clearNotifications = () => {
     const timestamp = Date.now();

@@ -9,6 +9,7 @@ interface ModalProps {
   title: string;
   children: ReactNode;
   actions?: ReactNode;
+  size?: "default" | "wide";
 }
 
 const Modal: React.FC<ModalProps> = ({
@@ -17,6 +18,7 @@ const Modal: React.FC<ModalProps> = ({
   title,
   children,
   actions,
+  size = "default",
 }) => {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -44,7 +46,7 @@ const Modal: React.FC<ModalProps> = ({
       onClick={onClose}
     >
       <div
-        className={styles.modalContent}
+        className={`${styles.modalContent} ${size === "wide" ? styles.modalContentWide : ""}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className={styles.modalHeader}>
