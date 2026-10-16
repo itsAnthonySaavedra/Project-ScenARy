@@ -197,7 +197,7 @@
 }
 
 .institutionDashboard {
-    max-width: 1440px;
+    width: 100%;
 }
 
 @media (max-width: 760px) {

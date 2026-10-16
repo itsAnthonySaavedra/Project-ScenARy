@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   collection,
   getDocs,
@@ -20,6 +21,7 @@ import ContentPreview from "../../components/common/ContentPreview";
 import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
 import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
 import { CONTENT_TYPES, MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
+import { isContentReady } from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 
 const ContentManagement = () => {
@@ -27,7 +29,9 @@ const ContentManagement = () => {
   // --- STATE ---
   const [contents, setContents] = useState([]);
   const [institutions, setInstitutions] = useState([]);
-  const [filter, setFilter] = useState("All");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filter = searchParams.get("filter") || "All";
+  const setFilter = (value) => setSearchParams(value === "All" ? {} : { filter: value }, { replace: true });
   const [scopeFilter, setScopeFilter] = useState("All");
   const [institutionFilter, setInstitutionFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
@@ -302,7 +306,7 @@ const ContentManagement = () => {
   };
 
   const filteredContents = contents
-    .filter((c) => (filter === "All" ? true : c.status === "Awaiting Content"))
+    .filter((c) => filter === "All" || (filter === "Needs attention" ? !isContentReady(c) : c.status === filter))
     .filter((c) => scopeFilter === "All" || getContentScope(c) === scopeFilter)
     .filter((c) => institutionFilter === "All" || (institutionFilter === "Unassigned" ? !c.institutionId : c.institutionId === institutionFilter))
     .filter((c) => c.title?.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -319,10 +323,22 @@ const ContentManagement = () => {
             All Content
           </button>
           <button
-            className={`${tableStyles.tabBtn} ${filter === "Pending" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("Pending")}
+            className={`${tableStyles.tabBtn} ${filter === "Awaiting Content" ? tableStyles.active : ""}`}
+            onClick={() => setFilter("Awaiting Content")}
           >
             Awaiting Content
+          </button>
+          <button
+            className={`${tableStyles.tabBtn} ${filter === "Rejected" ? tableStyles.active : ""}`}
+            onClick={() => setFilter("Rejected")}
+          >
+            Rejected
+          </button>
+          <button
+            className={`${tableStyles.tabBtn} ${filter === "Needs attention" ? tableStyles.active : ""}`}
+            onClick={() => setFilter("Needs attention")}
+          >
+            Needs attention
           </button>
         </div>
         <div style={{ display: "flex", gap: "1rem" }}>
@@ -410,9 +426,8 @@ const ContentManagement = () => {
                   <td>
                     <span
                       style={{
-                        color:
-                          item.status === "Published" ? "#4ade80" : "#fbbf24",
-                        border: `1px solid ${item.status === "Published" ? "#4ade80" : "#fbbf24"}`,
+                        color: item.status === "Published" ? "#4ade80" : item.status === "Rejected" ? "#f87171" : "#fbbf24",
+                        border: `1px solid ${item.status === "Published" ? "#4ade80" : item.status === "Rejected" ? "#f87171" : "#fbbf24"}`,
                         padding: "0.2rem 0.6rem",
                         borderRadius: "4px",
                         fontSize: "0.7rem",
@@ -567,6 +582,7 @@ const ContentManagement = () => {
             >
               <option value="Awaiting Content">Awaiting Content</option>
               <option value="Published">Published</option>
+              <option value="Rejected">Rejected</option>
               <option value="Archived">Archived</option>
             </select>
           </div>

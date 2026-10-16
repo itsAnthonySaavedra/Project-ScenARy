@@ -206,64 +206,6 @@ const Settings = () => {
         </div>
       </div>
 
-      {/* System Preferences section remains the same */}
-      <div
-        className={styles.settingsCard}
-        style={{
-          flexDirection: "column",
-          alignItems: "flex-start",
-          gap: "1.5rem",
-        }}
-      >
-        <h3>System Preferences</h3>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            width: "100%",
-            justifyContent: "space-between",
-            borderBottom: "1px solid rgba(255,255,255,0.05)",
-            paddingBottom: "1rem",
-          }}
-        >
-          <div>
-            <h4 style={{ color: "#fff", fontSize: "1rem" }}>
-              Maintenance Mode
-            </h4>
-            <p style={{ color: "#a8a29e", fontSize: "0.8rem" }}>
-              Disable access for all non-admin users
-            </p>
-          </div>
-          <div className={styles.toggleSwitch}>
-            <input type="checkbox" id="sys-maintenance" />
-            <label htmlFor="sys-maintenance"></label>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            width: "100%",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <h4 style={{ color: "#fff", fontSize: "1rem" }}>
-              Email Notifications
-            </h4>
-            <p style={{ color: "#a8a29e", fontSize: "0.8rem" }}>
-              Receive reports and alerts via email
-            </p>
-          </div>
-          <div className={styles.toggleSwitch}>
-            <input type="checkbox" id="sys-notifications" defaultChecked />
-            <label htmlFor="sys-notifications"></label>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

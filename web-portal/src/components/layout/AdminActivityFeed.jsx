@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { isContentReady } from "../../lib/contentQuality";
 import { useAuth } from "../../context/AuthContext";
 import styles from "./AdminActivityFeed.module.css";
 
@@ -29,6 +30,7 @@ const formatTime = (value) => {
 const AdminActivityFeed = () => {
   const { currentUser } = useAuth();
   const [activities, setActivities] = useState([]);
+  const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [clearedAt, setClearedAt] = useState(0);
@@ -45,7 +47,7 @@ const AdminActivityFeed = () => {
 
   useEffect(() => {
     const recentLogs = query(collection(db, "auditLogs"), orderBy("createdAt", "desc"), limit(100));
-    return onSnapshot(recentLogs, (snapshot) => {
+    const unsubscribeActivities = onSnapshot(recentLogs, (snapshot) => {
       const institutionActivities = snapshot.docs
         .map((item) => ({ id: item.id, ...item.data({ serverTimestamps: "estimate" }) }))
         .filter((item) => item.actorRole === "institution" && relevantActions.has(item.action));
@@ -57,6 +59,17 @@ const AdminActivityFeed = () => {
       setLoading(false);
       setHasError(true);
     });
+
+    const unsubscribeContent = onSnapshot(collection(db, "content"), (snapshot) => {
+      setNeedsAttentionCount(snapshot.docs.filter((item) => !isContentReady(item.data())).length);
+    }, (error) => {
+      console.error("Unable to load content attention reminders:", error);
+    });
+
+    return () => {
+      unsubscribeActivities();
+      unsubscribeContent();
+    };
   }, []);
 
   const visibleActivities = activities.filter((activity) => {
@@ -93,6 +106,13 @@ const AdminActivityFeed = () => {
       </div>
 
       <div className={styles.scrollArea} role="log" aria-live="polite" aria-relevant="additions text">
+        {needsAttentionCount > 0 && (
+          <Link to="/admin/content?filter=Needs%20attention" className={styles.attentionReminder}>
+            <i className="fa-solid fa-triangle-exclamation" aria-hidden="true" />
+            <strong>{needsAttentionCount} content {needsAttentionCount === 1 ? "item needs" : "items need"} attention</strong>
+            <i className="fa-solid fa-arrow-right" aria-hidden="true" />
+          </Link>
+        )}
         {loading ? (
           <p className={styles.empty}>Loading recent activity...</p>
         ) : hasError ? (

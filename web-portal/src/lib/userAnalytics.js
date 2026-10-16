@@ -63,9 +63,21 @@ export const loadFeedback = async (institutionId = null) => {
     ? query(collection(db, "feedback"), where("institutionId", "==", institutionId))
     : query(collection(db, "feedback"));
   const snapshot = await getDocs(feedbackQuery);
-  return snapshot.docs
+  const feedbackRows = snapshot.docs
     .map((item) => ({ id: item.id, ...item.data() }))
     .sort((left, right) => timestampValue(right.createdAt) - timestampValue(left.createdAt));
+  const userIds = [...new Set(feedbackRows.map((item) => item.userId || item.uid).filter(Boolean))];
+  const profiles = new Map(await Promise.all(userIds.map(async (userId) => {
+    const profileSnapshot = await getDoc(doc(db, "users", userId)).catch(() => null);
+    return [userId, profileSnapshot?.exists() ? profileSnapshot.data() : {}];
+  })));
+
+  return feedbackRows.map((item) => {
+    const profile = profiles.get(item.userId || item.uid) || {};
+    const label = profile.username || item.username || item.userName || profile.name || item.name
+      || profile.displayName || item.displayName || profile.email || item.email;
+    return { ...item, username: label ? String(label).split("@")[0] : "Unknown user" };
+  });
 };
 
 export const loadTourFeedback = async (tourId) => {
