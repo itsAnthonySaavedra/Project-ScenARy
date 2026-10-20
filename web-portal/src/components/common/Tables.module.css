@@ -160,10 +160,24 @@
     padding: 0;
   }
 
+  .controls > div {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .controls > div:first-child button {
+    flex: 1 1 130px;
+    width: auto;
+  }
+
   .searchBar,
   .controls select,
   .controls button {
     width: 100%;
+  }
+
+  .controls > div:last-child > * {
+    box-sizing: border-box;
   }
 
   .adminTable th,

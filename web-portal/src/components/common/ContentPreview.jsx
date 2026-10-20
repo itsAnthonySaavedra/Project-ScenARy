@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import "@google/model-viewer";
 import { isModelContentType } from "../../lib/contentTypes";
-import { normalizeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 
 const previewPanelStyle = {
   background: "#0a0a0a",
@@ -17,8 +16,6 @@ const ContentPreview = ({ content }) => {
 
   const data = content.data || {};
   const modelUrl = data.modelUrl || data.modelPath;
-  const hasSpawnPoint = data.spawnX !== undefined || data.spawnY !== undefined || data.SpawnZ !== undefined || Boolean(data.spawnPoint);
-  const spawnPoint = hasSpawnPoint ? normalizeModelSpawnPoint(data) : null;
   const modelState = modelStates[modelUrl] || "loading";
   const updateModelState = (state) => setModelStates((current) => ({ ...current, [modelUrl]: state }));
 
@@ -62,20 +59,7 @@ const ContentPreview = ({ content }) => {
               onLoad={() => updateModelState("loaded")}
               onError={() => updateModelState("error")}
               style={{ width: "100%", height: "420px", backgroundColor: "#111", marginBottom: "1rem" }}
-            >
-              {spawnPoint && (
-                <button
-                  type="button"
-                  slot="hotspot-spawn"
-                  data-position={`${spawnPoint.position.x}m ${spawnPoint.position.y}m ${spawnPoint.position.z}m`}
-                  data-normal={`${spawnPoint.surfaceNormal.x}m ${spawnPoint.surfaceNormal.y}m ${spawnPoint.surfaceNormal.z}m`}
-                  aria-label="Spawn location"
-                  style={{ display: "grid", placeItems: "center", border: "2px solid #fff", borderRadius: "50%", width: 22, height: 22, padding: 0, background: "#d4af37", boxShadow: "0 0 0 2px #111" }}
-                >
-                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#111" }} />
-                </button>
-              )}
-            </model-viewer>
+            />
             {modelState === "loading" && (
               <p style={{ ...previewPanelStyle, color: "#fbbf24" }}>
                 Loading AR/VR model (Uploading can take a while)...

@@ -401,7 +401,7 @@ const InstituteContentManagement = () => {
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
           {["All", "Awaiting Content", "Published", "Rejected", "Needs attention"].map((status) => (
-            <button key={status} className={`${tableStyles.tabBtn} ${filter === status ? tableStyles.active : ""}`} onClick={() => setFilter(status)}>
+            <button key={status} className={`${tableStyles.tabBtn} ${filter === status ? tableStyles.tabBtnAdminActive : ""}`} onClick={() => setFilter(status)}>
               {status === "All" ? "All Content" : status}
             </button>
           ))}
