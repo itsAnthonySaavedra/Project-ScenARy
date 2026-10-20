@@ -171,3 +171,75 @@
     color: var(--color-text-muted);
     font-size: 0.8rem;
 }
+
+@media (max-width: 680px) {
+    .hero {
+        min-height: 75svh;
+        background-attachment: scroll;
+    }
+
+    .heroContent {
+        padding: 6rem 1.25rem 2rem;
+    }
+
+    .heroTitle {
+        font-size: clamp(2.4rem, 10vw, 3.5rem);
+    }
+
+    .heroText {
+        font-size: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .mainNav {
+        padding: 1rem 1.25rem;
+    }
+
+    .navLogo {
+        font-size: 1.25rem;
+    }
+
+    .btnOutline,
+    .btnPrimary {
+        padding: 0.8rem 1rem;
+        font-size: 0.75rem;
+        letter-spacing: 0.06em;
+    }
+
+    .mainFooter {
+        padding-top: 2.5rem;
+    }
+
+    .footerContent {
+        padding: 0 1.25rem;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .footerLinks {
+        flex-wrap: wrap;
+        gap: 1rem 1.5rem;
+    }
+
+    .footerBottom {
+        margin-top: 2rem;
+        padding: 1.25rem 1rem 0;
+    }
+}
+
+@media (max-width: 380px) {
+    .mainNav {
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.85rem;
+    }
+
+    .navLogo {
+        font-size: 1.1rem;
+    }
+
+    .btnOutline {
+        padding: 0.65rem 0.75rem;
+        font-size: 0.68rem;
+    }
+}

@@ -178,6 +178,8 @@
         border-bottom: 3px solid transparent;
         border-radius: 8px 8px 0 0;
         white-space: nowrap;
+        min-height: 44px;
+        padding: 0.75rem;
     }
 
     .navItemActive {
@@ -188,5 +190,47 @@
         width: 100%;
         margin-left: 0;
         padding: 1.25rem;
+    }
+
+    .dashboardHeader {
+        align-items: flex-start;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .dashboardHeader h2 {
+        font-size: clamp(1.25rem, 5vw, 1.75rem);
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (max-width: 420px) {
+    .sidebar {
+        padding: 0.75rem;
+    }
+
+    .userProfileCompact {
+        gap: 0.7rem;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.75rem;
+    }
+
+    .userInfoCompact {
+        min-width: 0;
+    }
+
+    .userInfoCompact h4 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .mainContent {
+        padding: 1rem 0.75rem;
+    }
+
+    .headerLogo {
+        gap: 0.35rem;
+        font-size: 0.8rem;
     }
 }

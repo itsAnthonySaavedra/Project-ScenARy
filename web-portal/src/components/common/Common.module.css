@@ -437,3 +437,124 @@
 .modalRight {
     width: 60%;
 }
+
+@media (max-width: 680px) {
+    .modalOverlay {
+        align-items: flex-end;
+        padding: 0.5rem;
+    }
+
+    .modalContent,
+    .modalContentWide {
+        width: 100%;
+        max-width: 100%;
+        max-height: 94dvh;
+        padding: 1.25rem;
+        border-radius: 14px;
+    }
+
+    .modalHeader {
+        margin-bottom: 1rem;
+    }
+
+    .modalBody {
+        margin-bottom: 1rem;
+    }
+
+    .modalActions {
+        flex-wrap: wrap;
+        gap: 0.65rem;
+    }
+
+    .modalBodySplit {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .modalLeft,
+    .modalRight {
+        width: 100%;
+    }
+
+    .contentCard {
+        min-height: 0;
+        flex-direction: column;
+        border-radius: 16px;
+    }
+
+    .contentImage {
+        width: 100%;
+        min-height: 210px;
+    }
+
+    .contentImage img {
+        min-height: 210px;
+    }
+
+    .contentDetails {
+        width: 100%;
+        padding: 1.25rem;
+        background: none;
+    }
+
+    .contentTitleOverlay {
+        padding: 1.25rem;
+    }
+
+    .settingsCard {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1.25rem;
+    }
+
+    .profileCard {
+        height: auto;
+        min-height: 220px;
+        align-items: center;
+        justify-content: center;
+        padding-bottom: 4rem;
+    }
+
+    .profileIconLarge {
+        margin-right: 0;
+    }
+
+    .profileLabel {
+        bottom: 1.25rem;
+    }
+
+    .maintenanceCard {
+        align-items: flex-start;
+    }
+
+    .uploadArea {
+        padding: 1.25rem;
+    }
+}
+
+@media (max-width: 420px) {
+    .modalOverlay {
+        padding: 0;
+    }
+
+    .modalContent,
+    .modalContentWide {
+        max-height: 96dvh;
+        padding: 1rem;
+        border-radius: 14px 14px 0 0;
+    }
+
+    .formControl,
+    .searchBar {
+        font-size: 16px;
+    }
+
+    .searchBar {
+        width: 100%;
+    }
+
+    .modalActions > * {
+        flex: 1 1 auto;
+    }
+}

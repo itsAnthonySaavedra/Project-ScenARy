@@ -179,3 +179,29 @@
         transform: translateY(0);
     }
 }
+
+@media (max-width: 480px) {
+    .authContainer {
+        min-height: 100svh;
+        padding: 4.5rem 0.75rem 1rem;
+    }
+
+    .authWrapper {
+        padding: 0;
+    }
+
+    .glassCard {
+        padding: 2rem 1.25rem;
+        border-radius: 14px;
+    }
+
+    .logoArea {
+        margin-bottom: 1.75rem;
+    }
+
+    .btnBack {
+        top: 1rem;
+        left: 0.75rem;
+        font-size: 0.9rem;
+    }
+}
