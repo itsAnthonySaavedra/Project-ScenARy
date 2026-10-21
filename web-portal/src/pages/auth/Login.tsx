@@ -10,7 +10,8 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
 
   // Determine portal type from URL query
-  const loginType = (searchParams.get("type") || "institution").toLowerCase();
+  const requestedType = (searchParams.get("type") || "institution").toLowerCase();
+  const loginType = requestedType === "admin" ? "admin" : "institution";
   const isAdmin = loginType === "admin";
 
   const [email, setEmail] = useState<string>("");
@@ -26,7 +27,7 @@ const Login: React.FC = () => {
 
     try {
       // Call login from AuthContext with expected role for this tab
-      const result = await login(email, password, loginType as "admin" | "institution");
+      const result = await login(email, password, loginType);
 
       if (!result.success) {
         setError(result.message || "Login failed");
@@ -38,18 +39,21 @@ const Login: React.FC = () => {
       const role = result.role?.toLowerCase();
 
       // Block login if role doesn't match the portal
-      if (
-        role !== loginType
-      ) {
+      const roleMatchesPortal =
+        loginType === "admin"
+          ? role === "admin" || role === "superadmin"
+          : role === "institution";
+      if (!roleMatchesPortal) {
         setError("Access denied: wrong portal for this account.");
         setLoading(false);
         return;
       }
 
-      // Redirect based on role
-      navigate(
-        role === "admin" ? "/admin/dashboard" : "/institution/dashboard",
-      );
+      if (result.mustChangePassword) {
+        navigate("/change-password");
+      } else {
+        navigate(role === "institution" ? "/institution/dashboard" : "/admin/dashboard");
+      }
       setLoading(false);
     } catch (err) {
       console.error(err);
@@ -99,7 +103,7 @@ const Login: React.FC = () => {
                 type="email"
                 className={styles.formControl}
                 placeholder={
-                  isAdmin ? "admin@scenary.com" : "contact@institution.com"
+                  isAdmin ? "Email" : "Email"
                 }
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}

@@ -23,10 +23,11 @@ interface UserType {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "institution" | "user";
+  role: "admin" | "superadmin" | "institution" | "user";
   status: "Active" | "Inactive" | "Banned";
   institutionId?: string | null;
   createdAt?: unknown;
+  mustChangePassword?: boolean;
 }
 
 interface Institution {
@@ -37,7 +38,12 @@ interface Institution {
   joined?: string;
 }
 
-const roles: UserType["role"][] = ["admin", "institution"];
+const generateTemporaryPassword = () => {
+  const characters =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+  const values = crypto.getRandomValues(new Uint32Array(24));
+  return Array.from(values, (value) => characters[value % characters.length]).join("");
+};
 
 const formatUserDate = (value: unknown) => {
   if (!value) return "Not recorded";
@@ -69,6 +75,7 @@ const UserManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
+  const [selectedRole, setSelectedRole] = useState<UserType["role"]>("institution");
   const [detailsUser, setDetailsUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"users" | "institutions">("users");
@@ -111,6 +118,10 @@ const UserManagement: React.FC = () => {
      ACTIONS
   ===================== */
   const handleBanToggle = async (user: UserType) => {
+    if (user.role === "superadmin" && currentRole !== "superadmin") {
+      alert("Only a super admin can change a super-admin account's status.");
+      return;
+    }
     const nextStatus = user.status === "Banned" ? "Active" : "Banned";
     if (!window.confirm(`${nextStatus === "Banned" ? "Ban" : "Unban"} ${user.name}?`))
       return;
@@ -194,18 +205,25 @@ const UserManagement: React.FC = () => {
   };
 
   const handleEdit = (user: UserType) => {
+    if (user.role === "superadmin" && currentRole !== "superadmin") {
+      alert("Only a super admin can edit a super-admin account.");
+      return;
+    }
     setCurrentUser(user);
+    setSelectedRole(user.role);
     setIsModalOpen(true);
   };
 
   const handleAdd = () => {
     setCurrentUser(null);
+    setSelectedRole("institution");
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setCurrentUser(null);
+    setSelectedRole("institution");
   };
 
   /* =====================
@@ -222,14 +240,26 @@ const UserManagement: React.FC = () => {
 
     const name = form.name.value.trim();
     const email = form.email.value.trim();
-    const role = form.role.value;
+    const role = form.role.value as UserType["role"];
     const institutionId =
       role === "institution" ? form.institutionId?.value || null : null;
 
-    if (role === "user") {
-      alert(
-        "Unauthorized: Administrators cannot create accounts with the 'user' role. Please select 'institution' or another valid role.",
-      );
+    const isSuperAdmin = currentRole === "superadmin";
+    if (
+      role === "user" ||
+      (!isSuperAdmin && role !== (currentUser?.role || "institution"))
+    ) {
+      alert("Only a super admin can create or change an account to the admin role.");
+      setLoading(false);
+      return;
+    }
+    if (currentUser?.role === "superadmin" && !isSuperAdmin) {
+      alert("Only a super admin can edit a super-admin account.");
+      setLoading(false);
+      return;
+    }
+    if (role === "institution" && !institutionId) {
+      alert("Select an institution for this institution account.");
       setLoading(false);
       return;
     }
@@ -262,7 +292,7 @@ const UserManagement: React.FC = () => {
         });
       } else {
         // Create new user using secondary auth (won't log you out!)
-        const tempPassword = "TempPass123!";
+        const tempPassword = generateTemporaryPassword();
         const cred = await createUserWithEmailAndPassword(
           secondaryAuth,
           email,
@@ -276,6 +306,7 @@ const UserManagement: React.FC = () => {
           role,
           institutionId,
           status: "Active",
+          mustChangePassword: true,
           createdAt: serverTimestamp(),
         });
 
@@ -292,6 +323,7 @@ const UserManagement: React.FC = () => {
             role,
             institutionId,
             status: "Active",
+            mustChangePassword: true,
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -306,7 +338,7 @@ const UserManagement: React.FC = () => {
         });
 
         alert(
-          `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user.`,
+          `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user. They must change this password before accessing the portal.`,
         );
       }
     } catch (err: any) {
@@ -340,6 +372,14 @@ const UserManagement: React.FC = () => {
   const filteredInstitutions = institutions.filter((inst) =>
     inst.name.toLowerCase().includes(instSearchTerm.toLowerCase()),
   );
+  const availableRoles: UserType["role"][] =
+    currentRole === "superadmin"
+      ? currentUser?.role === "superadmin"
+        ? ["superadmin"]
+        : ["admin", "institution"]
+      : currentUser
+        ? [currentUser.role]
+        : ["institution"];
 
   /* =====================
      UI
@@ -438,6 +478,7 @@ const UserManagement: React.FC = () => {
                       <button
                         className={tableStyles.btnAction}
                         title="Edit"
+                        disabled={user.role === "superadmin" && currentRole !== "superadmin"}
                         onClick={() => handleEdit(user)}
                       >
                         <i className="fa-solid fa-pen"></i>
@@ -446,6 +487,7 @@ const UserManagement: React.FC = () => {
                         className={tableStyles.btnAction}
                         title={user.status === "Banned" ? "Unban account" : "Ban account"}
                         style={{ borderColor: user.status === "Banned" ? "#4ade80" : "#ef4444", color: user.status === "Banned" ? "#4ade80" : "#ef4444" }}
+                        disabled={user.role === "superadmin" && currentRole !== "superadmin"}
                         onClick={() => handleBanToggle(user)}
                       >
                         <i className={`fa-solid ${user.status === "Banned" ? "fa-user-check" : "fa-user-slash"}`}></i>
@@ -510,14 +552,19 @@ const UserManagement: React.FC = () => {
 
               <div className={commonStyles.formGroup}>
                 <label>Role</label>
-                <select name="role" className={commonStyles.formControl} defaultValue={currentUser?.role || "institution"}>
-                  {roles.map((r) => (
+                <select
+                  name="role"
+                  className={commonStyles.formControl}
+                  value={selectedRole}
+                  onChange={(event) => setSelectedRole(event.target.value as UserType["role"])}
+                >
+                  {availableRoles.map((r) => (
                     <option key={r} value={r}>{r}</option>
                   ))}
                 </select>
               </div>
 
-              {(currentUser?.role === "institution" || !currentUser) && (
+              {selectedRole === "institution" && (
                 <div className={commonStyles.formGroup}>
                   <label>Institution</label>
                   <select name="institutionId" className={commonStyles.formControl} defaultValue={currentUser?.institutionId || ""}>

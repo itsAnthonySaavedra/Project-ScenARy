@@ -68,7 +68,9 @@ const Settings = () => {
   }, [currentUser]);
 
   const formattedRole =
-    role.toLowerCase() === "admin"
+    role.toLowerCase() === "superadmin"
+      ? "Super Admin"
+      : role.toLowerCase() === "admin"
         ? "Admin"
         : "Content Creator";
 

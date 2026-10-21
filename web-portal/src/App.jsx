@@ -14,6 +14,7 @@ import PublicFloorPlan from "./pages/PublicFloorPlan";
 
 /* Auth */
 import Login from "./pages/auth/Login";
+import PasswordChange from "./pages/auth/PasswordChange";
 
 /* Admin Pages */
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -33,21 +34,29 @@ import InstituteContentManagement from "./pages/institution/ContentManagement";
 import FloorPlan from "./pages/institution/FloorPlan";
 
 function ProtectedRoute({ role, children }) {
-  const { currentUser, currentRole } = useAuth();
+  const { currentUser, currentRole, mustChangePassword } = useAuth();
 
   if (!currentUser) {
     return <Navigate to={`/login?type=${role}`} replace />;
   }
 
+  if (mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
+  }
+
   const hasExpectedRole =
     role === "admin"
-      ? currentRole === "admin"
+      ? currentRole === "admin" || currentRole === "superadmin"
       : currentRole === "institution";
 
   if (!hasExpectedRole) {
     return (
       <Navigate
-        to={currentRole === "admin" ? "/admin/dashboard" : "/institution/dashboard"}
+        to={
+          currentRole === "admin" || currentRole === "superadmin"
+            ? "/admin/dashboard"
+            : "/institution/dashboard"
+        }
         replace
       />
     );
@@ -61,6 +70,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/change-password" element={<PasswordChange />} />
       <Route path="/collab" element={<CollabPage />} />
       <Route path="/institution-map/:institutionId" element={<PublicFloorPlan />} />
 

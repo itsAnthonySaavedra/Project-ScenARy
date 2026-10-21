@@ -6,13 +6,13 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 
 interface SidebarProps {
-  role?: "admin" | "institution";
+  role?: "admin" | "superadmin" | "institution";
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
   const { currentUser, logout } = useAuth();
-  const [role, setRole] = useState<"admin" | "institution">(
-    (initialRole?.toLowerCase() as any) || "admin",
+  const [role, setRole] = useState<"admin" | "superadmin" | "institution">(
+    initialRole || "admin",
   );
   const [displayName, setDisplayName] = useState("Loading...");
 
@@ -27,10 +27,14 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
 
         if (snap.exists()) {
           const data = snap.data();
-          const userRole = (data.role as string).toLowerCase() as
-            | "admin"
-            | "institution";
-          setRole(userRole === "admin" ? "admin" : "institution");
+          const userRole = String(data.role || "").toLowerCase();
+          setRole(
+            userRole === "superadmin"
+              ? "superadmin"
+              : userRole === "admin"
+                ? "admin"
+                : "institution",
+          );
 
           setDisplayName(data.name || "User");
         }
@@ -72,7 +76,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
     { path: "/institution/profile", icon: "fa-user", label: "Profile" },
   ];
 
-  const links = role === "admin" ? adminLinks : institutionLinks;
+  const links = role !== "institution" ? adminLinks : institutionLinks;
 
   return (
     <aside className={styles.sidebar}>
@@ -85,7 +89,11 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
           <span
             style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}
           >
-            {role === "admin" ? "Admin" : "Institution"}
+            {role === "superadmin"
+              ? "Super Admin"
+              : role === "admin"
+                ? "Admin"
+                : "Institution"}
           </span>
         </div>
         <button className={styles.btnLogout} title="Logout" onClick={logout}>

@@ -10,25 +10,33 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   User,
 } from "firebase/auth";
 import { auth, db } from "../lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { writeAuditLog } from "../lib/auditLog";
 
+export type UserRole = "admin" | "superadmin" | "institution";
+
 interface AuthContextType {
   currentUser: User | null;
-  currentRole: "admin" | "institution" | null;
+  currentRole: UserRole | null;
+  mustChangePassword: boolean;
   login: (
     email: string,
     password: string,
     expectedRole: "admin" | "institution",
   ) => Promise<{
     success: boolean;
-    role?: "admin" | "institution";
+    role?: UserRole;
+    mustChangePassword?: boolean;
     message?: string;
   }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -46,9 +54,8 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentRole, setCurrentRole] = useState<
-    "admin" | "institution" | null
-  >(null);
+  const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -58,7 +65,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     expectedRole: "admin" | "institution",
   ): Promise<{
     success: boolean;
-    role?: "admin" | "institution";
+    role?: UserRole;
+    mustChangePassword?: boolean;
     message?: string;
   }> => {
     try {
@@ -69,6 +77,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const snap = await getDoc(userRef);
 
       if (!snap.exists()) {
+        await signOut(auth);
         return {
           success: false,
           message: "User profile not found in Firestore",
@@ -85,11 +94,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const role =
         storedRole === "admin"
           ? "admin"
-          : storedRole === "institute" || storedRole === "institution"
-            ? "institution"
-            : null;
+          : storedRole === "superadmin"
+            ? "superadmin"
+            : storedRole === "institute" || storedRole === "institution"
+              ? "institution"
+              : null;
 
-      if (!role || role !== expectedRole) {
+      const roleMatchesPortal =
+        expectedRole === "admin"
+          ? role === "admin" || role === "superadmin"
+          : role === "institution";
+      if (!role || !roleMatchesPortal) {
         await signOut(auth);
         return {
           success: false,
@@ -104,6 +119,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Immediately update state with the new user
       setCurrentUser(cred.user);
       setCurrentRole(role);
+      const passwordChangeRequired = profile.mustChangePassword === true;
+      setMustChangePassword(passwordChangeRequired);
       await writeAuditLog({
         actorId: cred.user.uid,
         actorRole: role,
@@ -113,7 +130,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         metadata: { portal: expectedRole },
       });
 
-      return { success: true, role };
+      return { success: true, role, mustChangePassword: passwordChangeRequired };
     } catch (error: any) {
       console.error("Login error:", error);
 
@@ -128,10 +145,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  const changePassword = async (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> => {
+    if (!currentUser?.email) {
+      throw new Error("A signed-in email account is required to change the password.");
+    }
+
+    const credential = EmailAuthProvider.credential(
+      currentUser.email,
+      currentPassword,
+    );
+    await reauthenticateWithCredential(currentUser, credential);
+    await updatePassword(currentUser, newPassword);
+    await updateDoc(doc(db, "users", currentUser.uid), {
+      mustChangePassword: false,
+    });
+    setMustChangePassword(false);
+    await writeAuditLog({
+      actorId: currentUser.uid,
+      actorRole: currentRole,
+      action: "auth.password_changed",
+      entityType: "user",
+      entityId: currentUser.uid,
+    });
+  };
+
   const logout = async (): Promise<void> => {
     try {
-      const currentPath = window.location.pathname;
-
       // Clear sessionStorage
       sessionStorage.removeItem("scenaryExpectedRole");
       sessionStorage.removeItem("scenaryUserId");
@@ -143,12 +185,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         action: "auth.logout",
         entityType: "user",
         entityId: currentUser?.uid,
-        metadata: { portal: currentPath.includes("institution") ? "institution" : "admin" },
+        metadata: {
+          portal: currentRole === "institution" ? "institution" : "admin",
+        },
       });
       setCurrentUser(null);
       setCurrentRole(null);
+      setMustChangePassword(false);
 
-      if (currentPath.includes("institution")) {
+      if (currentRole === "institution") {
         navigate("/login?type=institution");
       } else {
         navigate("/login?type=admin");
@@ -171,6 +216,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (!expectedRole || !expectedUserId) {
         setCurrentUser(null);
         setCurrentRole(null);
+        setMustChangePassword(false);
         setLoading(false);
         return;
       }
@@ -183,6 +229,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         sessionStorage.removeItem("scenaryUserId");
         setCurrentUser(null);
         setCurrentRole(null);
+        setMustChangePassword(false);
         setLoading(false);
         return;
       }
@@ -190,17 +237,44 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // If Firebase user matches this tab's stored session, update state
       if (user.uid === expectedUserId) {
         const profile = await getDoc(doc(db, "users", user.uid));
-        if (String(profile.data()?.status || "Active").toLowerCase() === "banned") {
+        const userProfile = profile.data();
+        if (
+          !profile.exists() ||
+          String(userProfile?.status || "Active").toLowerCase() === "banned"
+        ) {
           sessionStorage.removeItem("scenaryExpectedRole");
           sessionStorage.removeItem("scenaryUserId");
           await signOut(auth);
           setCurrentUser(null);
           setCurrentRole(null);
+          setMustChangePassword(false);
+          setLoading(false);
+          return;
+        }
+        const storedRole = String(userProfile.role || "").toLowerCase();
+        const role: UserRole | null =
+          storedRole === "admin" || storedRole === "superadmin"
+            ? storedRole
+            : storedRole === "institute" || storedRole === "institution"
+              ? "institution"
+              : null;
+        const roleMatchesPortal =
+          expectedRole === "admin"
+            ? role === "admin" || role === "superadmin"
+            : role === "institution";
+        if (!role || !roleMatchesPortal) {
+          sessionStorage.removeItem("scenaryExpectedRole");
+          sessionStorage.removeItem("scenaryUserId");
+          await signOut(auth);
+          setCurrentUser(null);
+          setCurrentRole(null);
+          setMustChangePassword(false);
           setLoading(false);
           return;
         }
         setCurrentUser(user);
-        setCurrentRole(expectedRole);
+        setCurrentRole(role);
+        setMustChangePassword(userProfile.mustChangePassword === true);
         setLoading(false);
         return;
       }
@@ -214,13 +288,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
       sessionStorage.removeItem("scenaryUserId");
       setCurrentUser(null);
       setCurrentRole(null);
+      setMustChangePassword(false);
       setLoading(false);
     });
     return unsubscribe;
   }, []);
 
   return (
-    <AuthContext.Provider value={{ currentUser, currentRole, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        currentUser,
+        currentRole,
+        mustChangePassword,
+        login,
+        changePassword,
+        logout,
+      }}
+    >
       {!loading && children}
     </AuthContext.Provider>
   );
