@@ -810,11 +810,13 @@ const ContentManagement = () => {
                     name="factText"
                     className={commonStyles.formControl}
                     rows={3}
+                    maxLength={100}
                     placeholder="Enter an interesting fact..."
                     value={formFactText}
                     onChange={(e) => setFormFactText(e.target.value)}
                     required
                   />
+                  <small>{formFactText.length}/100 characters</small>
                 </div>
               )}
             </div>

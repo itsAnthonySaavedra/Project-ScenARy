@@ -3,21 +3,7 @@ import React, { useState } from 'react';
 import styles from '../components/common/Common.module.css';
 
 export default function CollabPage() {
-  const [formData, setFormData] = useState({
-    name: '',
-    institution: '',
-    email: '',
-    projectDetails: '',
-  });
-
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    alert('Thank you! Our institutional collaboration team will review your proposal shortly.');
-  };
+  const [showContactInfo, setShowContactInfo] = useState(false);
 
   return (
     <div style={{ width: '100%', minHeight: '100vh', padding: '4rem 2rem' }}>
@@ -28,11 +14,15 @@ export default function CollabPage() {
           Partner with <span style={{ color: 'var(--color-accent-gold)' }}>ScenARy</span>
         </h1>
         <p style={{ color: 'var(--color-text-muted)', fontSize: '1.1rem', lineHeight: '1.6', marginBottom: '2rem' }}>
-          We collaborate with universities, museums, and historical institutes to bring heritage sites to life through high-fidelity Augmented Reality.
+          We collaborate with creators, venues, and organizations to bring spaces to life through high-fidelity Augmented Reality.
         </p>
-        <a href="#propose-form" className={styles.btnPrimary} style={{ textDecoration: 'none' }}>
+        <button 
+          onClick={() => setShowContactInfo(true)} 
+          className={styles.btnPrimary} 
+          style={{ textDecoration: 'none', cursor: 'pointer', border: 'none' }}
+        >
           Propose a Collaboration
-        </a>
+        </button>
       </section>
 
       {/* --- BENEFITS CARDS (Using .contentCard) --- */}
@@ -48,7 +38,7 @@ export default function CollabPage() {
           </div>
           <div className={styles.contentDetails}>
             <p className={styles.contentDescription}>
-              Convert historical sites, ruins, and artifacts into permanent, highly accurate 3D spatial models. Preserve fragile historical heritage in an immersive digital format accessible anywhere in the world.
+              Convert historical sites, ruins, and artifacts into permanent, highly accurate 3D spatial models. Preserve fragile heritage in an immersive digital format accessible anywhere in the world.
             </p>
           </div>
         </div>
@@ -63,7 +53,7 @@ export default function CollabPage() {
           </div>
           <div className={styles.contentDetails}>
             <p className={styles.contentDescription}>
-              Empower students, researchers, and visitors to interactively explore historical contexts on-site or remotely. Embed rich metadata, timeline triggers, and audio narratives directly into the AR space.
+              Empower students, researchers, and visitors to interactively explore contexts on-site or remotely. Embed rich metadata, timeline triggers, and audio narratives directly into the AR space.
             </p>
           </div>
         </div>
@@ -80,7 +70,7 @@ export default function CollabPage() {
           <div style={{ background: 'rgba(0,0,0,0.4)', padding: '1.5rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <span style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--color-accent-gold)' }}>01</span>
             <h4 style={{ margin: '1rem 0 0.5rem', color: '#fff' }}>Proposal</h4>
-            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Submit site details, historical photos, or spatial scan data.</p>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Submit site details, photos, or spatial scan data.</p>
           </div>
 
           <div style={{ background: 'rgba(0,0,0,0.4)', padding: '1.5rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -92,7 +82,7 @@ export default function CollabPage() {
           <div style={{ background: 'rgba(0,0,0,0.4)', padding: '1.5rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <span style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--color-accent-gold)' }}>03</span>
             <h4 style={{ margin: '1rem 0 0.5rem', color: '#fff' }}>Testing & Review</h4>
-            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Inspect and refine the experience in-situ with institution preview keys.</p>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Inspect and refine the experience in-situ with preview keys.</p>
           </div>
 
           <div style={{ background: 'rgba(0,0,0,0.4)', padding: '1.5rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -103,84 +93,49 @@ export default function CollabPage() {
         </div>
       </section>
 
-      {/* --- PROPOSAL FORM SECTION --- */}
+      {/* --- CONTACT & PROPOSAL INFO SECTION --- */}
       <section id="propose-form" className={styles.settingsContainer}>
-        <div className={styles.modalContent} style={{ maxWidth: '650px', background: 'rgba(0,0,0,0.85)' }}>
+        <div className={styles.modalContent} style={{ maxWidth: '650px', background: 'rgba(0,0,0,0.85)', margin: '0 auto', textAlign: 'left' }}>
           <div className={styles.modalHeader}>
-            <h3>Propose an Institutional Collaboration</h3>
+            <h3>Collaboration Contact Details</h3>
             <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-              Are you representing an academic institute, museum, or historical landmark? Tell us about your project.
+              Ready to collaborate? Reach out to our team directly through the contact channels below.
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', color: 'var(--color-text-light)', fontSize: '0.85rem' }}>
-                Full Name
-              </label>
-              <input
-                type="text"
-                name="name"
-                required
-                className={styles.formControl}
-                placeholder="e.g. Dr. Maria Santos"
-                value={formData.name}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', color: 'var(--color-text-light)', fontSize: '0.85rem' }}>
-                Institution / Organization
-              </label>
-              <input
-                type="text"
-                name="institution"
-                required
-                className={styles.formControl}
-                placeholder="e.g. National Historical Museum"
-                value={formData.institution}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', color: 'var(--color-text-light)', fontSize: '0.85rem' }}>
-                Institutional Email
-              </label>
-              <input
-                type="email"
-                name="email"
-                required
-                className={styles.formControl}
-                placeholder="name@institution.edu"
-                value={formData.email}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', color: 'var(--color-text-light)', fontSize: '0.85rem' }}>
-                Project Proposal & Site Details
-              </label>
-              <textarea
-                name="projectDetails"
-                rows="4"
-                required
-                className={styles.formControl}
-                placeholder="Describe the historical site, landmark, or curriculum assets you want to digitize into AR..."
-                value={formData.projectDetails}
-                onChange={handleChange}
-                style={{ resize: 'vertical' }}
-              />
-            </div>
-
-            <div style={{ marginTop: '1rem', textAlign: 'center' }}>
-              <button type="submit" className={styles.btnPrimary} style={{ width: '100%' }}>
-                Submit Proposal
+          {!showContactInfo ? (
+            <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+              <button 
+                onClick={() => setShowContactInfo(true)} 
+                className={styles.btnPrimary}
+              >
+                Reveal Contact Details
               </button>
             </div>
-          </form>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', marginTop: '1rem' }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1.2rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <p style={{ color: 'var(--color-accent-gold)', fontWeight: 'bold', marginBottom: '0.3rem' }}>Email Proposal To:</p>
+                <p style={{ color: '#fff', fontSize: '1.05rem' }}>partnerships@scenary-ar.example</p>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1.2rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <p style={{ color: 'var(--color-accent-gold)', fontWeight: 'bold', marginBottom: '0.3rem' }}>Direct Phone Lines:</p>
+                <p style={{ color: '#fff', fontSize: '0.95rem', margin: '0.2rem 0' }}>+1 (555) 382-9401 (Primary)</p>
+                <p style={{ color: '#fff', fontSize: '0.95rem', margin: '0.2rem 0' }}>+1 (555) 382-9402 (Support & Scanning Team)</p>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1.2rem', borderRadius: '8px', border: '1px solid rgba(255,255,258,0.08)' }}>
+                <p style={{ color: 'var(--color-accent-gold)', fontWeight: 'bold', marginBottom: '0.4rem' }}>What to include in your message:</p>
+                <ul style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem', paddingLeft: '1.2rem', lineHeight: '1.6' }}>
+                  <li>Your full name and organization title</li>
+                  <li>Name and location of the site, landmark, or project</li>
+                  <li>Brief description of your AR goals or asset requirements</li>
+                  <li>Preferred timeline for the launch</li>
+                </ul>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
