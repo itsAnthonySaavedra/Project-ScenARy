@@ -11,6 +11,7 @@ import {
   onSnapshot,
   addDoc,
   deleteDoc,
+  updateDoc,
   doc,
   serverTimestamp,
   query,
@@ -45,10 +46,12 @@ const MapSystem = () => {
   const [institutions, setInstitutions] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [tempCoords, setTempCoords] = useState(null);
+  const [landmarkName, setLandmarkName] = useState("");
   const [description, setDescription] = useState("");
   const [markerImage, setMarkerImage] = useState(null);
   const [markerImagePreview, setMarkerImagePreview] = useState("");
   const [savingMarker, setSavingMarker] = useState(false);
+  const [landmarkNameDrafts, setLandmarkNameDrafts] = useState({});
 
   const [activeExperiences, setActiveExperiences] = useState({});
   const [loadingExperiences, setLoadingExperiences] = useState({});
@@ -107,7 +110,8 @@ const MapSystem = () => {
   };
 
   const confirmAddMarker = async (instId, instName) => {
-    if (!tempCoords) return;
+    if (!tempCoords || !landmarkName.trim()) return;
+    const trimmedLandmarkName = landmarkName.trim();
     const trimmedDescription = description.trim();
     setSavingMarker(true);
     try {
@@ -120,13 +124,14 @@ const MapSystem = () => {
         createdAt: serverTimestamp(),
         institutionId: instId,
         institutionName: instName,
-        landmarkName: instName,
+        landmarkName: trimmedLandmarkName,
         description: trimmedDescription,
         info: { description: trimmedDescription },
         ...(image ? { imageUrl: image.url, imageStoragePath: image.storagePath, imageFileName: image.fileName, imageFileType: image.fileType } : {}),
       });
       setIsModalOpen(false);
       setTempCoords(null);
+      setLandmarkName("");
       setDescription("");
       setMarkerImage(null);
     } catch (err) {
@@ -142,6 +147,17 @@ const MapSystem = () => {
       await deleteDoc(doc(db, "markers", docId));
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const updateLandmarkName = async (markerId, value) => {
+    const trimmedName = value.trim();
+    if (!trimmedName) return;
+    try {
+      await updateDoc(doc(db, "markers", markerId), { landmarkName: trimmedName });
+    } catch (err) {
+      console.error("Error updating landmark name:", err);
+      alert("Unable to update the landmark name.");
     }
   };
 
@@ -204,6 +220,21 @@ const MapSystem = () => {
                 <strong style={{ fontSize: "1.05rem" }}>
                   {marker.landmarkName || marker.institutionName}
                 </strong>
+                <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+                  <input
+                    aria-label="Landmark name"
+                    value={landmarkNameDrafts[marker.id] ?? marker.landmarkName ?? marker.institutionName ?? ""}
+                    onChange={(event) => setLandmarkNameDrafts((current) => ({ ...current, [marker.id]: event.target.value }))}
+                    style={{ minWidth: 0, flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    disabled={!(landmarkNameDrafts[marker.id] ?? marker.landmarkName ?? marker.institutionName ?? "").trim()}
+                    onClick={() => updateLandmarkName(marker.id, landmarkNameDrafts[marker.id] ?? marker.landmarkName ?? marker.institutionName ?? "")}
+                  >
+                    Save
+                  </button>
+                </div>
                 {marker.description && (
                   <p
                     style={{
@@ -309,7 +340,7 @@ const MapSystem = () => {
             }}
           >
             <h4 style={{ color: "#d4af37", marginTop: 0 }}>
-              Assign Institution
+              Create Landmark
             </h4>
             <p
               style={{
@@ -320,6 +351,27 @@ const MapSystem = () => {
             >
               Select the organization and add a description for this location.
             </p>
+
+            <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
+              <label style={{ color: "#d4af37", fontSize: "0.8rem", display: "block", marginBottom: "4px" }}>
+                Landmark name:
+              </label>
+              <input
+                value={landmarkName}
+                onChange={(e) => setLandmarkName(e.target.value)}
+                placeholder="e.g. Main Gallery"
+                required
+                style={{
+                  width: "100%",
+                  padding: "8px",
+                  backgroundColor: "#262626",
+                  color: "white",
+                  border: "1px solid #404040",
+                  borderRadius: "4px",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
 
             <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
               <label
@@ -394,7 +446,7 @@ const MapSystem = () => {
               {institutions.map((inst) => (
                 <button
                   key={inst.id}
-                  disabled={savingMarker}
+                  disabled={savingMarker || !landmarkName.trim()}
                   onClick={() => confirmAddMarker(inst.id, inst.name)}
                   style={{
                     padding: "12px",
@@ -414,6 +466,7 @@ const MapSystem = () => {
               onClick={() => {
                 setIsModalOpen(false);
                 setTempCoords(null);
+                setLandmarkName("");
                 setDescription("");
                 setMarkerImage(null);
               }}

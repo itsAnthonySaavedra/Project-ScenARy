@@ -97,7 +97,6 @@ const LandmarkManagement = () => {
         : null;
       await updateDoc(doc(db, "markers", selectedLandmarkId), {
         landmarkName: name,
-        institutionName: name || undefined,
         description,
         info: { description },
         imageUrl: uploadedImage?.url || form.imageUrl,
@@ -145,7 +144,7 @@ const LandmarkManagement = () => {
 
   return <div style={{ padding: 20, color: "#ccc" }}>
     <h2 style={{ color: "#d4af37" }}>Landmarks</h2>
-    <p>Admin-created map pins are the landmarks. Select a pin to configure its information; POIs such as artworks are added separately and linked to that pin.</p>
+    <p>Admin-created map pins are the landmarks and are associated with your institution. Give each pin its own landmark name; POIs such as artworks are added separately and linked to that pin.</p>
     <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 420px) 1fr", gap: "20px" }}>
       <form onSubmit={saveLandmark} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "20px" }}>
         <h3 style={{ color: "#fff" }}>Configure Landmark</h3>
@@ -157,7 +156,7 @@ const LandmarkManagement = () => {
           <option value="">Select admin map pin</option>
           {landmarks.map((landmark) => <option key={landmark.id} value={landmark.id}>{landmark.landmarkName || landmark.institutionName}</option>)}
         </select>
-        <input className={commonStyles.formControl} placeholder="Museum name" value={form.name} onChange={(e) => updateField("name", e.target.value)} required />
+        <input className={commonStyles.formControl} placeholder="Landmark name" value={form.name} onChange={(e) => updateField("name", e.target.value)} required />
         <textarea className={commonStyles.formControl} placeholder="Landmark information" value={form.description} onChange={(e) => updateField("description", e.target.value)} required />
         <div>
           <label htmlFor="landmark-image" style={{ color: "#fff", display: "block", marginBottom: 8 }}>Landmark picture</label>
