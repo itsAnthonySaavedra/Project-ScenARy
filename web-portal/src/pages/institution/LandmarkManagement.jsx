@@ -91,10 +91,12 @@ const LandmarkManagement = () => {
     const name = form.name.trim();
     const description = form.description.trim();
     setSaving(true);
+    let saveStage = "Uploading landmark picture";
     try {
       const uploadedImage = imageFile
         ? await uploadStorageFile(imageFile, `markers/${institutionId}`)
         : null;
+      saveStage = "Saving landmark details";
       await updateDoc(doc(db, "markers", selectedLandmarkId), {
         landmarkName: name,
         description,
@@ -108,6 +110,7 @@ const LandmarkManagement = () => {
         ),
         updatedAt: serverTimestamp(),
       });
+      saveStage = "Refreshing landmark list";
       await writeAuditLog({
         actorId: getAuth().currentUser?.uid,
         actorRole: "institution",
@@ -133,8 +136,11 @@ const LandmarkManagement = () => {
       });
       setImageFile(null);
       await loadData(institutionId);
-    } catch {
-      alert("Unable to save landmark details.");
+    } catch (error) {
+      console.error(`${saveStage} failed:`, error);
+      const errorCode = error?.code ? ` (${error.code})` : "";
+      const errorMessage = error?.message || "Unknown error";
+      alert(`${saveStage} failed${errorCode}: ${errorMessage}`);
     } finally { setSaving(false); }
   };
 
