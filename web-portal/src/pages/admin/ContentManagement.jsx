@@ -50,7 +50,6 @@ const ContentManagement = () => {
   const [formTitle, setFormTitle] = useState("");
   const [formInstitutionId, setFormInstitutionId] = useState("");
   const [formStatus, setFormStatus] = useState("Awaiting Content");
-  const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
   const [formModelSpawnPoint, setFormModelSpawnPoint] = useState(createDefaultModelSpawnPoint);
@@ -133,7 +132,6 @@ const ContentManagement = () => {
     setFormInstitutionId("");
     setFormStatus("Awaiting Content");
     setFormScope("");
-    setFormInfoUrl("");
     setFormInfoDesc("");
     setFormModelUrl("");
     setFormModelSpawnPoint(createDefaultModelSpawnPoint());
@@ -156,7 +154,6 @@ const ContentManagement = () => {
     setSelectedType(normalizeContentType(item.type || ""));
 
     if (item.type === "Information") {
-      setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
     } else if (normalizeContentType(item.type) === MODEL_CONTENT_TYPE) {
       setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
@@ -220,7 +217,6 @@ const ContentManagement = () => {
       if (selectedType === "Information") {
         contentData = {
           description: formInfoDesc,
-          imageUrl: formInfoUrl || "",
         };
       } else if (selectedType === MODEL_CONTENT_TYPE) {
         contentData = {
@@ -277,7 +273,6 @@ const ContentManagement = () => {
       setFormInstitutionId("");
       setFormStatus("Awaiting Content");
       setFormScope("");
-      setFormInfoUrl("");
       setFormInfoDesc("");
       setFormModelUrl("");
       setFormModelSpawnPoint(createDefaultModelSpawnPoint());
@@ -546,7 +541,7 @@ const ContentManagement = () => {
               <option value="">Select Type</option>
               {CONTENT_TYPES.map((type) => (
                 <option key={type} value={type}>
-                  {type === "Information" ? "Information (Image & Description)" : type === "Quiz" ? "True / False Quiz" : type === MODEL_CONTENT_TYPE ? "AR/VR Model (.glb)" : type}
+                  {type === "Information" ? "Information (Description)" : type === "Quiz" ? "True / False Quiz" : type === MODEL_CONTENT_TYPE ? "AR/VR Model (.glb)" : type}
                 </option>
               ))}
             </select>
@@ -593,16 +588,6 @@ const ContentManagement = () => {
               {/* INFORMATION FORMAT */}
               {selectedType === "Information" && (
                 <>
-                  <div className={commonStyles.formGroup}>
-                    <label>Image URL (optional)</label>
-                    <input
-                      name="imageUrl"
-                      className={commonStyles.formControl}
-                      placeholder="https://..."
-                      value={formInfoUrl}
-                      onChange={(e) => setFormInfoUrl(e.target.value)}
-                    />
-                  </div>
                   <div className={commonStyles.formGroup}>
                     <label>Description</label>
                     <textarea

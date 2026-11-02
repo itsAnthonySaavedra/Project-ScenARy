@@ -40,7 +40,6 @@ const InstituteContentManagement = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editDocId, setEditDocId] = useState(null);
   const [formTitle, setFormTitle] = useState("");
-  const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
   const [formFactText, setFormFactText] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
@@ -130,7 +129,6 @@ const InstituteContentManagement = () => {
     setEditDocId(null);
     setFormTitle("");
     setFormScope("");
-    setFormInfoUrl("");
     setFormInfoDesc("");
     setFormFactText("");
     setFormModelUrl("");
@@ -163,7 +161,6 @@ const InstituteContentManagement = () => {
     setFormNeedsAttention(item.needsAttention === true);
 
     if (item.type === "Information") {
-      setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
     } else if (item.type === "Quiz") {
       setQuizQuestions(
@@ -186,7 +183,6 @@ const InstituteContentManagement = () => {
     setFormScope(getContentScope(item));
     setSelectedType(normalizeContentType(item.type || ""));
     setFormNeedsAttention(item.needsAttention === true);
-    setFormInfoUrl(data.imageUrl || "");
     setFormInfoDesc(data.description || "");
     setFormFactText(data.fact || "");
     setFormModelUrl(data.modelUrl || data.modelPath || "");
@@ -259,7 +255,6 @@ const InstituteContentManagement = () => {
       if (selectedType === "Information") {
         contentData = {
           description: formInfoDesc,
-          imageUrl: formInfoUrl || "",
         };
       } else if (selectedType === "Fun Fact") {
         contentData = { fact: formFactText };
@@ -335,7 +330,7 @@ const InstituteContentManagement = () => {
           type: selectedType,
           scope: formScope,
           institutionId: userInstitutionId,
-          fileName: contentData.modelFileName || contentData.imageFileName || null,
+          fileName: contentData.modelFileName || null,
         },
       });
 
@@ -347,7 +342,6 @@ const InstituteContentManagement = () => {
       setEditDocId(null);
       setFormTitle("");
       setFormScope("");
-      setFormInfoUrl("");
       setFormInfoDesc("");
       setFormFactText("");
       setFormModelUrl("");
@@ -672,16 +666,6 @@ const InstituteContentManagement = () => {
               {/* INFORMATION FORMAT */}
               {selectedType === "Information" && (
                 <>
-                  <div className={commonStyles.formGroup}>
-                    <label>Image URL (optional)</label>
-                    <input
-                      name="imageUrl"
-                      className={commonStyles.formControl}
-                      placeholder="https://..."
-                      value={formInfoUrl}
-                      onChange={(e) => setFormInfoUrl(e.target.value)}
-                    />
-                  </div>
                   <div className={commonStyles.formGroup}>
                     <label>Description</label>
                     <textarea
