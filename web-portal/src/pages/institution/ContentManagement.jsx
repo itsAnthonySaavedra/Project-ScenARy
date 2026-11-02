@@ -42,8 +42,6 @@ const InstituteContentManagement = () => {
   const [formTitle, setFormTitle] = useState("");
   const [formInfoUrl, setFormInfoUrl] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
-  const [infoImageFile, setInfoImageFile] = useState(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
   const [formFactText, setFormFactText] = useState("");
   const [formModelUrl, setFormModelUrl] = useState("");
   const [formModelSpawnPoint, setFormModelSpawnPoint] = useState(createDefaultModelSpawnPoint);
@@ -134,7 +132,6 @@ const InstituteContentManagement = () => {
     setFormScope("");
     setFormInfoUrl("");
     setFormInfoDesc("");
-    setInfoImageFile(null);
     setFormFactText("");
     setFormModelUrl("");
     setFormModelSpawnPoint(createDefaultModelSpawnPoint());
@@ -168,7 +165,6 @@ const InstituteContentManagement = () => {
     if (item.type === "Information") {
       setFormInfoUrl(item.data?.imageUrl || "");
       setFormInfoDesc(item.data?.description || "");
-      setInfoImageFile(null);
     } else if (item.type === "Quiz") {
       setQuizQuestions(
         item.data?.quizzes?.length
@@ -264,7 +260,6 @@ const InstituteContentManagement = () => {
         contentData = {
           description: formInfoDesc,
           imageUrl: formInfoUrl || "",
-          ...(infoImageFile ? { imageStoragePath: infoImageFile.storagePath, imageFileName: infoImageFile.fileName } : {}),
         };
       } else if (selectedType === "Fun Fact") {
         contentData = { fact: formFactText };
@@ -354,7 +349,6 @@ const InstituteContentManagement = () => {
       setFormScope("");
       setFormInfoUrl("");
       setFormInfoDesc("");
-      setInfoImageFile(null);
       setFormFactText("");
       setFormModelUrl("");
       setFormModelSpawnPoint(createDefaultModelSpawnPoint());
@@ -679,36 +673,7 @@ const InstituteContentManagement = () => {
               {selectedType === "Information" && (
                 <>
                   <div className={commonStyles.formGroup}>
-                    <label>Upload Picture</label>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        if (file.size > 10 * 1024 * 1024) {
-                          alert("Pictures must be 10 MB or smaller.");
-                          e.target.value = "";
-                          return;
-                        }
-                        setUploadingImage(true);
-                        try {
-                          const uploaded = await uploadStorageFile(file, `content-images/${userInstitutionId}`);
-                          setInfoImageFile(uploaded);
-                          setFormInfoUrl(uploaded.url);
-                        } catch (error) {
-                          console.error("Picture upload error:", error);
-                          alert("Unable to upload the picture. Check Firebase Storage permissions.");
-                        } finally {
-                          setUploadingImage(false);
-                        }
-                      }}
-                      style={{ color: "#ccc", marginBottom: "0.75rem" }}
-                    />
-                    <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>PNG, JPG, or WEBP. Maximum 10 MB.</small>
-                    {infoImageFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {infoImageFile.fileName}</small>}
-                    {uploadingImage && <small style={{ display: "block", color: "#fbbf24", marginBottom: "0.75rem" }}>Uploading picture...</small>}
-                    <label>Or use an existing image URL</label>
+                    <label>Image URL (optional)</label>
                     <input
                       name="imageUrl"
                       className={commonStyles.formControl}
@@ -903,6 +868,9 @@ const InstituteContentManagement = () => {
                   value={formCustomData}
                   onChange={(e) => setFormCustomData(e.target.value)}
                 />
+                <small>
+                  Optional extra metadata saved with this content. The portal stores it but does not currently use it in its own display or logic. Leave blank if you do not need it; otherwise enter valid JSON.
+                </small>
               </div>
             </div>
           )}
