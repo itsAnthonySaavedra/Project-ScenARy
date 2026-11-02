@@ -11,13 +11,13 @@ import {
   doc,
   updateDoc,
   addDoc,
-  deleteDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
+import { isInstitutionActive, setInstitutionActive } from "../../lib/institutionStatus";
 
 interface UserType {
   id: string;
@@ -36,6 +36,7 @@ interface Institution {
   location?: string;
   curator?: string;
   joined?: string;
+  isActive?: boolean;
 }
 
 const generateTemporaryPassword = () => {
@@ -105,6 +106,7 @@ const UserManagement: React.FC = () => {
         location: d.data().location || "",
         curator: d.data().curator || "",
         joined: d.data().joined || "",
+        isActive: d.data().isActive !== false,
       })),
     );
   };
@@ -137,17 +139,26 @@ const UserManagement: React.FC = () => {
     });
   };
 
-  const handleDeleteInstitution = async (id: string) => {
-    if (!window.confirm("Are you sure you want to remove this institution?")) return;
-    await deleteDoc(doc(db, "institutions", id));
-    setInstitutions((prev) => prev.filter((item) => item.id !== id));
-    await writeAuditLog({
-      actorId: authUser?.uid,
-      actorRole: currentRole,
-      action: "institution.deleted",
-      entityType: "institution",
-      entityId: id,
-    });
+  const handleToggleInstitutionActive = async (institution: Institution) => {
+    const isActive = !isInstitutionActive(institution);
+    const action = isActive ? "reactivate" : "deactivate";
+    if (!window.confirm(`${isActive ? "Reactivate" : "Deactivate"} ${institution.name}? Its content and analytics will be preserved, but deactivated institutions will no longer be available in the live map or institution portal.`)) return;
+    try {
+      await setInstitutionActive(institution.id, isActive);
+      setInstitutions((prev) => prev.map((item) =>
+        item.id === institution.id ? { ...item, isActive } : item,
+      ));
+      await writeAuditLog({
+        actorId: authUser?.uid,
+        actorRole: currentRole,
+        action: `institution.${isActive ? "reactivated" : "deactivated"}`,
+        entityType: "institution",
+        entityId: institution.id,
+      });
+    } catch (error) {
+      console.error(`Unable to ${action} institution:`, error);
+      alert(`Unable to ${action} this institution. Please try again.`);
+    }
   };
 
   const handleInstEdit = (inst: Institution) => {
@@ -601,6 +612,7 @@ const UserManagement: React.FC = () => {
                 <th>Location</th>
                 <th>Head Curator</th>
                 <th>Date Joined</th>
+                <th>Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -619,19 +631,20 @@ const UserManagement: React.FC = () => {
                     <td>{inst.location || "—"}</td>
                     <td>{inst.curator || "—"}</td>
                     <td>{inst.joined || "—"}</td>
+                    <td>{isInstitutionActive(inst) ? "Active" : "Inactive"}</td>
                     <td>
                       <button className={tableStyles.btnAction} title="Edit" onClick={() => handleInstEdit(inst)}>
                         <i className="fa-solid fa-pen"></i>
                       </button>
-                      <button className={tableStyles.btnAction} title="Delete" style={{ borderColor: "#ef4444", color: "#ef4444" }} onClick={() => handleDeleteInstitution(inst.id)}>
-                        <i className="fa-solid fa-trash"></i>
+                      <button className={tableStyles.btnAction} title={isInstitutionActive(inst) ? "Deactivate" : "Reactivate"} style={{ borderColor: isInstitutionActive(inst) ? "#ef4444" : "#4ade80", color: isInstitutionActive(inst) ? "#ef4444" : "#4ade80" }} onClick={() => handleToggleInstitutionActive(inst)}>
+                        <i className={`fa-solid ${isInstitutionActive(inst) ? "fa-ban" : "fa-circle-check"}`}></i>
                       </button>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", padding: "2rem" }}>No institutions found</td>
+                  <td colSpan={6} style={{ textAlign: "center", padding: "2rem" }}>No institutions found</td>
                 </tr>
               )}
             </tbody>

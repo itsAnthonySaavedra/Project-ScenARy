@@ -21,6 +21,7 @@ import {
 import { db } from "../../lib/firebase";
 import { uploadStorageFile } from "../../lib/storageUpload";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
+import { isInstitutionActive } from "../../lib/institutionStatus";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
@@ -55,6 +56,10 @@ const MapSystem = () => {
 
   const [activeExperiences, setActiveExperiences] = useState({});
   const [loadingExperiences, setLoadingExperiences] = useState({});
+  const activeInstitutionIds = new Set(
+    institutions.filter(isInstitutionActive).map((institution) => institution.id),
+  );
+  const activeMarkers = markers.filter((marker) => activeInstitutionIds.has(marker.institutionId));
 
   useEffect(() => {
     if (!markerImage) {
@@ -201,7 +206,7 @@ const MapSystem = () => {
         />
         <MapEvents />
 
-        {markers.map((marker) => (
+        {activeMarkers.map((marker) => (
           <Marker
             key={marker.id}
             position={[marker.lat, marker.lng]}
@@ -443,7 +448,7 @@ const MapSystem = () => {
                 paddingRight: "5px",
               }}
             >
-              {institutions.map((inst) => (
+              {institutions.filter(isInstitutionActive).map((inst) => (
                 <button
                   key={inst.id}
                   disabled={savingMarker || !landmarkName.trim()}

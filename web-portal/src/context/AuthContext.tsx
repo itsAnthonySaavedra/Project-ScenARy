@@ -16,7 +16,7 @@ import {
   User,
 } from "firebase/auth";
 import { auth, db } from "../lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { writeAuditLog } from "../lib/auditLog";
 
@@ -91,6 +91,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const storedRole = String(profile.role || "").toLowerCase();
+      if (storedRole === "institute" || storedRole === "institution") {
+        const institutionId = profile.institutionId;
+        const institutionSnapshot = institutionId
+          ? await getDoc(doc(db, "institutions", institutionId))
+          : null;
+        if (!institutionSnapshot?.exists() || institutionSnapshot.data().isActive === false) {
+          await signOut(auth);
+          return {
+            success: false,
+            message: "This institution is inactive or unavailable. Contact an administrator.",
+          };
+        }
+      }
       const role =
         storedRole === "admin"
           ? "admin"
@@ -252,6 +265,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return;
         }
         const storedRole = String(userProfile.role || "").toLowerCase();
+        if (expectedRole === "institution") {
+          const institutionId = userProfile.institutionId;
+          const institutionSnapshot = institutionId
+            ? await getDoc(doc(db, "institutions", institutionId))
+            : null;
+          if (!institutionSnapshot?.exists() || institutionSnapshot.data().isActive === false) {
+            sessionStorage.removeItem("scenaryExpectedRole");
+            sessionStorage.removeItem("scenaryUserId");
+            await signOut(auth);
+            setCurrentUser(null);
+            setCurrentRole(null);
+            setMustChangePassword(false);
+            setLoading(false);
+            return;
+          }
+        }
         const role: UserRole | null =
           storedRole === "admin" || storedRole === "superadmin"
             ? storedRole
@@ -293,6 +322,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (currentRole !== "institution" || !currentUser) return undefined;
+
+    let disposed = false;
+    let unsubscribeInstitution = () => {};
+    const watchInstitution = async () => {
+      try {
+        const profile = await getDoc(doc(db, "users", currentUser.uid));
+        const institutionId = profile.data()?.institutionId;
+        if (disposed || !institutionId) return;
+
+        unsubscribeInstitution = onSnapshot(
+          doc(db, "institutions", institutionId),
+          (institution) => {
+            if (institution.exists() && institution.data().isActive !== false) return;
+            sessionStorage.removeItem("scenaryExpectedRole");
+            sessionStorage.removeItem("scenaryUserId");
+            signOut(auth).catch((error) => console.error("Unable to sign out deactivated institution:", error));
+            setCurrentUser(null);
+            setCurrentRole(null);
+            setMustChangePassword(false);
+            navigate("/login?type=institution");
+          },
+          (error) => console.error("Unable to monitor institution status:", error),
+        );
+      } catch (error) {
+        console.error("Unable to monitor institution status:", error);
+      }
+    };
+
+    watchInstitution();
+    return () => {
+      disposed = true;
+      unsubscribeInstitution();
+    };
+  }, [currentRole, currentUser, navigate]);
 
   return (
     <AuthContext.Provider

@@ -24,6 +24,7 @@ import ActivityLogs from "./pages/admin/ActivityLogs";
 import AdminAnalytics from "./pages/admin/Analytics";
 import Settings from "./pages/CommonSettings";
 import MapSystem from "./pages/admin/MapSystem";
+import FloorPlan from "./pages/institution/FloorPlan";
 
 /* Institute Pages */
 import InstituteDashboard from "./pages/institution/Dashboard";
@@ -31,7 +32,6 @@ import InstituteAnalytics from "./pages/institution/Analytics";
 import LandmarkManagement from "./pages/institution/LandmarkManagement";
 import POIManagement from "./pages/institution/POIManagement";
 import InstituteContentManagement from "./pages/institution/ContentManagement";
-import FloorPlan from "./pages/institution/FloorPlan";
 
 function ProtectedRoute({ role, children }) {
   const { currentUser, currentRole, mustChangePassword } = useAuth();
@@ -86,7 +86,8 @@ function AppRoutes() {
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="map" element={<MapSystem />} />
-        <Route path="pois" element={<POIManagement adminMode />} />
+        <Route path="floor-plan" element={<FloorPlan adminMode />} />
+        <Route path="pois" element={<Navigate to="/admin/floor-plan" replace />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="content" element={<ContentManagement />} />
         <Route path="tours" element={<Navigate to="/admin/dashboard" replace />} />

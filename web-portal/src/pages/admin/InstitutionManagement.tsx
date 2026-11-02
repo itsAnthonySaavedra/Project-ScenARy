@@ -5,12 +5,12 @@ import Modal from "../../components/common/Modal";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
+import { isInstitutionActive, setInstitutionActive } from "../../lib/institutionStatus";
 import {
   collection,
   getDocs,
   addDoc,
   updateDoc,
-  deleteDoc,
   doc,
 } from "firebase/firestore";
 
@@ -42,12 +42,27 @@ const InstitutionManagement = () => {
   /* =====================
      ACTIONS
   ===================== */
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Are you sure you want to remove this institution?"))
+  const handleToggleActive = async (institution: any) => {
+    const isActive = !isInstitutionActive(institution);
+    const action = isActive ? "reactivate" : "deactivate";
+    if (!window.confirm(`${isActive ? "Reactivate" : "Deactivate"} ${institution.name}? Its content and analytics will be preserved, but deactivated institutions will no longer be available in the live map or institution portal.`))
       return;
-    await deleteDoc(doc(db, "institutions", id));
-    setInstitutions((prev) => prev.filter((i) => i.id !== id));
-    await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "institution.deleted", entityType: "institution", entityId: id });
+    try {
+      await setInstitutionActive(institution.id, isActive);
+      setInstitutions((prev) => prev.map((item) =>
+        item.id === institution.id ? { ...item, isActive } : item,
+      ));
+      await writeAuditLog({
+        actorId: currentUser?.uid,
+        actorRole: currentRole,
+        action: `institution.${isActive ? "reactivated" : "deactivated"}`,
+        entityType: "institution",
+        entityId: institution.id,
+      });
+    } catch (error) {
+      console.error(`Unable to ${action} institution:`, error);
+      alert(`Unable to ${action} this institution. Please try again.`);
+    }
   };
 
   const handleEdit = (inst: any) => {
@@ -123,6 +138,7 @@ const InstitutionManagement = () => {
             <th>Location</th>
             <th>Head Curator</th>
             <th>Date Joined</th>
+            <th>Status</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -162,6 +178,7 @@ const InstitutionManagement = () => {
                 <td>{inst.location}</td>
                 <td>{inst.curator}</td>
                 <td>{inst.joined}</td>
+                <td>{isInstitutionActive(inst) ? "Active" : "Inactive"}</td>
 
                 <td>
                   <button
@@ -182,18 +199,18 @@ const InstitutionManagement = () => {
 
                   <button
                     className={tableStyles.btnAction}
-                    title="Delete"
-                    style={{ borderColor: "#ef4444", color: "#ef4444" }}
-                    onClick={() => handleDelete(inst.id)}
+                    title={isInstitutionActive(inst) ? "Deactivate" : "Reactivate"}
+                    style={{ borderColor: isInstitutionActive(inst) ? "#ef4444" : "#4ade80", color: isInstitutionActive(inst) ? "#ef4444" : "#4ade80" }}
+                    onClick={() => handleToggleActive(inst)}
                   >
-                    <i className="fa-solid fa-trash"></i>
+                    <i className={`fa-solid ${isInstitutionActive(inst) ? "fa-ban" : "fa-circle-check"}`}></i>
                   </button>
                 </td>
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={5} style={{ textAlign: "center", padding: "2rem" }}>
+              <td colSpan={6} style={{ textAlign: "center", padding: "2rem" }}>
                 No institutions found
               </td>
             </tr>

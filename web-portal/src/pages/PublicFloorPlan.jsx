@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { collection, getDocs, getDoc, query, where, doc } from "firebase/firestore";
 import { useParams } from "react-router-dom";
 import { db } from "../lib/firebase";
+import { isInstitutionActive } from "../lib/institutionStatus";
 
 const PublicFloorPlan = () => {
   const { institutionId } = useParams();
@@ -20,6 +21,12 @@ const PublicFloorPlan = () => {
         return;
       }
       try {
+        const institutionSnapshot = await getDoc(doc(db, "institutions", institutionId));
+        if (!institutionSnapshot.exists() || !isInstitutionActive(institutionSnapshot.data())) {
+          setError("This institution is inactive or unavailable.");
+          setLoading(false);
+          return;
+        }
         const [floorPlanSnapshot, poiSnapshot, contentSnapshot] = await Promise.all([
           getDoc(doc(db, "floorPlans", institutionId)),
           getDocs(query(collection(db, "pois"), where("institutionId", "==", institutionId))),

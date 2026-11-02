@@ -18,6 +18,7 @@ const Layout = ({ role }) => {
         if (pathname.includes('/content')) return 'Content Management';
         if (pathname.includes('/landmarks')) return 'Landmarks';
         if (pathname.includes('/pois')) return 'Points of Interest';
+        if (pathname.includes('/admin/floor-plan') || pathname === '/admin/pois') return 'Floor Plans & POIs';
         if (pathname.includes('/floor-plan')) return 'Interactive Floor Plan';
         if (pathname.includes('/analytics')) return 'Analytics';
         if (pathname.includes('/settings')) return 'Settings';

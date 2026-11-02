@@ -2,12 +2,16 @@ import React, { useEffect, useRef, useState } from "react";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDocs, getDoc, query, serverTimestamp, setDoc, updateDoc, where, deleteField } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import { db, storage } from "../../lib/firebase";
 import { writeAuditLog } from "../../lib/auditLog";
+import { isInstitutionActive } from "../../lib/institutionStatus";
 
-const FloorPlan = () => {
+const FloorPlan = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
+  const [institutions, setInstitutions] = useState([]);
+  const [institutionName, setInstitutionName] = useState("");
   const [floorPlan, setFloorPlan] = useState(null);
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -17,32 +21,161 @@ const FloorPlan = () => {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragStart, setDragStart] = useState(null);
   const [pois, setPois] = useState([]);
+  const [landmarks, setLandmarks] = useState([]);
+  const [qrMessage, setQrMessage] = useState("");
   const [poiSearch, setPoiSearch] = useState("");
   const [selectedPoiId, setSelectedPoiId] = useState("");
   const [placementMode, setPlacementMode] = useState(false);
   const [savingMarker, setSavingMarker] = useState(false);
   const fileInputRef = useRef(null);
 
+  const loadInstitutionFloorPlan = async (id) => {
+    if (!id) {
+      setInstitutionName("");
+      setFloorPlan(null);
+      setPois([]);
+      setLandmarks([]);
+      setMessage("");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+    try {
+      const [institutionSnapshot, floorPlanSnapshot, poiSnapshot, landmarkSnapshot] = await Promise.all([
+        getDoc(doc(db, "institutions", id)),
+        getDoc(doc(db, "floorPlans", id)),
+        getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
+        getDocs(query(collection(db, "markers"), where("institutionId", "==", id))),
+      ]);
+      if (!institutionSnapshot.exists()) {
+        setInstitutionName("");
+        setFloorPlan(null);
+        setPois([]);
+        setLandmarks([]);
+        setMessage("This institution no longer exists.");
+        return;
+      }
+
+      const institution = institutionSnapshot.data();
+      setInstitutionName(institution.name || id);
+      setFloorPlan(floorPlanSnapshot.exists()
+        ? { id: floorPlanSnapshot.id, ...floorPlanSnapshot.data() }
+        : null);
+      setPois(poiSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setLandmarks(landmarkSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setMessage(isInstitutionActive(institution)
+        ? ""
+        : "This institution is inactive. Its saved floor plan is shown for administrative review.");
+    } catch (error) {
+      console.error("Unable to load institution floor plan:", error);
+      setMessage("Unable to load this institution's floor plan.");
+      setFloorPlan(null);
+      setPois([]);
+      setLandmarks([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => onAuthStateChanged(getAuth(), async (user) => {
     if (!user) {
       setLoading(false);
       return;
     }
-    const profile = await getDoc(doc(db, "users", user.uid));
-    const id = profile.exists() ? profile.data().institutionId : null;
-    if (!id) {
+    try {
+      if (adminMode) {
+        const institutionSnapshot = await getDocs(collection(db, "institutions"));
+        setInstitutions(institutionSnapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        })));
+        setInstitutionId("");
+        setInstitutionName("");
+        setFloorPlan(null);
+        setPois([]);
+        setLandmarks([]);
+        setLoading(false);
+        return;
+      }
+
+      const profile = await getDoc(doc(db, "users", user.uid));
+      const id = profile.exists() ? profile.data().institutionId : null;
+      setInstitutionId(id || "");
+      await loadInstitutionFloorPlan(id);
+    } catch (error) {
+      console.error("Unable to initialize floor plan:", error);
+      setMessage("Unable to load floor plan data.");
       setLoading(false);
+    }
+  }), [adminMode]);
+
+  const handleInstitutionChange = async (event) => {
+    const id = event.target.value;
+    setInstitutionId(id);
+    setScale(1);
+    setOffset({ x: 0, y: 0 });
+    setSelectedPoiId("");
+    setQrMessage("");
+    await loadInstitutionFloorPlan(id);
+  };
+
+  const getQrCanvas = (landmarkId) => document.getElementById(`admin-landmark-qr-${landmarkId}`);
+
+  const downloadLandmarkQr = (landmark) => {
+    const canvas = getQrCanvas(landmark.id);
+    if (!canvas) {
+      setQrMessage("The QR image is not ready yet.");
       return;
     }
-    setInstitutionId(id);
-    const [floorPlanSnapshot, poiSnapshot] = await Promise.all([
-      getDoc(doc(db, "floorPlans", id)),
-      getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
-    ]);
-    setFloorPlan(floorPlanSnapshot.exists() ? { id: floorPlanSnapshot.id, ...floorPlanSnapshot.data() } : null);
-    setPois(poiSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-    setLoading(false);
-  }), []);
+    const link = document.createElement("a");
+    link.download = `${(landmark.landmarkName || landmark.institutionName || "landmark").replace(/[^a-z0-9-_]/gi, "-")}-poi-qr.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+    setQrMessage("");
+  };
+
+  const copyLandmarkQr = async (landmark) => {
+    const canvas = getQrCanvas(landmark.id);
+    if (!canvas) {
+      setQrMessage("The QR image is not ready yet.");
+      return;
+    }
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+      setQrMessage("Copying QR images is not supported by this browser. Use Download QR instead.");
+      return;
+    }
+    try {
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((imageBlob) => imageBlob
+          ? resolve(imageBlob)
+          : reject(new Error("Unable to create the QR image.")), "image/png");
+      });
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      setQrMessage("QR image copied to clipboard.");
+    } catch (error) {
+      console.error("Unable to copy landmark QR image:", error);
+      setQrMessage("Unable to copy the QR image. Check clipboard permissions or use Download QR.");
+    }
+  };
+
+  const printLandmarkQr = (landmark, qrCode) => {
+    const canvas = getQrCanvas(landmark.id);
+    if (!canvas) {
+      setQrMessage("The QR image is not ready yet.");
+      return;
+    }
+    const printWindow = window.open("", "_blank", "width=500,height=600");
+    if (!printWindow) {
+      setQrMessage("Allow pop-ups to print this QR code.");
+      return;
+    }
+    const title = landmark.landmarkName || landmark.institutionName || "Landmark";
+    printWindow.document.write(`<html><head><title>${title} POI QR Code</title></head><body style="font-family:sans-serif;text-align:center;padding:32px"><h1>${title}</h1><img src="${canvas.toDataURL("image/png")}" alt="QR code for ${title}" /><p>${qrCode}</p><script>window.onload=()=>{window.print();window.close();};</script></body></html>`);
+    printWindow.document.close();
+    setQrMessage("");
+  };
 
   const resetViewer = () => {
     setScale(1);
@@ -70,11 +203,13 @@ const FloorPlan = () => {
     if (!institutionId || !file) return;
     setUploading(true);
     setMessage("");
+    let uploadStage = "uploading the file to Firebase Storage";
     try {
       const storagePath = `floor-plans/${institutionId}/${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, "-")}`;
       const fileRef = ref(storage, storagePath);
       await uploadBytes(fileRef, file, { contentType: file.type });
       const url = await getDownloadURL(fileRef);
+      uploadStage = "saving floor-plan metadata in Firestore";
       const floorPlanData = {
         institutionId,
         name: file.name,
@@ -98,8 +233,18 @@ const FloorPlan = () => {
       resetViewer();
       setMessage("Floor plan uploaded successfully.");
     } catch (error) {
-      console.error("Unable to upload floor plan:", error);
-      setMessage("Unable to upload the floor plan. Check Firebase Storage permissions.");
+      console.error(`Unable to complete floor-plan upload while ${uploadStage}:`, error);
+      const code = error?.code || "unknown";
+      const details = error?.message || "No additional details were provided by Firebase.";
+      if (code === "storage/unauthorized") {
+        setMessage(`Firebase Storage denied the upload to floor-plans/${institutionId}/. Check the Storage rules for this path and account. (${code})`);
+      } else if (code === "storage/cors-unsupported-method" || code === "storage/cors-unsupported-origin") {
+        setMessage(`Firebase Storage blocked this browser request because of its CORS configuration. Check the bucket CORS settings for this site's origin and upload method. (${code})`);
+      } else if (code === "firestore/permission-denied") {
+        setMessage(`The file reached Firebase Storage, but Firestore denied saving its floor-plan record. Check the Firestore rules. (${code})`);
+      } else {
+        setMessage(`Floor-plan upload failed while ${uploadStage} (${code}): ${details}`);
+      }
     } finally {
       setUploading(false);
     }
@@ -182,12 +327,192 @@ const FloorPlan = () => {
   const unplacedPois = pois.filter((poi) => !poi.floorPlanPosition);
   const matchingUnplacedPois = unplacedPois.filter((poi) => poi.name?.toLowerCase().includes(poiSearch.trim().toLowerCase()));
 
+  if (adminMode) {
+    const selectedInstitution = institutions.find((institution) => institution.id === institutionId);
+    const placedPois = pois.filter((poi) => poi.floorPlanPosition);
+    const landmarkPoiGroups = landmarks.map((landmark) => {
+      const landmarkPois = pois.filter((poi) => poi.landmarkId === landmark.id);
+      return {
+        landmark,
+        pois: landmarkPois,
+        qrCode: landmark.poiQrCode || landmarkPois.find((poi) => poi.qrCode)?.qrCode || "",
+      };
+    });
+    const knownPoiIds = new Set(landmarkPoiGroups.flatMap((group) => group.pois.map((poi) => poi.id)));
+    const orphanPois = pois.filter((poi) => !knownPoiIds.has(poi.id));
+    return (
+      <div style={{ padding: 20, color: "#ccc" }}>
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ color: "#d4af37", marginBottom: 6 }}>Floor Plans &amp; POIs</h2>
+          <p style={{ margin: "0 0 12px", color: "#999" }}>Select an institution to inspect its floor plan and POIs. This admin view is read-only.</p>
+          <label htmlFor="admin-floor-plan-institution" style={{ color: "#ddd" }}>
+            Institution
+            <select
+              id="admin-floor-plan-institution"
+              value={institutionId || ""}
+              onChange={handleInstitutionChange}
+              style={{ display: "block", marginTop: 6, minWidth: 280, padding: 8 }}
+            >
+              <option value="">Select an institution</option>
+              {institutions.map((institution) => (
+                <option key={institution.id} value={institution.id}>
+                  {institution.name || institution.id}{isInstitutionActive(institution) ? "" : " (Inactive)"}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedInstitution && <p style={{ margin: "10px 0 0", color: "#aaa" }}>Viewing: {institutionName}</p>}
+          {message && <p role="status" style={{ marginTop: 10, color: "#fbbf24" }}>{message}</p>}
+        </div>
+        {!institutionId ? (
+          <section className={commonStyles.contentCard} style={{ padding: 20, color: "#999" }}>
+            Choose an institution to view its floor plan.
+          </section>
+        ) : !floorPlan ? (
+          <section className={commonStyles.contentCard} style={{ padding: 20, color: "#999" }}>
+            No floor plan has been uploaded for this institution.
+          </section>
+        ) : (
+          <section className={commonStyles.contentCard} style={{ padding: 16, display: "flex", flexDirection: "column", alignItems: "stretch", gap: 12, minHeight: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <h3 style={{ color: "#fff", margin: 0 }}>{floorPlan.name || "Floor plan"}</h3>
+              <span style={{ color: "#999" }}>{placedPois.length} of {pois.length} POIs placed · Read-only</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(220px, 300px)", gap: 16, alignItems: "start" }}>
+              {floorPlan.fileType === "application/pdf" ? (
+                <iframe title={`${institutionName} floor plan`} src={floorPlan.url} style={{ display: "block", width: "100%", height: "min(70vh, 700px)", border: "1px solid #444", background: "#fff" }} />
+              ) : (
+                <div style={{ position: "relative", display: "flex", justifyContent: "center", alignItems: "center", width: "100%", minHeight: 300, maxHeight: "70vh", overflow: "auto", background: "#111", border: "1px solid #444" }}>
+                  <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
+                    <img src={floorPlan.url} alt={`${institutionName} floor plan`} style={{ display: "block", maxWidth: "100%", maxHeight: "70vh", height: "auto", objectFit: "contain" }} />
+                    {placedPois.map((poi, index) => (
+                      <button
+                        key={poi.id}
+                        type="button"
+                        title={poi.name}
+                        aria-label={`Show POI ${poi.name}`}
+                        onClick={() => setSelectedPoiId(poi.id)}
+                        style={{
+                          position: "absolute",
+                          left: `${poi.floorPlanPosition.x}%`,
+                          top: `${poi.floorPlanPosition.y}%`,
+                          transform: "translate(-50%, -50%)",
+                          width: 34,
+                          height: 34,
+                          display: "grid",
+                          placeItems: "center",
+                          borderRadius: "50%",
+                          border: "2px solid #fff",
+                          background: poi.id === selectedPoiId ? "#ef4444" : "#d4af37",
+                          color: "#111",
+                          cursor: "pointer",
+                          boxShadow: "0 2px 7px #0008",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <aside aria-label="Points of interest and QR codes" style={{ maxHeight: "min(70vh, 700px)", overflowY: "auto", padding: 12, border: "1px solid #333", borderRadius: 8, background: "#171717" }}>
+                <h4 style={{ color: "#fff", margin: "0 0 10px" }}>Landmarks &amp; POIs ({pois.length})</h4>
+                {landmarkPoiGroups.length === 0 && pois.length === 0 ? (
+                  <p style={{ color: "#888", margin: 0 }}>No landmarks or POIs for this institution.</p>
+                ) : (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {landmarkPoiGroups.map(({ landmark, pois: landmarkPois, qrCode }) => {
+                      const qrId = `admin-landmark-qr-${landmark.id}`;
+                      return (
+                        <section key={landmark.id} style={{ padding: 10, border: "1px solid #333", borderRadius: 6, background: "#202020" }}>
+                          <strong style={{ color: "#d4af37" }}>{landmark.landmarkName || landmark.institutionName || "Unnamed landmark"}</strong>
+                          <p style={{ color: "#888", fontSize: 12, margin: "3px 0 8px" }}>Shared landmark POI QR</p>
+                          {qrCode ? (
+                            <>
+                              <div style={{ display: "flex", justifyContent: "center", padding: 10, background: "#fff", width: "fit-content", borderRadius: 4 }}>
+                                <QRCodeCanvas id={qrId} value={qrCode} size={132} includeMargin />
+                              </div>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                                <button type="button" className={commonStyles.btnOutline} style={{ padding: "6px 9px", fontSize: 12 }} onClick={() => downloadLandmarkQr(landmark)}>Download QR</button>
+                                <button type="button" className={commonStyles.btnOutline} style={{ padding: "6px 9px", fontSize: 12 }} onClick={() => copyLandmarkQr(landmark)}>Copy image</button>
+                                <button type="button" className={commonStyles.btnOutline} style={{ padding: "6px 9px", fontSize: 12 }} onClick={() => printLandmarkQr(landmark, qrCode)}>Print QR</button>
+                              </div>
+                            </>
+                          ) : (
+                            <p style={{ color: "#888", fontSize: 12, margin: 0 }}>No shared QR has been generated for this landmark.</p>
+                          )}
+                          {landmarkPois.length === 0 ? (
+                            <p style={{ color: "#888", fontSize: 12, margin: "10px 0 0" }}>No POIs under this landmark.</p>
+                          ) : (
+                            <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
+                              {landmarkPois.map((poi) => {
+                                const poiNumber = placedPois.findIndex((placedPoi) => placedPoi.id === poi.id) + 1;
+                                return (
+                                  <button
+                                    key={poi.id}
+                                    type="button"
+                                    onClick={() => setSelectedPoiId(poi.id)}
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      width: "100%",
+                                      padding: "8px 10px",
+                                      textAlign: "left",
+                                      color: "#eee",
+                                      background: poi.id === selectedPoiId ? "rgba(212,175,55,0.18)" : "#292929",
+                                      border: `1px solid ${poi.id === selectedPoiId ? "#d4af37" : "#3a3a3a"}`,
+                                      borderRadius: 6,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                      <span style={{ color: "#d4af37", minWidth: 18 }}>{poiNumber || "–"}</span>
+                                      <span>{poi.name || "Unnamed POI"}</span>
+                                    </span>
+                                    <small style={{ color: "#999", whiteSpace: "nowrap" }}>{poiNumber ? "On map" : "Not placed"}</small>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </section>
+                      );
+                    })}
+                    {orphanPois.length > 0 && (
+                      <section style={{ padding: 10, border: "1px solid #704b27", borderRadius: 6, background: "#241d16" }}>
+                        <strong style={{ color: "#fbbf24" }}>POIs without a landmark</strong>
+                        {orphanPois.map((poi) => (
+                          <button key={poi.id} type="button" onClick={() => setSelectedPoiId(poi.id)} style={{ display: "block", width: "100%", marginTop: 6, padding: 8, textAlign: "left", color: "#eee", background: "#292929", border: "1px solid #3a3a3a", borderRadius: 6, cursor: "pointer" }}>
+                            {poi.name || "Unnamed POI"} · {poi.floorPlanPosition ? "On map" : "Not placed"}
+                          </button>
+                        ))}
+                      </section>
+                    )}
+                  </div>
+                )}
+              </aside>
+            </div>
+            {qrMessage && <p role="status" style={{ margin: 0, color: "#fbbf24" }}>{qrMessage}</p>}
+            {selectedPoiId && pois.some((poi) => poi.id === selectedPoiId) && (
+              <p role="status" style={{ margin: 0, color: "#ddd" }}>
+                Selected: {pois.find((poi) => poi.id === selectedPoiId)?.name || "Unnamed POI"}
+                {!pois.find((poi) => poi.id === selectedPoiId)?.floorPlanPosition && " (not placed on the floor plan)"}
+              </p>
+            )}
+          </section>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: 20, color: "#ccc" }}>
       <div style={{ marginBottom: 20 }}>
         <h2 style={{ color: "#d4af37", marginBottom: 6 }}>Interactive Floor Plan</h2>
         <p style={{ margin: 0, color: "#999" }}>Upload a floor plan, then place your existing POIs on it for visitors to tap.</p>
-        {institutionId && <a href={`/institution-map/${institutionId}`} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 10, color: "#d4af37" }}>Open public map</a>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 360px) 1fr", gap: 20, alignItems: "start" }}>
