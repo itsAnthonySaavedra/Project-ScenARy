@@ -95,6 +95,13 @@ const PublicFloorPlan = () => {
         <aside style={styles.details}>
           <p style={styles.eyebrow}>Point of interest</p>
           <h2>{selectedPoi.name}</h2>
+          {selectedPoi.imageUrl && (
+            <img
+              src={selectedPoi.imageUrl}
+              alt={`Location reference for ${selectedPoi.name}`}
+              style={styles.poiImage}
+            />
+          )}
           {selectedContent.length === 0 ? <p style={styles.helper}>No additional information is available yet.</p> : selectedContent.map((item) => (
             <article key={item.id} style={styles.contentItem}>
               <strong>{item.title}</strong>
@@ -119,6 +126,7 @@ const styles = {
   pin: { position: "absolute", transform: "translate(-50%, -50%)", width: 36, height: 36, borderRadius: "50%", border: "2px solid #fff", color: "#111", cursor: "pointer", boxShadow: "0 2px 8px #0008", fontSize: 22, fontWeight: 700, lineHeight: 1 },
   pdf: { width: "100%", height: "70vh", border: 0, background: "#fff" },
   details: { maxWidth: 1180, margin: "20px auto 0", padding: 22, background: "#1f2937", border: "1px solid #374151" },
+  poiImage: { display: "block", width: "100%", maxWidth: 640, maxHeight: "60vh", objectFit: "contain", objectPosition: "left center", marginTop: 12, borderRadius: 8, background: "#111827" },
   contentItem: { borderTop: "1px solid #374151", paddingTop: 12, marginTop: 12 },
 };
 

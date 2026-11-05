@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, getDoc, updateDoc, deleteDoc, deleteField } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import { db } from "../../lib/firebase";
 import { getContentScope } from "../../lib/contentScope";
 import { writeAuditLog } from "../../lib/auditLog";
+import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -15,11 +16,25 @@ const POIManagement = ({ adminMode = false }) => {
   const [availableContent, setAvailableContent] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
   const [selectedPoiId, setSelectedPoiId] = useState(null);
-  const [form, setForm] = useState({ institutionId: "", landmarkId: "", name: "", qrCode: "" });
+  const [form, setForm] = useState({ institutionId: "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "" });
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
+  const [removeImage, setRemoveImage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const qrCanvasRef = useRef(null);
+  const imageInputRef = useRef(null);
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreviewUrl("");
+      return undefined;
+    }
+    const previewUrl = URL.createObjectURL(imageFile);
+    setImagePreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [imageFile]);
+
   const loadData = useCallback(async (id) => {
     if (!id) {
       setLandmarks([]);
@@ -64,7 +79,10 @@ const POIManagement = ({ adminMode = false }) => {
   const resetForm = () => {
     setSelectedPoiId(null);
     setSelectedContentIds([]);
-    setForm({ institutionId: adminMode ? institutionId || "" : "", landmarkId: "", name: "", qrCode: "" });
+    setForm({ institutionId: adminMode ? institutionId || "" : "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "" });
+    setImageFile(null);
+    setRemoveImage(false);
+    if (imageInputRef.current) imageInputRef.current.value = "";
     setFormError("");
   };
 
@@ -72,7 +90,10 @@ const POIManagement = ({ adminMode = false }) => {
     setInstitutionId(id);
     setSelectedPoiId(null);
     setSelectedContentIds([]);
-    setForm({ institutionId: id, landmarkId: "", name: "", qrCode: "" });
+    setForm({ institutionId: id, landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "" });
+    setImageFile(null);
+    setRemoveImage(false);
+    if (imageInputRef.current) imageInputRef.current.value = "";
     setFormError("");
     setLandmarks([]);
     setPois([]);
@@ -137,13 +158,26 @@ const POIManagement = ({ adminMode = false }) => {
       landmarkId: poi.landmarkId,
       name: poi.name || "",
       qrCode: poi.qrCode || landmark?.poiQrCode || "",
+      imageUrl: poi.imageUrl || "",
+      imageStoragePath: poi.imageStoragePath || "",
     });
+    setImageFile(null);
+    setRemoveImage(false);
+    if (imageInputRef.current) imageInputRef.current.value = "";
     setFormError("");
   };
 
   const removePoi = async (poi) => {
     if (!window.confirm(`Remove ${poi.name}?`)) return;
     await deleteDoc(doc(db, "pois", poi.id));
+    if (poi.imageStoragePath) {
+      try {
+        await deleteStorageFile(poi.imageStoragePath);
+      } catch (error) {
+        console.error("POI was removed but its image could not be deleted:", error);
+        alert("The POI was removed, but its image could not be deleted from storage.");
+      }
+    }
     await writeAuditLog({
       actorId: getAuth().currentUser?.uid,
       actorRole: adminMode ? "admin" : "institution",
@@ -170,7 +204,10 @@ const POIManagement = ({ adminMode = false }) => {
     }
     setSaving(true);
     setFormError("");
+    let uploadedImage = null;
+    let poiSaved = false;
     try {
+      if (imageFile) uploadedImage = await uploadStorageFile(imageFile, `poi-images/${ownerId}`);
       const poiData = {
         institutionId: ownerId,
         landmarkId: form.landmarkId,
@@ -179,15 +216,42 @@ const POIManagement = ({ adminMode = false }) => {
         contentIds: selectedContentIds,
         updatedAt: serverTimestamp(),
       };
+      const imageFields = uploadedImage
+        ? {
+          imageUrl: uploadedImage.url,
+          imageStoragePath: uploadedImage.storagePath,
+          imageFileName: uploadedImage.fileName,
+          imageFileType: uploadedImage.fileType,
+        }
+        : {};
       let savedPoiId = selectedPoiId;
       if (selectedPoiId) {
-        await updateDoc(doc(db, "pois", selectedPoiId), poiData);
+        await updateDoc(doc(db, "pois", selectedPoiId), {
+          ...poiData,
+          ...imageFields,
+          ...(removeImage ? {
+            imageUrl: deleteField(),
+            imageStoragePath: deleteField(),
+            imageFileName: deleteField(),
+            imageFileType: deleteField(),
+          } : {}),
+        });
       } else {
         const createdPoi = await addDoc(collection(db, "pois"), {
           ...poiData,
+          ...imageFields,
           createdAt: serverTimestamp(),
         });
         savedPoiId = createdPoi.id;
+      }
+      poiSaved = true;
+      if (form.imageStoragePath && (uploadedImage || removeImage)) {
+        try {
+          await deleteStorageFile(form.imageStoragePath);
+        } catch (error) {
+          console.error("POI image was updated but the previous image could not be deleted:", error);
+          alert("The POI was saved, but its previous image could not be deleted from storage.");
+        }
       }
       await writeAuditLog({
         actorId: getAuth().currentUser?.uid,
@@ -199,7 +263,15 @@ const POIManagement = ({ adminMode = false }) => {
       });
       resetForm();
       await loadData(institutionId);
-    } catch {
+    } catch (error) {
+      console.error("Unable to save POI:", error);
+      if (uploadedImage && !poiSaved) {
+        try {
+          await deleteStorageFile(uploadedImage.storagePath);
+        } catch (cleanupError) {
+          console.error("Unable to clean up the uploaded POI image after save failed:", cleanupError);
+        }
+      }
       alert("Unable to save POI.");
     } finally { setSaving(false); }
   };
@@ -225,6 +297,43 @@ const POIManagement = ({ adminMode = false }) => {
           updateField("qrCode", selectedLandmark?.poiQrCode || "");
         }} required><option value="">Select parent landmark</option>{landmarks.filter((landmark) => !adminMode || landmark.institutionId === form.institutionId).map((landmark) => <option key={landmark.id} value={landmark.id}>{landmark.landmarkName || landmark.institutionName}</option>)}</select>
         <input className={commonStyles.formControl} placeholder="POI name, e.g. Painting A" value={form.name} onChange={(e) => updateField("name", e.target.value)} required />
+        <label htmlFor="poi-image" style={{ color: "#fff" }}>POI location image (optional)</label>
+        <input
+          ref={imageInputRef}
+          id="poi-image"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={(event) => {
+            const selected = event.target.files?.[0] || null;
+            if (selected && !["image/png", "image/jpeg", "image/webp"].includes(selected.type)) {
+              setImageFile(null);
+              setFormError("Choose a PNG, JPG, or WEBP image.");
+              event.target.value = "";
+              return;
+            }
+            if (selected && selected.size > 10 * 1024 * 1024) {
+              setImageFile(null);
+              setFormError("POI images must be 10 MB or smaller.");
+              event.target.value = "";
+              return;
+            }
+            setImageFile(selected);
+            setRemoveImage(false);
+            setFormError("");
+          }}
+          style={{ color: "#ccc" }}
+        />
+        <small style={{ color: "#888" }}>Upload a photo to help visitors recognize where to scan the POI. PNG, JPG, or WEBP, maximum 10 MB.</small>
+        {(imagePreviewUrl || (form.imageUrl && !removeImage)) && (
+          <div>
+            <img src={imagePreviewUrl || form.imageUrl} alt={`Preview of ${form.name || "POI location"}`} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "contain", borderRadius: 6 }} />
+            <button type="button" className={commonStyles.btnCancel} onClick={() => {
+              setImageFile(null);
+              setRemoveImage(true);
+              if (imageInputRef.current) imageInputRef.current.value = "";
+            }}>Remove image</button>
+          </div>
+        )}
         <label style={{ color: "#fff" }}>Shared Landmark POI QR</label>
         <small style={{ color: "#888" }}>Each landmark can have one POI QR that can include many POIs or sub-modules under it.</small>
         <button type="button" className={commonStyles.btnOutline} onClick={generateQrCode}>Generate Shared Landmark QR</button>

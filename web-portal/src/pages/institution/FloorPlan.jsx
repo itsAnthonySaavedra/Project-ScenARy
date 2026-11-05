@@ -329,6 +329,7 @@ const FloorPlan = ({ adminMode = false }) => {
 
   if (adminMode) {
     const selectedInstitution = institutions.find((institution) => institution.id === institutionId);
+    const selectedPoi = pois.find((poi) => poi.id === selectedPoiId);
     const placedPois = pois.filter((poi) => poi.floorPlanPosition);
     const landmarkPoiGroups = landmarks.map((landmark) => {
       const landmarkPois = pois.filter((poi) => poi.landmarkId === landmark.id);
@@ -472,7 +473,10 @@ const FloorPlan = ({ adminMode = false }) => {
                                       <span style={{ color: "#d4af37", minWidth: 18 }}>{poiNumber || "–"}</span>
                                       <span>{poi.name || "Unnamed POI"}</span>
                                     </span>
-                                    <small style={{ color: "#999", whiteSpace: "nowrap" }}>{poiNumber ? "On map" : "Not placed"}</small>
+                                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                      {poi.imageUrl && <img src={poi.imageUrl} alt={`Location reference for ${poi.name || "POI"}`} style={{ width: 48, height: 40, objectFit: "cover", borderRadius: 4 }} />}
+                                      <small style={{ color: "#999", whiteSpace: "nowrap" }}>{poiNumber ? "On map" : "Not placed"}</small>
+                                    </span>
                                   </button>
                                 );
                               })}
@@ -486,7 +490,10 @@ const FloorPlan = ({ adminMode = false }) => {
                         <strong style={{ color: "#fbbf24" }}>POIs without a landmark</strong>
                         {orphanPois.map((poi) => (
                           <button key={poi.id} type="button" onClick={() => setSelectedPoiId(poi.id)} style={{ display: "block", width: "100%", marginTop: 6, padding: 8, textAlign: "left", color: "#eee", background: "#292929", border: "1px solid #3a3a3a", borderRadius: 6, cursor: "pointer" }}>
-                            {poi.name || "Unnamed POI"} · {poi.floorPlanPosition ? "On map" : "Not placed"}
+                            <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                              <span>{poi.name || "Unnamed POI"} · {poi.floorPlanPosition ? "On map" : "Not placed"}</span>
+                              {poi.imageUrl && <img src={poi.imageUrl} alt={`Location reference for ${poi.name || "POI"}`} style={{ width: 48, height: 40, objectFit: "cover", borderRadius: 4 }} />}
+                            </span>
                           </button>
                         ))}
                       </section>
@@ -495,6 +502,18 @@ const FloorPlan = ({ adminMode = false }) => {
                 )}
               </aside>
             </div>
+            {selectedPoi?.imageUrl && (
+              <figure style={{ margin: 0, padding: 12, border: "1px solid #333", borderRadius: 8, background: "#171717" }}>
+                <figcaption style={{ color: "#fff", marginBottom: 8 }}>
+                  Location image · {selectedPoi.name || "Unnamed POI"}
+                </figcaption>
+                <img
+                  src={selectedPoi.imageUrl}
+                  alt={`Location reference for ${selectedPoi.name || "POI"}`}
+                  style={{ display: "block", maxWidth: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 6 }}
+                />
+              </figure>
+            )}
             {qrMessage && <p role="status" style={{ margin: 0, color: "#fbbf24" }}>{qrMessage}</p>}
             {selectedPoiId && pois.some((poi) => poi.id === selectedPoiId) && (
               <p role="status" style={{ margin: 0, color: "#ddd" }}>
