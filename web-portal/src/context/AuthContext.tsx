@@ -10,6 +10,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  setPersistence,
+  browserSessionPersistence,
   updatePassword,
   reauthenticateWithCredential,
   EmailAuthProvider,
@@ -70,6 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     message?: string;
   }> => {
     try {
+      await setPersistence(auth, browserSessionPersistence);
       const cred = await signInWithEmailAndPassword(auth, email, password);
 
       // Look up the role in Firestore

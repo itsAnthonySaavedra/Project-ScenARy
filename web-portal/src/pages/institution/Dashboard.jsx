@@ -2,10 +2,10 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from "chart.js";
 import { Doughnut, Bar } from "react-chartjs-2";
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { useAuth } from "../../context/AuthContext";
 import { db } from "../../lib/firebase";
-import { cleanFeedbackComment, getRatingStats, loadFeedback, loadUserAnalytics } from "../../lib/userAnalytics";
+import { cleanFeedbackComment, getRatingStats, loadFeedback } from "../../lib/userAnalytics";
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 import dashboardStyles from '../../components/features/dashboard/Dashboard.module.css';
 
@@ -28,49 +28,93 @@ const InstituteDashboard = () => {
     const [error, setError] = useState("");
 
     useEffect(() => {
+        let active = true;
+        const unsubscribers = [];
+        const loadedSources = new Set();
+        const markLoaded = (source) => {
+            loadedSources.add(source);
+            if (loadedSources.size === 5) setLoading(false);
+        };
+        const handleSnapshotError = (snapshotError) => {
+            console.error("Unable to receive institution dashboard updates:", snapshotError);
+            setError("Unable to load live dashboard data.");
+            setLoading(false);
+        };
+
         const loadDashboard = async () => {
-            if (!currentUser) return;
+            if (!currentUser) {
+                setLoading(false);
+                return;
+            }
             try {
                 const profileSnap = await getDoc(doc(db, "users", currentUser.uid));
+                if (!active) return;
                 const institutionId = profileSnap.data()?.institutionId;
                 if (!institutionId) {
                     setError("No institution is linked to this account.");
+                    setLoading(false);
                     return;
                 }
 
-                const [institutionSnap, contentSnap, landmarkSnap, poiSnap, analyticsRows, feedbackRows] = await Promise.all([
-                    getDoc(doc(db, "institutions", institutionId)),
-                    getDocs(query(collection(db, "content"), where("institutionId", "==", institutionId))),
-                    getDocs(query(collection(db, "markers"), where("institutionId", "==", institutionId))),
-                    getDocs(query(collection(db, "pois"), where("institutionId", "==", institutionId))),
-                    loadUserAnalytics(institutionId),
-                    loadFeedback(institutionId),
-                ]);
-                const byType = contentSnap.docs.reduce((counts, item) => {
-                    const type = normalizeContentType(item.data().type || "Other");
-                    counts[type] = (counts[type] || 0) + 1;
-                    return counts;
-                }, {});
+                const institutionRef = doc(db, "institutions", institutionId);
+                const contentQuery = query(collection(db, "content"), where("institutionId", "==", institutionId));
+                const landmarkQuery = query(collection(db, "markers"), where("institutionId", "==", institutionId));
+                const poiQuery = query(collection(db, "pois"), where("institutionId", "==", institutionId));
+                const analyticsQuery = query(collection(db, "userAnalytics"), where("institutionId", "==", institutionId));
 
-                setDashboard({
-                    institution: institutionSnap.exists() ? institutionSnap.data() : null,
-                    content: contentSnap.size,
-                    published: contentSnap.docs.filter((item) => item.data().status === "Published").length,
-                    landmarks: landmarkSnap.size,
-                    pois: poiSnap.size,
-                    interactions: analyticsRows.reduce((total, item) => total + Number(item.interactionCount || 0), 0),
-                    byType,
-                    feedback: feedbackRows,
-                });
+                unsubscribers.push(
+                    onSnapshot(institutionRef, (snapshot) => {
+                        setDashboard((current) => ({ ...current, institution: snapshot.exists() ? snapshot.data() : null }));
+                        markLoaded("institution");
+                    }, handleSnapshotError),
+                    onSnapshot(contentQuery, (snapshot) => {
+                        const byType = snapshot.docs.reduce((counts, item) => {
+                            const type = normalizeContentType(item.data().type || "Other");
+                            counts[type] = (counts[type] || 0) + 1;
+                            return counts;
+                        }, {});
+                        setDashboard((current) => ({
+                            ...current,
+                            content: snapshot.size,
+                            published: snapshot.docs.filter((item) => item.data().status === "Published").length,
+                            byType,
+                        }));
+                        markLoaded("content");
+                    }, handleSnapshotError),
+                    onSnapshot(landmarkQuery, (snapshot) => {
+                        setDashboard((current) => ({ ...current, landmarks: snapshot.size }));
+                        markLoaded("landmarks");
+                    }, handleSnapshotError),
+                    onSnapshot(poiQuery, (snapshot) => {
+                        setDashboard((current) => ({ ...current, pois: snapshot.size }));
+                        markLoaded("pois");
+                    }, handleSnapshotError),
+                    onSnapshot(analyticsQuery, (snapshot) => {
+                        const interactions = snapshot.docs.reduce((total, item) => total + Number(item.data().interactionCount || 0), 0);
+                        setDashboard((current) => ({ ...current, interactions }));
+                        markLoaded("analytics");
+                    }, handleSnapshotError),
+                );
+
+                loadFeedback(institutionId)
+                    .then((feedback) => {
+                        if (active) setDashboard((current) => ({ ...current, feedback }));
+                    })
+                    .catch((feedbackError) => {
+                        console.error("Unable to load institution dashboard feedback:", feedbackError);
+                    });
             } catch (loadError) {
                 console.error("Unable to load institution dashboard:", loadError);
                 setError("Unable to load live dashboard data.");
-            } finally {
                 setLoading(false);
             }
         };
 
         loadDashboard();
+        return () => {
+            active = false;
+            unsubscribers.forEach((unsubscribe) => unsubscribe());
+        };
     }, [currentUser]);
 
     if (loading) return <div className={dashboardStyles.dashboardState}>Loading your institution dashboard...</div>;

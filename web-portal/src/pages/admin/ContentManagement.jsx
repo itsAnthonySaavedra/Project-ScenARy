@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   collection,
-  getDocs,
+  onSnapshot,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -69,43 +69,54 @@ const ContentManagement = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [currentContent, setCurrentContent] = useState(null);
   const [usageByContent, setUsageByContent] = useState({});
+  const [dataLoadError, setDataLoadError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // --- FETCH DATA ---
-  const fetchData = async () => {
-    try {
-      const [contentSnap, instSnap, markerSnap, poiSnap, tourSnap] = await Promise.all([
-        getDocs(collection(db, "content")),
-        getDocs(collection(db, "institutions")),
-        getDocs(collection(db, "markers")),
-        getDocs(collection(db, "pois")),
-        getDocs(collection(db, "tours")),
-      ]);
-      setContents(
-        contentSnap.docs
-          .map((d) => ({ id: d.id, ...d.data(), type: normalizeContentType(d.data().type) }))
-          .filter((item) => CONTENT_TYPES.includes(item.type)),
-      );
-
-      setInstitutions(
-        instSnap.docs.map((d) => ({ id: d.id, name: d.data().name })),
-      );
+  useEffect(() => {
+    let markers = [];
+    let pois = [];
+    let tours = [];
+    const updateUsage = () => {
       const usage = {};
       const addUsage = (contentIds, source) => (contentIds || []).forEach((contentId) => {
         usage[contentId] = usage[contentId] || { landmarks: 0, pois: 0, tours: 0 };
         usage[contentId][source] += 1;
       });
-      markerSnap.docs.forEach((item) => addUsage(item.data().contentIds, "landmarks"));
-      poiSnap.docs.forEach((item) => addUsage(item.data().contentIds, "pois"));
-      tourSnap.docs.forEach((item) => addUsage(item.data().moduleIds, "tours"));
+      markers.forEach((item) => addUsage(item.data().contentIds, "landmarks"));
+      pois.forEach((item) => addUsage(item.data().contentIds, "pois"));
+      tours.forEach((item) => addUsage(item.data().moduleIds, "tours"));
       setUsageByContent(usage);
-    } catch (err) {
-      console.error("Error fetching data:", err);
-    }
-  };
+    };
+    const handleSnapshotError = (error) => {
+      console.error("Unable to receive content management updates:", error);
+      setDataLoadError("Unable to load the latest content data. Please try again later.");
+    };
 
-  useEffect(() => {
-    fetchData();
+    const unsubscribers = [
+      onSnapshot(collection(db, "content"), (snapshot) => {
+        setContents(
+          snapshot.docs
+            .map((item) => ({ id: item.id, ...item.data(), type: normalizeContentType(item.data().type) }))
+            .filter((item) => CONTENT_TYPES.includes(item.type)),
+        );
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "institutions"), (snapshot) => {
+        setInstitutions(snapshot.docs.map((item) => ({ id: item.id, name: item.data().name })));
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "markers"), (snapshot) => {
+        markers = snapshot.docs;
+        updateUsage();
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "pois"), (snapshot) => {
+        pois = snapshot.docs;
+        updateUsage();
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "tours"), (snapshot) => {
+        tours = snapshot.docs;
+        updateUsage();
+      }, handleSnapshotError),
+    ];
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
   // --- QUIZ FIELDS MANAGEMENT ---
@@ -195,7 +206,6 @@ const ContentManagement = () => {
       }
       await deleteDoc(doc(db, "content", deleteDocId));
       await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "content.deleted", entityType: "content", entityId: deleteDocId });
-      await fetchData();
       setIsDeleteModalOpen(false);
       setDeleteDocId(null);
     } catch (error) {
@@ -264,8 +274,6 @@ const ContentManagement = () => {
         await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "content.created", entityType: "content", entityId: createdContent.id, metadata: { title: formTitle, type: selectedType, institutionId: formInstitutionId, status: formStatus } });
       }
 
-      await fetchData();
-
       setIsAddModalOpen(false);
       setIsEditMode(false);
       setEditDocId(null);
@@ -302,6 +310,7 @@ const ContentManagement = () => {
 
   return (
     <div style={{ width: "100%", padding: "20px" }}>
+      {dataLoadError && <p role="alert" style={{ color: "#f87171" }}>{dataLoadError}</p>}
       {/* 1. CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>

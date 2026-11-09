@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   collection,
-  getDocs,
+  onSnapshot,
   addDoc,
   updateDoc,
   query,
@@ -60,6 +60,7 @@ const InstituteContentManagement = () => {
   const [currentContent, setCurrentContent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState("");
+  const [contentLoadError, setContentLoadError] = useState("");
 
   useEffect(() => {
     const auth = getAuth();
@@ -81,32 +82,65 @@ const InstituteContentManagement = () => {
     return () => unsubscribe();
   }, []);
 
-  const fetchInstitutionData = async (instId) => {
-    if (!instId) return;
-    try {
-      const [contentSnap, landmarkSnap, poiSnap] = await Promise.all([
-        getDocs(query(collection(db, "content"), where("institutionId", "==", instId.trim()))),
-        getDocs(query(collection(db, "markers"), where("institutionId", "==", instId.trim()))),
-        getDocs(query(collection(db, "pois"), where("institutionId", "==", instId.trim()))),
-      ]);
-      setContents(
-        contentSnap.docs
-          .map((d) => ({ id: d.id, ...d.data(), type: normalizeContentType(d.data().type) }))
-          .filter((item) => CONTENT_TYPES.includes(item.type)),
-      );
-      setAssignmentTargets([
-        ...landmarkSnap.docs.map((item) => ({ id: item.id, targetKey: `markers:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "markers", scope: "Landmark" })),
-        ...poiSnap.docs.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI" })),
-      ]);
-    } catch (error) {
-      console.error("Isolated Fetch Error:", error);
-    }
-  };
-
   useEffect(() => {
-    if (!isAuthChecking && userInstitutionId) {
-      fetchInstitutionData(userInstitutionId);
+    if (isAuthChecking) return undefined;
+    if (!userInstitutionId) {
+      setContents([]);
+      setAssignmentTargets([]);
+      return undefined;
     }
+
+    const institutionId = userInstitutionId.trim();
+    const unsubscribeContent = onSnapshot(
+      query(collection(db, "content"), where("institutionId", "==", institutionId)),
+      (snapshot) => {
+        setContents(
+          snapshot.docs
+            .map((item) => ({ id: item.id, ...item.data(), type: normalizeContentType(item.data().type) }))
+            .filter((item) => CONTENT_TYPES.includes(item.type)),
+        );
+        setContentLoadError("");
+      },
+      (error) => {
+        console.error("Unable to receive institution content updates:", error);
+        setContentLoadError("Unable to load content updates. Please try again later.");
+      },
+    );
+    const updateAssignmentTargets = (landmarks, pois) => {
+      setAssignmentTargets([
+        ...landmarks.map((item) => ({ id: item.id, targetKey: `markers:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "markers", scope: "Landmark" })),
+        ...pois.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI" })),
+      ]);
+    };
+    let landmarks = [];
+    let pois = [];
+    const unsubscribeLandmarks = onSnapshot(
+      query(collection(db, "markers"), where("institutionId", "==", institutionId)),
+      (snapshot) => {
+        landmarks = snapshot.docs;
+        updateAssignmentTargets(landmarks, pois);
+      },
+      (error) => {
+        console.error("Unable to receive landmark assignment updates:", error);
+        setContentLoadError("Unable to load assignment targets. Please try again later.");
+      },
+    );
+    const unsubscribePois = onSnapshot(
+      query(collection(db, "pois"), where("institutionId", "==", institutionId)),
+      (snapshot) => {
+        pois = snapshot.docs;
+        updateAssignmentTargets(landmarks, pois);
+      },
+      (error) => {
+        console.error("Unable to receive POI assignment updates:", error);
+        setContentLoadError("Unable to load assignment targets. Please try again later.");
+      },
+    );
+    return () => {
+      unsubscribeContent();
+      unsubscribeLandmarks();
+      unsubscribePois();
+    };
   }, [userInstitutionId, isAuthChecking]);
 
   const addQuizQuestionField = () => {
@@ -225,7 +259,6 @@ const InstituteContentManagement = () => {
       if (compatibleIds.length < selectedContentIds.length) {
         setBulkMessage(`${compatibleIds.length} compatible item${compatibleIds.length === 1 ? " was" : "s were"} assigned to ${target.name}; items from other content areas were skipped.`);
       }
-      await fetchInstitutionData(userInstitutionId);
     } catch (error) {
       console.error("Unable to bulk assign content:", error);
       setBulkMessage("Unable to assign content. Please try again.");
@@ -334,8 +367,6 @@ const InstituteContentManagement = () => {
         },
       });
 
-      await fetchInstitutionData(userInstitutionId);
-
       // Clean Interface Context States
       setIsAddModalOpen(false);
       setIsEditMode(false);
@@ -432,6 +463,7 @@ const InstituteContentManagement = () => {
         <button type="button" className={commonStyles.btnCancel} onClick={() => setSelectedContentIds([])}>Clear selection</button>
       </div>}
       {bulkMessage && <p role="status" style={{ color: bulkMessage.startsWith("Unable") || bulkMessage.startsWith("Select") ? "#fbbf24" : "#86efac" }}>{bulkMessage}</p>}
+      {contentLoadError && <p role="alert" style={{ color: "#f87171" }}>{contentLoadError}</p>}
       <div
         style={{
           color: incompleteCount > 0 ? "#fbbf24" : "#4ade80",

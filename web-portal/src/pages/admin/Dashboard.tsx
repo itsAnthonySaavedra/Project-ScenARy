@@ -9,9 +9,9 @@ import {
   LinearScale,
   Tooltip,
 } from "chart.js";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { findNumericValue, getRatingStats, loadFeedback, loadUserAnalytics } from "../../lib/userAnalytics";
+import { findNumericValue, getRatingStats, loadFeedback } from "../../lib/userAnalytics";
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 import styles from "../../components/features/dashboard/Dashboard.module.css";
 
@@ -54,49 +54,76 @@ const Dashboard: React.FC = () => {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        const [usersSnap, institutionSnap, contentSnap, landmarkSnap, poiSnap, analyticsRows, feedbackRows, logSnap] = await Promise.all([
-          getDocs(collection(db, "users")),
-          getDocs(collection(db, "institutions")),
-          getDocs(collection(db, "content")),
-          getDocs(collection(db, "markers")),
-          getDocs(collection(db, "pois")),
-          loadUserAnalytics(),
-          loadFeedback(),
-          getDocs(collection(db, "auditLogs")),
-        ]);
-        const content = contentSnap.docs.map((item) => item.data() as ContentItem);
-        const contentByInstitution = content.reduce<Record<string, number>>((counts, item) => {
-          if (item.institutionId) counts[item.institutionId] = (counts[item.institutionId] || 0) + 1;
-          return counts;
-        }, {});
-        const institutions = institutionSnap.docs
-          .map((item) => ({ id: item.id, name: String(item.data().name || "Unnamed institution"), content: contentByInstitution[item.id] || 0 }))
-          .sort((left, right) => right.content - left.content);
-        const logs = logSnap.docs
-          .map((item) => ({ id: item.id, ...item.data() }))
-          .sort((left, right) => (right.createdAt?.toMillis?.() || 0) - (left.createdAt?.toMillis?.() || 0))
-          .slice(0, 5);
+    let institutions = [] as Institution[];
+    let content = [] as ContentItem[];
+    const unsubscribe = [
+      onSnapshot(collection(db, "users"), (snapshot) => {
+        setData((current) => ({ ...current, users: snapshot.size }));
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "institutions"), (snapshot) => {
+        institutions = snapshot.docs.map((item) => ({
+          id: item.id,
+          name: String(item.data().name || "Unnamed institution"),
+          content: content.filter((entry) => entry.institutionId === item.id).length,
+        })).sort((left, right) => right.content - left.content);
+        setData((current) => ({ ...current, institutions }));
+        setLoading(false);
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "content"), (snapshot) => {
+        content = snapshot.docs.map((item) => item.data() as ContentItem);
+        institutions = institutions.map((institution) => ({
+          ...institution,
+          content: content.filter((item) => item.institutionId === institution.id).length,
+        })).sort((left, right) => right.content - left.content);
+        setData((current) => ({ ...current, content, institutions }));
+        setLoading(false);
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "markers"), (snapshot) => {
+        setData((current) => ({ ...current, landmarks: snapshot.size }));
+        setLoading(false);
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "pois"), (snapshot) => {
+        setData((current) => ({ ...current, pois: snapshot.size }));
+        setLoading(false);
+      }, handleSnapshotError),
+      onSnapshot(collection(db, "userAnalytics"), (snapshot) => {
+        const interactions = snapshot.docs.reduce(
+          (total, item) => total + findNumericValue(item.data(), ["interactionCount"]),
+          0,
+        );
+        setData((current) => ({ ...current, interactions }));
+        setLoading(false);
+      }, handleSnapshotError),
+      onSnapshot(query(collection(db, "auditLogs"), orderBy("createdAt", "desc"), limit(5)), (snapshot) => {
+        const logs = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+        setData((current) => ({ ...current, logs }));
+        setLoading(false);
+      }, handleSnapshotError),
+    ];
 
-        setData({
-          users: usersSnap.size,
-          institutions,
-          content,
-          landmarks: landmarkSnap.size,
-          pois: poiSnap.size,
-          interactions: analyticsRows.reduce((total, item) => total + findNumericValue(item, ["interactionCount"]), 0),
+    const loadSecondaryData = async () => {
+      try {
+        const feedbackRows = await loadFeedback();
+        setData((current) => ({
+          ...current,
           feedback: feedbackRows,
-          logs,
-        });
+        }));
       } catch (fetchError) {
-        console.error("Error fetching admin dashboard:", fetchError);
+        console.error("Error fetching secondary admin dashboard data:", fetchError);
         setError("Unable to load all dashboard data.");
       } finally {
         setLoading(false);
       }
     };
-    fetchDashboard();
+
+    function handleSnapshotError(snapshotError: Error) {
+      console.error("Error receiving admin dashboard updates:", snapshotError);
+      setError("Unable to load all dashboard data.");
+      setLoading(false);
+    }
+
+    loadSecondaryData();
+    return () => unsubscribe.forEach((stop) => stop());
   }, []);
 
   if (loading) return <div className={styles.dashboardState}>Loading platform overview...</div>;
