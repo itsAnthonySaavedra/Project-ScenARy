@@ -7,7 +7,6 @@ import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
 import { isInstitutionActive, setInstitutionActive } from "../../lib/institutionStatus";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
-import { migrateMarkersToLandmarks } from "../../lib/migrateMarkersToLandmarks";
 import {
   collection,
   getDocs,
@@ -22,8 +21,6 @@ const InstitutionManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentInst, setCurrentInst] = useState<any>(null);
-  const [generatingTours, setGeneratingTours] = useState(false);
-  const [migratingLandmarks, setMigratingLandmarks] = useState(false);
 
   /* =====================
      LOAD FROM FIREBASE
@@ -84,52 +81,6 @@ const InstitutionManagement = () => {
     setCurrentInst(null);
   };
 
-  const handleGenerateTours = async () => {
-    if (generatingTours) return;
-    setGeneratingTours(true);
-    const failures: string[] = [];
-
-    try {
-      for (const institution of institutions) {
-        try {
-          await syncGeneratedInstitutionTour(institution.id, currentUser?.uid);
-        } catch (error) {
-          console.error(`Unable to generate a tour for ${institution.name}:`, error);
-          failures.push(institution.name || institution.id);
-        }
-      }
-
-      if (failures.length) {
-        alert(`Generated tours for ${institutions.length - failures.length} institutions. Failed: ${failures.join(", ")}.`);
-      } else {
-        alert(`Generated or refreshed tours for ${institutions.length} institutions.`);
-      }
-    } finally {
-      setGeneratingTours(false);
-    }
-  };
-
-  const handleMigrateMarkers = async () => {
-    if (migratingLandmarks) return;
-    const confirmed = window.confirm(
-      "Copy all documents from the markers collection into landmarks? Existing landmarks documents will not be overwritten, and markers will not be deleted.",
-    );
-    if (!confirmed) return;
-
-    setMigratingLandmarks(true);
-    try {
-      const result = await migrateMarkersToLandmarks();
-      alert(
-        `Landmark migration complete. Copied: ${result.copied}; skipped because the destination ID already exists: ${result.skipped}; source documents: ${result.total}. The markers collection was left unchanged.`,
-      );
-    } catch (error) {
-      console.error("Unable to migrate markers to landmarks:", error);
-      alert("The migration did not complete. Some batches may already have copied; it is safe to retry.");
-    } finally {
-      setMigratingLandmarks(false);
-    }
-  };
-
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.target as any;
@@ -150,7 +101,7 @@ const InstitutionManagement = () => {
         await syncGeneratedInstitutionTour(currentInst.id, currentUser?.uid);
       } catch (error) {
         console.error("Institution was updated, but its generated tour could not be refreshed:", error);
-        alert("The institution was updated, but its generated tour could not be refreshed. Use Generate Tours for Existing Institutions to retry.");
+        alert("The institution was updated, but its generated tour could not be refreshed. Use User Management > Institutions to retry.");
       }
       await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "institution.updated", entityType: "institution", entityId: currentInst.id, metadata: data });
     } else {
@@ -160,7 +111,7 @@ const InstitutionManagement = () => {
         await syncGeneratedInstitutionTour(ref.id, currentUser?.uid);
       } catch (error) {
         console.error("Institution was created, but its generated tour could not be created:", error);
-        alert("The institution was created, but its tour could not be generated. Use Generate Tours for Existing Institutions to retry.");
+        alert("The institution was created, but its tour could not be generated. Use User Management > Institutions to retry.");
       }
       await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "institution.created", entityType: "institution", entityId: ref.id, metadata: data });
     }
@@ -189,22 +140,6 @@ const InstitutionManagement = () => {
         <button className={tableStyles.btnAdd} onClick={handleAdd}>
           <i className="fa-solid fa-plus" style={{ marginRight: "0.5rem" }}></i>
           Register Institution
-        </button>
-        <button
-          type="button"
-          className={tableStyles.btnAction}
-          onClick={handleGenerateTours}
-          disabled={generatingTours || institutions.length === 0}
-        >
-          {generatingTours ? "Generating tours..." : "Generate Tours for Existing Institutions"}
-        </button>
-        <button
-          type="button"
-          className={tableStyles.btnAction}
-          onClick={handleMigrateMarkers}
-          disabled={migratingLandmarks}
-        >
-          {migratingLandmarks ? "Migrating landmarks..." : "Migrate Markers to Landmarks"}
         </button>
       </div>
 

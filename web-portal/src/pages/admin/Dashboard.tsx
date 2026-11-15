@@ -13,6 +13,7 @@ import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestor
 import { db } from "../../lib/firebase";
 import { findNumericValue, getRatingStats, loadFeedback } from "../../lib/userAnalytics";
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import styles from "../../components/features/dashboard/Dashboard.module.css";
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip);
@@ -52,6 +53,7 @@ const Dashboard: React.FC = () => {
   const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
 
   useEffect(() => {
     let institutions = [] as Institution[];
@@ -110,7 +112,9 @@ const Dashboard: React.FC = () => {
         }));
       } catch (fetchError) {
         console.error("Error fetching secondary admin dashboard data:", fetchError);
-        setError("Unable to load all dashboard data.");
+        setWarning(
+          getFirebaseErrorMessage(fetchError, "Feedback could not be loaded. Other dashboard data remains available."),
+        );
       } finally {
         setLoading(false);
       }
@@ -118,7 +122,9 @@ const Dashboard: React.FC = () => {
 
     function handleSnapshotError(snapshotError: Error) {
       console.error("Error receiving admin dashboard updates:", snapshotError);
-      setError("Unable to load all dashboard data.");
+      setError(
+        getFirebaseErrorMessage(snapshotError, "Unable to load live dashboard data. Reload and try again."),
+      );
       setLoading(false);
     }
 
@@ -127,7 +133,14 @@ const Dashboard: React.FC = () => {
   }, []);
 
   if (loading) return <div className={styles.dashboardState}>Loading platform overview...</div>;
-  if (error) return <div className={styles.dashboardState}>{error}</div>;
+  if (error) {
+    return (
+      <div className={styles.dashboardState} role="alert">
+        <p>{error}</p>
+        <button type="button" onClick={() => window.location.reload()}>Reload dashboard</button>
+      </div>
+    );
+  }
 
   const ratingStats = getRatingStats(data.feedback);
   const contentTypes = ["Information", "Fun Fact", MODEL_CONTENT_TYPE, "Quiz", "Other"];
@@ -158,6 +171,7 @@ const Dashboard: React.FC = () => {
           <strong>{data.interactions.toLocaleString()}</strong>
         </div>
       </section>
+      {warning && <p role="status" style={{ color: "#fbbf24" }}>{warning}</p>}
 
       <section className={styles.statsGrid}>
         {statItems.map(([title, value, icon]) => (

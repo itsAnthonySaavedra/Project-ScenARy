@@ -7,6 +7,7 @@ import { db } from "../../lib/firebase";
 import { getContentScope } from "../../lib/contentScope";
 import { writeAuditLog } from "../../lib/auditLog";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -49,6 +50,7 @@ const POIManagement = ({ adminMode = false }) => {
   }, [markerImageFile]);
 
   const loadData = useCallback(async (id) => {
+    setLoading(true);
     if (!id) {
       setLandmarks([]);
       setPois([]);
@@ -56,35 +58,59 @@ const POIManagement = ({ adminMode = false }) => {
       setLoading(false);
       return;
     }
-    const [landmarkSnap, poiSnap, contentSnap] = await Promise.all([
-      getDocs(query(collection(db, "landmarks"), where("institutionId", "==", id))),
-      getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
-      getDocs(query(collection(db, "content"), where("institutionId", "==", id))),
-    ]);
-    setLandmarks(landmarkSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
-    setPois(poiSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
-    setAvailableContent(
-      contentSnap.docs
-        .map((item) => ({ id: item.id, ...item.data() }))
-        .filter((item) => getContentScope(item) === "POI"),
-    );
-    setLoading(false);
+    try {
+      const [landmarkSnap, poiSnap, contentSnap] = await Promise.all([
+        getDocs(query(collection(db, "landmarks"), where("institutionId", "==", id))),
+        getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
+        getDocs(query(collection(db, "content"), where("institutionId", "==", id))),
+      ]);
+      setLandmarks(landmarkSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setPois(poiSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setAvailableContent(
+        contentSnap.docs
+          .map((item) => ({ id: item.id, ...item.data() }))
+          .filter((item) => getContentScope(item) === "POI"),
+      );
+      setFormError("");
+    } catch (error) {
+      console.error("Unable to load POI management data:", error);
+      setFormError(
+        getFirebaseErrorMessage(error, "Unable to load POI data. Check your connection and try again."),
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => onAuthStateChanged(getAuth(), async (user) => {
     if (!user) { setLoading(false); return; }
-    if (adminMode) {
-      const institutionSnap = await getDocs(collection(db, "institutions"));
-      setInstitutions(institutionSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
+    try {
+      if (adminMode) {
+        const institutionSnap = await getDocs(collection(db, "institutions"));
+        setInstitutions(institutionSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
+        setLoading(false);
+        return;
+      }
+      const profile = await getDoc(doc(db, "users", user.uid));
+      if (profile.exists() && profile.data().institutionId) {
+        const id = profile.data().institutionId;
+        setInstitutionId(id);
+        await loadData(id);
+      } else {
+        setFormError("Your account is not linked to an institution. Contact an administrator.");
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error("Unable to initialize POI management:", error);
+      setFormError(
+        getFirebaseErrorMessage(error, "Unable to load POI management. Refresh and try again."),
+      );
       setLoading(false);
-      return;
     }
-    const profile = await getDoc(doc(db, "users", user.uid));
-    if (profile.exists()) {
-      const id = profile.data().institutionId;
-      setInstitutionId(id);
-      await loadData(id);
-    } else setLoading(false);
+  }, (error) => {
+    console.error("Unable to check the signed-in user for POI management:", error);
+    setFormError(getFirebaseErrorMessage(error, "Unable to verify your sign-in."));
+    setLoading(false);
   }), [adminMode, loadData]);
 
   const updateField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
@@ -132,19 +158,28 @@ const POIManagement = ({ adminMode = false }) => {
     const generatedQrCode = `SCENARY|POI_GROUP|${id}`;
     try {
       await updateDoc(doc(db, "landmarks", landmarkId), { poiQrCode: generatedQrCode });
-      await writeAuditLog({
-        actorId: getAuth().currentUser?.uid,
-        actorRole: adminMode ? "admin" : "institution",
-        action: "landmark.poi_qr_generated",
-        entityType: "landmark",
-        entityId: landmarkId,
-        metadata: { institutionId, landmarkId },
-      });
       setForm((current) => ({ ...current, qrCode: generatedQrCode }));
       setFormError("");
       await loadData(institutionId);
-    } catch {
-      setFormError("Unable to save the landmark POI QR.");
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: adminMode ? "admin" : "institution",
+          action: "landmark.poi_qr_generated",
+          entityType: "landmark",
+          entityId: landmarkId,
+          metadata: { institutionId, landmarkId },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("POI QR was saved, but its audit record could not be written:", auditError);
+        setFormError("The shared QR was saved, but its activity record could not be written.");
+      }
+    } catch (error) {
+      console.error("Unable to save the landmark POI QR:", error);
+      setFormError(
+        getFirebaseErrorMessage(error, "Unable to save the landmark POI QR."),
+      );
     }
   };
 
@@ -195,13 +230,22 @@ const POIManagement = ({ adminMode = false }) => {
 
   const removePoi = async (poi) => {
     if (!window.confirm(`Remove ${poi.name}?`)) return;
-    await deleteDoc(doc(db, "pois", poi.id));
+    try {
+      await deleteDoc(doc(db, "pois", poi.id));
+    } catch (error) {
+      console.error("Unable to remove POI:", error);
+      setFormError(
+        getFirebaseErrorMessage(error, "Unable to remove the POI. Please try again."),
+      );
+      return;
+    }
+    const warnings = [];
     if (poi.imageStoragePath) {
       try {
         await deleteStorageFile(poi.imageStoragePath);
       } catch (error) {
         console.error("POI was removed but its image could not be deleted:", error);
-        alert("The POI was removed, but its image could not be deleted from storage.");
+        warnings.push("Its location image could not be deleted from storage.");
       }
     }
     if (poi.markerStoragePath) {
@@ -209,19 +253,28 @@ const POIManagement = ({ adminMode = false }) => {
         await deleteStorageFile(poi.markerStoragePath);
       } catch (error) {
         console.error("POI was removed but its plaque image could not be deleted:", error);
-        alert("The POI was removed, but its plaque image could not be deleted from storage.");
+        warnings.push("Its plaque image could not be deleted from storage.");
       }
     }
-    await writeAuditLog({
-      actorId: getAuth().currentUser?.uid,
-      actorRole: adminMode ? "admin" : "institution",
-      action: "poi.deleted",
-      entityType: "poi",
-      entityId: poi.id,
-      metadata: { institutionId: poi.institutionId || institutionId, name: poi.name || "" },
-    });
+    try {
+      await writeAuditLog({
+        actorId: getAuth().currentUser?.uid,
+        actorRole: adminMode ? "admin" : "institution",
+        action: "poi.deleted",
+        entityType: "poi",
+        entityId: poi.id,
+        metadata: { institutionId: poi.institutionId || institutionId, name: poi.name || "" },
+        throwOnFailure: true,
+      });
+    } catch (error) {
+      console.error("POI was removed, but its audit record could not be written:", error);
+      warnings.push("Its activity record could not be written.");
+    }
     if (selectedPoiId === poi.id) resetForm();
     await loadData(institutionId);
+    if (warnings.length) {
+      setFormError(`POI removed. ${warnings.join(" ")}`);
+    }
   };
 
   const savePoi = async (event) => {
@@ -307,12 +360,13 @@ const POIManagement = ({ adminMode = false }) => {
         savedPoiId = createdPoi.id;
       }
       poiSaved = true;
+      const warnings = [];
       if (form.imageStoragePath && (uploadedImage || removeImage)) {
         try {
           await deleteStorageFile(form.imageStoragePath);
         } catch (error) {
           console.error("POI image was updated but the previous image could not be deleted:", error);
-          alert("The POI was saved, but its previous image could not be deleted from storage.");
+          warnings.push("The previous location image could not be deleted from storage.");
         }
       }
       if (form.markerStoragePath && (uploadedMarkerImage || removeMarkerImage)) {
@@ -320,19 +374,26 @@ const POIManagement = ({ adminMode = false }) => {
           await deleteStorageFile(form.markerStoragePath);
         } catch (error) {
           console.error("POI plaque image was updated but the previous image could not be deleted:", error);
-          alert("The POI was saved, but its previous plaque image could not be deleted from storage.");
+          warnings.push("The previous plaque image could not be deleted from storage.");
         }
       }
-      await writeAuditLog({
-        actorId: getAuth().currentUser?.uid,
-        actorRole: adminMode ? "admin" : "institution",
-        action: selectedPoiId ? "poi.updated" : "poi.created",
-        entityType: "poi",
-        entityId: savedPoiId,
-        metadata: { institutionId: ownerId, landmarkId: form.landmarkId, name: form.name.trim() },
-      });
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: adminMode ? "admin" : "institution",
+          action: selectedPoiId ? "poi.updated" : "poi.created",
+          entityType: "poi",
+          entityId: savedPoiId,
+          metadata: { institutionId: ownerId, landmarkId: form.landmarkId, name: form.name.trim() },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("POI was saved, but its audit record could not be written:", auditError);
+        warnings.push("The activity record could not be written.");
+      }
       resetForm();
       await loadData(institutionId);
+      if (warnings.length) setFormError(`POI saved. ${warnings.join(" ")}`);
     } catch (error) {
       console.error("Unable to save POI:", error);
       if (uploadedImage && !poiSaved) {
@@ -349,8 +410,9 @@ const POIManagement = ({ adminMode = false }) => {
           console.error("Unable to clean up the uploaded plaque image after POI save failed:", cleanupError);
         }
       }
-      const errorCode = error?.code ? ` (${error.code})` : "";
-      alert(`Unable to save POI${errorCode}: ${error?.message || "Unknown error"}`);
+      setFormError(
+        getFirebaseErrorMessage(error, "Unable to save the POI. Check your connection and try again."),
+      );
     } finally { setSaving(false); }
   };
 
@@ -358,6 +420,7 @@ const POIManagement = ({ adminMode = false }) => {
 
   return <div style={{ padding: 20, color: "#ccc" }}>
     <h2 style={{ color: "#d4af37" }}>{adminMode ? "POI Administration" : "Points of Interest"}</h2>
+    {formError && <div role="alert" style={{ color: "#fbbf24", margin: "0 0 16px" }}>{formError}</div>}
     <p>POIs are child objects identified by their own QR codes. Landmark QR codes are managed from the landmark pin.</p>
     {adminMode && <div style={{ maxWidth: 420, marginBottom: 20 }}>
       <label htmlFor="poi-institution-select" style={{ display: "block", color: "#fff", marginBottom: 8 }}>Select institution</label>
@@ -466,7 +529,6 @@ const POIManagement = ({ adminMode = false }) => {
         <label style={{ color: "#fff" }}>Shared Landmark POI QR</label>
         <small style={{ color: "#888" }}>Each landmark can have one POI QR that can include many POIs or sub-modules under it.</small>
         <button type="button" className={commonStyles.btnOutline} onClick={generateQrCode}>Generate Shared Landmark QR</button>
-        {formError && <div role="alert" style={{ color: "#fbbf24" }}>{formError}</div>}
         {form.qrCode.trim() && <div style={{ background: "#fff", padding: 12, width: "fit-content" }}><QRCodeCanvas ref={qrCanvasRef} value={form.qrCode.trim()} size={140} includeMargin /></div>}
         <div>
           <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>

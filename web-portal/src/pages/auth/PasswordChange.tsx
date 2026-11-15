@@ -1,6 +1,7 @@
 import React, { FormEvent, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import styles from "./Login.module.css";
 
 const PasswordChange: React.FC = () => {
@@ -46,17 +47,16 @@ const PasswordChange: React.FC = () => {
 
     setSaving(true);
     try {
-      await changePassword(currentPassword, newPassword);
+      const result = await changePassword(currentPassword, newPassword);
+      if (result.warning) window.alert(result.warning);
       navigate(currentRole === "institution" ? "/institution/dashboard" : "/admin/dashboard");
     } catch (changeError) {
       console.error("Password change failed:", changeError);
-      const code = changeError?.code;
       setError(
-        code === "auth/wrong-password" || code === "auth/invalid-credential"
-          ? "Your current password is incorrect."
-          : code === "auth/weak-password"
-            ? "Choose a stronger password."
-            : "Unable to update your password. Please try again.",
+        getFirebaseErrorMessage(
+          changeError,
+          "Unable to update your password. Check your connection and try again.",
+        ),
       );
     } finally {
       setSaving(false);

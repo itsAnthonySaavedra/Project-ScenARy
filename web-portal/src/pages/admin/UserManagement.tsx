@@ -12,14 +12,16 @@ import {
   updateDoc,
   addDoc,
   serverTimestamp,
+  onSnapshot,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
 import { isInstitutionActive, setInstitutionActive } from "../../lib/institutionStatus";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
-import { migrateMarkersToLandmarks } from "../../lib/migrateMarkersToLandmarks";
+import { getInstitutionContentReadiness } from "../../lib/contentQuality";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 
 interface UserType {
   id: string;
@@ -75,18 +77,22 @@ const UserManagement: React.FC = () => {
   const { currentUser: authUser, currentRole } = useAuth();
   const [users, setUsers] = useState<UserType[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [contentItems, setContentItems] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
   const [selectedRole, setSelectedRole] = useState<UserType["role"]>("institution");
   const [detailsUser, setDetailsUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(false);
+  const [userFormError, setUserFormError] = useState("");
   const [activeTab, setActiveTab] = useState<"users" | "institutions">("users");
   const [instSearchTerm, setInstSearchTerm] = useState("");
   const [isInstModalOpen, setIsInstModalOpen] = useState(false);
   const [currentInst, setCurrentInst] = useState<Institution | null>(null);
-  const [generatingTours, setGeneratingTours] = useState(false);
-  const [migratingLandmarks, setMigratingLandmarks] = useState(false);
+  const [institutionFormError, setInstitutionFormError] = useState("");
+  const [savingInstitution, setSavingInstitution] = useState(false);
+  const [pageLoadError, setPageLoadError] = useState("");
+  const [readinessLoadError, setReadinessLoadError] = useState("");
 
   /* =====================
      LOAD DATA
@@ -116,8 +122,26 @@ const UserManagement: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchUsers();
-    fetchInstitutions();
+    Promise.all([fetchUsers(), fetchInstitutions()]).catch((error) => {
+      console.error("Unable to load user management data:", error);
+      setPageLoadError(
+        getFirebaseErrorMessage(error, "Unable to load management data. Refresh and try again."),
+      );
+    });
+
+    return onSnapshot(
+      collection(db, "content"),
+      (snapshot) => {
+        setContentItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+        setReadinessLoadError("");
+      },
+      (error) => {
+        console.error("Unable to load site readiness content:", error);
+        setReadinessLoadError(
+          getFirebaseErrorMessage(error, "Unable to load site readiness data."),
+        );
+      },
+    );
   }, []);
 
   /* =====================
@@ -131,16 +155,28 @@ const UserManagement: React.FC = () => {
     const nextStatus = user.status === "Banned" ? "Active" : "Banned";
     if (!window.confirm(`${nextStatus === "Banned" ? "Ban" : "Unban"} ${user.name}?`))
       return;
-    await updateDoc(doc(db, "users", user.id), { status: nextStatus });
+    try {
+      await updateDoc(doc(db, "users", user.id), { status: nextStatus });
+    } catch (error) {
+      console.error("Unable to update user status:", error);
+      alert(getFirebaseErrorMessage(error, "Unable to update this user's status. Try again."));
+      return;
+    }
     setUsers((prev) => prev.map((item) => item.id === user.id ? { ...item, status: nextStatus } : item));
-    await writeAuditLog({
-      actorId: authUser?.uid,
-      actorRole: currentRole,
-      action: nextStatus === "Banned" ? "user.banned" : "user.unbanned",
-      entityType: "user",
-      entityId: user.id,
-      metadata: { email: user.email, institutionId: user.institutionId || null },
-    });
+    try {
+      await writeAuditLog({
+        actorId: authUser?.uid,
+        actorRole: currentRole,
+        action: nextStatus === "Banned" ? "user.banned" : "user.unbanned",
+        entityType: "user",
+        entityId: user.id,
+        metadata: { email: user.email, institutionId: user.institutionId || null },
+        throwOnFailure: true,
+      });
+    } catch (error) {
+      console.error("User status was updated, but its audit record could not be written:", error);
+      alert("User status was updated, but its activity record could not be written.");
+    }
   };
 
   const handleToggleInstitutionActive = async (institution: Institution) => {
@@ -152,16 +188,26 @@ const UserManagement: React.FC = () => {
       setInstitutions((prev) => prev.map((item) =>
         item.id === institution.id ? { ...item, isActive } : item,
       ));
+    } catch (error) {
+      console.error(`Unable to ${action} institution:`, error);
+      alert(
+        getFirebaseErrorMessage(error, `Unable to ${action} this institution. Please try again.`),
+      );
+      return;
+    }
+
+    try {
       await writeAuditLog({
         actorId: authUser?.uid,
         actorRole: currentRole,
         action: `institution.${isActive ? "reactivated" : "deactivated"}`,
         entityType: "institution",
         entityId: institution.id,
+        throwOnFailure: true,
       });
     } catch (error) {
-      console.error(`Unable to ${action} institution:`, error);
-      alert(`Unable to ${action} this institution. Please try again.`);
+      console.error(`Institution ${action} succeeded, but its audit record could not be written:`, error);
+      alert(`Institution ${action} succeeded, but its activity record could not be written.`);
     }
   };
 
@@ -178,6 +224,7 @@ const UserManagement: React.FC = () => {
   const handleInstCloseModal = () => {
     setIsInstModalOpen(false);
     setCurrentInst(null);
+    setInstitutionFormError("");
   };
 
   const handleInstSave = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -190,85 +237,63 @@ const UserManagement: React.FC = () => {
       joined: currentInst?.joined || new Date().toISOString().split("T")[0],
     };
 
-    if (!data.name || !data.location || !data.curator) return;
+    if (!data.name || !data.location || !data.curator) {
+      setInstitutionFormError("Enter the institution name, location, and head curator.");
+      return;
+    }
 
-    if (currentInst) {
-      await updateDoc(doc(db, "institutions", currentInst.id), data);
-      setInstitutions((prev) => prev.map((item) => (item.id === currentInst.id ? { ...item, ...data } : item)));
-      await writeAuditLog({
-        actorId: authUser?.uid,
-        actorRole: currentRole,
-        action: "institution.updated",
-        entityType: "institution",
-        entityId: currentInst.id,
-        metadata: data,
-      });
-    } else {
-      const ref = await addDoc(collection(db, "institutions"), data);
-      setInstitutions((prev) => [...prev, { id: ref.id, ...data }]);
+    setSavingInstitution(true);
+    setInstitutionFormError("");
+    let institutionId = currentInst?.id;
+    const isNewInstitution = !currentInst;
+
+    try {
+      if (currentInst) {
+        await updateDoc(doc(db, "institutions", currentInst.id), data);
+        setInstitutions((prev) => prev.map((item) => (item.id === currentInst.id ? { ...item, ...data } : item)));
+      } else {
+        const ref = await addDoc(collection(db, "institutions"), data);
+        institutionId = ref.id;
+        setInstitutions((prev) => [...prev, { id: ref.id, ...data, isActive: true }]);
+      }
+    } catch (error) {
+      console.error("Unable to save institution:", error);
+      setInstitutionFormError(
+        getFirebaseErrorMessage(error, "Unable to save the institution. Check your connection and try again."),
+      );
+      setSavingInstitution(false);
+      return;
+    }
+
+    setSavingInstitution(false);
+    handleInstCloseModal();
+
+    const warnings: string[] = [];
+    if (isNewInstitution && institutionId) {
       try {
-        await syncGeneratedInstitutionTour(ref.id, authUser?.uid);
+        await syncGeneratedInstitutionTour(institutionId, authUser?.uid);
       } catch (error) {
         console.error("Institution was created, but its generated tour could not be created:", error);
-        alert("The institution was created, but its tour could not be generated. Use Generate Tours for Existing Institutions in User Management > Institutions to retry.");
+        warnings.push("The institution was saved, but its tour could not be generated. Retry from User Management > Institutions.");
       }
+    }
+
+    try {
       await writeAuditLog({
         actorId: authUser?.uid,
         actorRole: currentRole,
-        action: "institution.created",
+        action: isNewInstitution ? "institution.created" : "institution.updated",
         entityType: "institution",
-        entityId: ref.id,
+        entityId: institutionId || "",
         metadata: data,
+        throwOnFailure: true,
       });
-    }
-
-    handleInstCloseModal();
-  };
-
-  const handleGenerateTours = async () => {
-    if (generatingTours) return;
-    setGeneratingTours(true);
-    const failures: string[] = [];
-
-    try {
-      for (const institution of institutions) {
-        try {
-          await syncGeneratedInstitutionTour(institution.id, authUser?.uid);
-        } catch (error) {
-          console.error(`Unable to generate a tour for ${institution.name}:`, error);
-          failures.push(institution.name || institution.id);
-        }
-      }
-
-      if (failures.length) {
-        alert(`Generated tours for ${institutions.length - failures.length} institutions. Failed: ${failures.join(", ")}.`);
-      } else {
-        alert(`Generated or refreshed tours for ${institutions.length} institutions.`);
-      }
-    } finally {
-      setGeneratingTours(false);
-    }
-  };
-
-  const handleMigrateMarkers = async () => {
-    if (migratingLandmarks) return;
-    const confirmed = window.confirm(
-      "Copy all documents from the markers collection into landmarks? Existing landmarks documents will not be overwritten, and markers will not be deleted.",
-    );
-    if (!confirmed) return;
-
-    setMigratingLandmarks(true);
-    try {
-      const result = await migrateMarkersToLandmarks();
-      alert(
-        `Landmark migration complete. Copied: ${result.copied}; skipped because the destination ID already exists: ${result.skipped}; source documents: ${result.total}. The markers collection was left unchanged.`,
-      );
     } catch (error) {
-      console.error("Unable to migrate markers to landmarks:", error);
-      alert("The migration did not complete. Some batches may already have copied; it is safe to retry.");
-    } finally {
-      setMigratingLandmarks(false);
+      console.error("Institution was saved, but its audit record could not be written:", error);
+      warnings.push("The institution was saved, but its activity record could not be written.");
     }
+
+    if (warnings.length) alert(warnings.join("\n"));
   };
 
   const handleEdit = (user: UserType) => {
@@ -276,12 +301,14 @@ const UserManagement: React.FC = () => {
       alert("Only a super admin can edit a super-admin account.");
       return;
     }
+    setUserFormError("");
     setCurrentUser(user);
     setSelectedRole(user.role);
     setIsModalOpen(true);
   };
 
   const handleAdd = () => {
+    setUserFormError("");
     setCurrentUser(null);
     setSelectedRole("institution");
     setIsModalOpen(true);
@@ -291,6 +318,7 @@ const UserManagement: React.FC = () => {
     setIsModalOpen(false);
     setCurrentUser(null);
     setSelectedRole("institution");
+    setUserFormError("");
   };
 
   /* =====================
@@ -298,6 +326,7 @@ const UserManagement: React.FC = () => {
   ===================== */
   const handleSave = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setUserFormError("");
     const form = e.target as typeof e.target & {
       name: { value: string };
       email: { value: string };
@@ -316,25 +345,21 @@ const UserManagement: React.FC = () => {
       role === "user" ||
       (!isSuperAdmin && role !== (currentUser?.role || "institution"))
     ) {
-      alert("Only a super admin can create or change an account to the admin role.");
-      setLoading(false);
+      setUserFormError("Only a super admin can create or change an account to the admin role.");
       return;
     }
     if (currentUser?.role === "superadmin" && !isSuperAdmin) {
-      alert("Only a super admin can edit a super-admin account.");
-      setLoading(false);
+      setUserFormError("Only a super admin can edit a super-admin account.");
       return;
     }
     if (role === "institution" && !institutionId) {
-      alert("Select an institution for this institution account.");
-      setLoading(false);
+      setUserFormError("Select an institution for this institution account.");
       return;
     }
     setLoading(true);
 
     try {
       if (currentUser) {
-        // Update existing user
         await updateDoc(doc(db, "users", currentUser.id), {
           name,
           email,
@@ -349,16 +374,24 @@ const UserManagement: React.FC = () => {
               : u,
           ),
         );
-        await writeAuditLog({
-          actorId: authUser?.uid,
-          actorRole: currentRole,
-          action: "user.updated",
-          entityType: "user",
-          entityId: currentUser.id,
-          metadata: { email, role, institutionId },
-        });
+        const warnings: string[] = [];
+        try {
+          await writeAuditLog({
+            actorId: authUser?.uid,
+            actorRole: currentRole,
+            action: "user.updated",
+            entityType: "user",
+            entityId: currentUser.id,
+            metadata: { email, role, institutionId },
+            throwOnFailure: true,
+          });
+        } catch (auditError) {
+          console.error("User was updated, but its audit record could not be saved:", auditError);
+          warnings.push("The user was updated, but its activity record could not be saved.");
+        }
+        handleCloseModal();
+        if (warnings.length) window.alert(warnings.join("\n"));
       } else {
-        // Create new user using secondary auth (won't log you out!)
         const tempPassword = generateTemporaryPassword();
         const cred = await createUserWithEmailAndPassword(
           secondaryAuth,
@@ -366,21 +399,32 @@ const UserManagement: React.FC = () => {
           tempPassword,
         );
 
-        // Create user document in Firestore
-        await setDoc(doc(db, "users", cred.user.uid), {
-          name,
-          email,
-          role,
-          institutionId,
-          status: "Active",
-          mustChangePassword: true,
-          createdAt: serverTimestamp(),
-        });
+        try {
+          await setDoc(doc(db, "users", cred.user.uid), {
+            name,
+            email,
+            role,
+            institutionId,
+            status: "Active",
+            mustChangePassword: true,
+            createdAt: serverTimestamp(),
+          });
+        } catch (profileError) {
+          try {
+            await deleteUser(cred.user);
+          } catch (cleanupError) {
+            console.error(
+              "User profile creation failed and the new Firebase Auth account could not be removed:",
+              cleanupError,
+            );
+            setUserFormError(
+              `The Firebase account was created, but its profile could not be saved and automatic cleanup failed. Contact an administrator with user ID ${cred.user.uid}.`,
+            );
+            return;
+          }
+          throw profileError;
+        }
 
-        // Sign out from secondary auth immediately (cleanup)
-        await secondaryAuth.signOut();
-
-        // Update local state
         setUsers((prev) => [
           ...prev,
           {
@@ -395,36 +439,41 @@ const UserManagement: React.FC = () => {
           },
         ]);
 
-        await writeAuditLog({
-          actorId: authUser?.uid,
-          actorRole: currentRole,
-          action: "user.created",
-          entityType: "user",
-          entityId: cred.user.uid,
-          metadata: { email, role, institutionId },
-        });
+        const warnings: string[] = [];
+        try {
+          await secondaryAuth.signOut();
+        } catch (signOutError) {
+          console.error("The new account was saved, but secondary authentication could not sign out:", signOutError);
+          warnings.push("The new account was saved, but the account-creation session could not be cleared.");
+        }
+        try {
+          await writeAuditLog({
+            actorId: authUser?.uid,
+            actorRole: currentRole,
+            action: "user.created",
+            entityType: "user",
+            entityId: cred.user.uid,
+            metadata: { email, role, institutionId },
+            throwOnFailure: true,
+          });
+        } catch (auditError) {
+          console.error("User was created, but its audit record could not be saved:", auditError);
+          warnings.push("The user was created, but its activity record could not be saved.");
+        }
 
+        handleCloseModal();
         alert(
-          `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user. They must change this password before accessing the portal.`,
+          `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user. They must change this password before accessing the portal.${warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : ""}`,
         );
       }
     } catch (err: any) {
       console.error("Save error:", err);
-
-      let errorMessage = "Error saving user";
-      if (err.code === "auth/email-already-in-use") {
-        errorMessage = "This email is already registered";
-      } else if (err.code === "auth/invalid-email") {
-        errorMessage = "Invalid email address";
-      } else if (err.code === "auth/weak-password") {
-        errorMessage = "Password is too weak";
-      }
-
-      alert(errorMessage);
+      setUserFormError(
+        getFirebaseErrorMessage(err, "Unable to save the user. Check the form and try again."),
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-    handleCloseModal();
   };
 
   /* =====================
@@ -453,6 +502,16 @@ const UserManagement: React.FC = () => {
   ===================== */
   return (
     <div className={tableStyles.tableContainer}>
+      {pageLoadError && (
+        <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
+          {pageLoadError}
+        </div>
+      )}
+      {readinessLoadError && activeTab === "institutions" && (
+        <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
+          {readinessLoadError}
+        </div>
+      )}
       <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
         <button
           type="button"
@@ -583,7 +642,7 @@ const UserManagement: React.FC = () => {
             title={currentUser ? "Edit User" : "Add New User"}
             actions={
               <>
-                <button className={commonStyles.btnCancel} onClick={handleCloseModal}>Cancel</button>
+                <button className={commonStyles.btnCancel} onClick={handleCloseModal} disabled={loading}>Cancel</button>
                 <button type="submit" form="userForm" className={commonStyles.btnUpdate} disabled={loading}>
                   {currentUser ? "Update User" : "Add User"}
                 </button>
@@ -591,6 +650,11 @@ const UserManagement: React.FC = () => {
             }
           >
             <form id="userForm" onSubmit={handleSave}>
+              {userFormError && (
+                <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
+                  {userFormError}
+                </div>
+              )}
               <div className={commonStyles.formGroup}>
                 <label>Full Name</label>
                 <input type="text" name="name" className={commonStyles.formControl} defaultValue={currentUser?.name} required />
@@ -643,22 +707,6 @@ const UserManagement: React.FC = () => {
               <i className="fa-solid fa-plus" style={{ marginRight: "0.5rem" }}></i>
               Register Institution
             </button>
-            <button
-              type="button"
-              className={tableStyles.btnAction}
-              onClick={handleGenerateTours}
-              disabled={generatingTours || institutions.length === 0}
-            >
-              {generatingTours ? "Generating tours..." : "Generate Tours for Existing Institutions"}
-            </button>
-            <button
-              type="button"
-              className={tableStyles.btnAction}
-              onClick={handleMigrateMarkers}
-              disabled={migratingLandmarks}
-            >
-              {migratingLandmarks ? "Migrating landmarks..." : "Migrate Markers to Landmarks"}
-            </button>
           </div>
 
           <table className={tableStyles.adminTable}>
@@ -669,38 +717,54 @@ const UserManagement: React.FC = () => {
                 <th>Head Curator</th>
                 <th>Date Joined</th>
                 <th>Status</th>
+                <th>Site readiness</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredInstitutions.length > 0 ? (
-                filteredInstitutions.map((inst) => (
-                  <tr key={inst.id}>
-                    <td style={{ fontWeight: 500, color: "#fff" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                        <div style={{ width: "30px", height: "30px", background: "#333", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <i className="fa-solid fa-landmark" style={{ fontSize: "0.7rem", color: "#d4af37" }}></i>
+                filteredInstitutions.map((inst) => {
+                  const readiness = getInstitutionContentReadiness(
+                    contentItems.filter((item) => item.institutionId === inst.id),
+                  );
+                  return (
+                    <tr key={inst.id}>
+                      <td style={{ fontWeight: 500, color: "#fff" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                          <div style={{ width: "30px", height: "30px", background: "#333", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <i className="fa-solid fa-landmark" style={{ fontSize: "0.7rem", color: "#d4af37" }}></i>
+                          </div>
+                          {inst.name}
                         </div>
-                        {inst.name}
-                      </div>
-                    </td>
-                    <td>{inst.location || "—"}</td>
-                    <td>{inst.curator || "—"}</td>
-                    <td>{inst.joined || "—"}</td>
-                    <td>{isInstitutionActive(inst) ? "Active" : "Inactive"}</td>
-                    <td>
-                      <button className={tableStyles.btnAction} title="Edit" onClick={() => handleInstEdit(inst)}>
-                        <i className="fa-solid fa-pen"></i>
-                      </button>
-                      <button className={tableStyles.btnAction} title={isInstitutionActive(inst) ? "Deactivate" : "Reactivate"} style={{ borderColor: isInstitutionActive(inst) ? "#ef4444" : "#4ade80", color: isInstitutionActive(inst) ? "#ef4444" : "#4ade80" }} onClick={() => handleToggleInstitutionActive(inst)}>
-                        <i className={`fa-solid ${isInstitutionActive(inst) ? "fa-ban" : "fa-circle-check"}`}></i>
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td>{inst.location || "—"}</td>
+                      <td>{inst.curator || "—"}</td>
+                      <td>{inst.joined || "—"}</td>
+                      <td>{isInstitutionActive(inst) ? "Active" : "Inactive"}</td>
+                      <td>
+                        <strong style={{ color: readiness.isReady ? "#4ade80" : "#fbbf24" }}>
+                          {readiness.isReady ? "Ready" : "Setup incomplete"}
+                        </strong>
+                        {!readiness.isReady && (
+                          <small style={{ display: "block", color: "#a8a29e", marginTop: 4 }}>
+                            Needs {readiness.missing.join(" and ")}
+                          </small>
+                        )}
+                      </td>
+                      <td>
+                        <button className={tableStyles.btnAction} title="Edit" onClick={() => handleInstEdit(inst)}>
+                          <i className="fa-solid fa-pen"></i>
+                        </button>
+                        <button className={tableStyles.btnAction} title={isInstitutionActive(inst) ? "Deactivate" : "Reactivate"} style={{ borderColor: isInstitutionActive(inst) ? "#ef4444" : "#4ade80", color: isInstitutionActive(inst) ? "#ef4444" : "#4ade80" }} onClick={() => handleToggleInstitutionActive(inst)}>
+                          <i className={`fa-solid ${isInstitutionActive(inst) ? "fa-ban" : "fa-circle-check"}`}></i>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "2rem" }}>No institutions found</td>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }}>No institutions found</td>
                 </tr>
               )}
             </tbody>
@@ -712,12 +776,22 @@ const UserManagement: React.FC = () => {
             title={currentInst ? "Institution Details" : "Register Institution"}
             actions={
               <>
-                <button className={commonStyles.btnCancel} onClick={handleInstCloseModal}>Cancel</button>
-                <button type="submit" form="instForm" className={commonStyles.btnUpdate}>{currentInst ? "Update" : "Register"}</button>
+                <button className={commonStyles.btnCancel} onClick={handleInstCloseModal} disabled={savingInstitution}>Cancel</button>
+                <button type="submit" form="instForm" className={commonStyles.btnUpdate} disabled={savingInstitution}>{savingInstitution ? "Saving..." : currentInst ? "Update" : "Register"}</button>
               </>
             }
           >
             <form id="instForm" onSubmit={handleInstSave}>
+              {institutionFormError && (
+                <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
+                  {institutionFormError}
+                </div>
+              )}
+              {!currentInst && (
+                <p style={{ color: "#a8a29e", marginTop: 0 }}>
+                  After registration, the site is marked incomplete until it has at least one quality-ready, Published Information item and one quality-ready, Published AR/VR model. Staff can sign in and complete setup meanwhile.
+                </p>
+              )}
               <div className={commonStyles.formGroup}>
                 <label>Institution Name</label>
                 <input name="name" className={commonStyles.formControl} defaultValue={currentInst?.name} required />

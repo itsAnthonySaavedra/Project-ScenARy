@@ -21,6 +21,7 @@ import { auth, db } from "../lib/firebase";
 import { doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { writeAuditLog } from "../lib/auditLog";
+import { getFirebaseErrorMessage } from "../lib/firebaseErrorMessage";
 
 export type UserRole = "admin" | "superadmin" | "institution";
 
@@ -37,8 +38,12 @@ interface AuthContextType {
     role?: UserRole;
     mustChangePassword?: boolean;
     message?: string;
+    warning?: string;
   }>;
-  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<{ warning?: string }>;
   logout: () => Promise<void>;
 }
 
@@ -70,10 +75,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     role?: UserRole;
     mustChangePassword?: boolean;
     message?: string;
+    warning?: string;
   }> => {
+    let authenticatedUser: User | null = null;
     try {
       await setPersistence(auth, browserSessionPersistence);
       const cred = await signInWithEmailAndPassword(auth, email, password);
+      authenticatedUser = cred.user;
 
       // Look up the role in Firestore
       const userRef = doc(db, "users", cred.user.uid);
@@ -132,39 +140,62 @@ export function AuthProvider({ children }: AuthProviderProps) {
       sessionStorage.setItem("scenaryExpectedRole", expectedRole);
       sessionStorage.setItem("scenaryUserId", cred.user.uid);
 
-      // Immediately update state with the new user
+      const passwordChangeRequired = profile.mustChangePassword === true;
+      let warning: string | undefined;
+      try {
+        await writeAuditLog({
+          actorId: cred.user.uid,
+          actorRole: role,
+          action: "auth.login",
+          entityType: "user",
+          entityId: cred.user.uid,
+          metadata: { portal: expectedRole },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("Login succeeded, but its audit record could not be saved:", auditError);
+        warning = "You are signed in, but the login activity could not be recorded.";
+      }
+
       setCurrentUser(cred.user);
       setCurrentRole(role);
-      const passwordChangeRequired = profile.mustChangePassword === true;
       setMustChangePassword(passwordChangeRequired);
-      await writeAuditLog({
-        actorId: cred.user.uid,
-        actorRole: role,
-        action: "auth.login",
-        entityType: "user",
-        entityId: cred.user.uid,
-        metadata: { portal: expectedRole },
-      });
 
-      return { success: true, role, mustChangePassword: passwordChangeRequired };
+      return {
+        success: true,
+        role,
+        mustChangePassword: passwordChangeRequired,
+        warning,
+      };
     } catch (error: any) {
       console.error("Login error:", error);
+      sessionStorage.removeItem("scenaryExpectedRole");
+      sessionStorage.removeItem("scenaryUserId");
+      setCurrentUser(null);
+      setCurrentRole(null);
+      setMustChangePassword(false);
+      if (authenticatedUser) {
+        try {
+          await signOut(auth);
+        } catch (signOutError) {
+          console.error("Unable to clear the incomplete login session:", signOutError);
+        }
+      }
 
-      let message = "Login failed. Please try again.";
-      if (error.code === "auth/user-not-found")
-        message = "No account found with this email.";
-      if (error.code === "auth/wrong-password") message = "Incorrect password.";
-      if (error.code === "auth/invalid-email")
-        message = "Invalid email address.";
-
-      return { success: false, message };
+      return {
+        success: false,
+        message: getFirebaseErrorMessage(
+          error,
+          "Unable to complete sign-in. Check your connection and try again.",
+        ),
+      };
     }
   };
 
   const changePassword = async (
     currentPassword: string,
     newPassword: string,
-  ): Promise<void> => {
+  ): Promise<{ warning?: string }> => {
     if (!currentUser?.email) {
       throw new Error("A signed-in email account is required to change the password.");
     }
@@ -175,52 +206,80 @@ export function AuthProvider({ children }: AuthProviderProps) {
     );
     await reauthenticateWithCredential(currentUser, credential);
     await updatePassword(currentUser, newPassword);
-    await updateDoc(doc(db, "users", currentUser.uid), {
-      mustChangePassword: false,
-    });
+    try {
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        mustChangePassword: false,
+      });
+    } catch (profileError) {
+      console.error("Password changed, but the profile update failed:", profileError);
+      throw Object.assign(
+        new Error("Password changed, but the account profile could not be updated."),
+        { code: "auth/profile-update-failed" },
+      );
+    }
     setMustChangePassword(false);
-    await writeAuditLog({
-      actorId: currentUser.uid,
-      actorRole: currentRole,
-      action: "auth.password_changed",
-      entityType: "user",
-      entityId: currentUser.uid,
-    });
+    try {
+      await writeAuditLog({
+        actorId: currentUser.uid,
+        actorRole: currentRole,
+        action: "auth.password_changed",
+        entityType: "user",
+        entityId: currentUser.uid,
+        throwOnFailure: true,
+      });
+      return {};
+    } catch (auditError) {
+      console.error("Password changed, but its audit record could not be saved:", auditError);
+      return { warning: "Your password changed, but the activity record could not be saved." };
+    }
   };
 
   const logout = async (): Promise<void> => {
+    const userId = currentUser?.uid;
+    const role = currentRole;
+    let auditFailed = false;
     try {
-      // Clear sessionStorage
-      sessionStorage.removeItem("scenaryExpectedRole");
-      sessionStorage.removeItem("scenaryUserId");
-
-      await signOut(auth);
       await writeAuditLog({
-        actorId: currentUser?.uid,
-        actorRole: currentRole,
+        actorId: userId,
+        actorRole: role,
         action: "auth.logout",
         entityType: "user",
-        entityId: currentUser?.uid,
+        entityId: userId,
         metadata: {
-          portal: currentRole === "institution" ? "institution" : "admin",
+          portal: role === "institution" ? "institution" : "admin",
         },
+        throwOnFailure: true,
       });
-      setCurrentUser(null);
-      setCurrentRole(null);
-      setMustChangePassword(false);
-
-      if (currentRole === "institution") {
-        navigate("/login?type=institution");
-      } else {
-        navigate("/login?type=admin");
-      }
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error("Signed out, but its audit record could not be saved:", error);
+      auditFailed = true;
+    }
+
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Unable to sign out:", error);
+      window.alert(getFirebaseErrorMessage(error, "Unable to sign out. Please try again."));
+      if (auditFailed) {
+        window.alert("The logout activity record could not be saved.");
+      }
+      return;
+    }
+
+    sessionStorage.removeItem("scenaryExpectedRole");
+    sessionStorage.removeItem("scenaryUserId");
+    setCurrentUser(null);
+    setCurrentRole(null);
+    setMustChangePassword(false);
+    navigate(role === "institution" ? "/login?type=institution" : "/login?type=admin");
+
+    if (auditFailed) {
+      window.alert("You are signed out, but the activity record could not be saved.");
     }
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const restoreSession = async (user: User | null) => {
       // Check if this tab has a stored session
       const expectedRole = sessionStorage.getItem("scenaryExpectedRole") as
         | "admin"
@@ -322,9 +381,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setCurrentRole(null);
       setMustChangePassword(false);
       setLoading(false);
+    };
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      restoreSession(user).catch(async (error) => {
+        console.error("Unable to restore the saved sign-in:", error);
+        const expectedRole = sessionStorage.getItem("scenaryExpectedRole");
+        sessionStorage.removeItem("scenaryExpectedRole");
+        sessionStorage.removeItem("scenaryUserId");
+        try {
+          if (auth.currentUser) await signOut(auth);
+        } catch (signOutError) {
+          console.error("Unable to clear the incomplete restored session:", signOutError);
+        }
+        setCurrentUser(null);
+        setCurrentRole(null);
+        setMustChangePassword(false);
+        setLoading(false);
+        window.alert(
+          getFirebaseErrorMessage(
+            error,
+            "Unable to restore your session. Sign in again and retry.",
+          ),
+        );
+        if (expectedRole) navigate(`/login?type=${expectedRole}`);
+      });
+    }, (error) => {
+      console.error("Firebase sign-in state could not be monitored:", error);
+      setLoading(false);
+      window.alert(
+        getFirebaseErrorMessage(error, "Unable to verify your sign-in. Reload the page and retry."),
+      );
     });
     return unsubscribe;
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     if (currentRole !== "institution" || !currentUser) return undefined;

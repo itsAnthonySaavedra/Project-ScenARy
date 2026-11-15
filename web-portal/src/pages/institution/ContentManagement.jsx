@@ -22,8 +22,13 @@ import ContentPreview from "../../components/common/ContentPreview";
 import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
 import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
 import { CONTENT_TYPES, MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
-import { getContentQualityIssues, isContentReady } from "../../lib/contentQuality";
+import {
+  getContentQualityIssues,
+  getInstitutionContentReadiness,
+  isContentReady,
+} from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 
 const InstituteContentManagement = () => {
   const [contents, setContents] = useState([]);
@@ -61,6 +66,8 @@ const InstituteContentManagement = () => {
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState("");
   const [contentLoadError, setContentLoadError] = useState("");
+  const [contentReadyCheckLoaded, setContentReadyCheckLoaded] = useState(false);
+  const [saveWarning, setSaveWarning] = useState("");
 
   useEffect(() => {
     const auth = getAuth();
@@ -68,15 +75,26 @@ const InstituteContentManagement = () => {
       if (user) {
         try {
           const userDocSnap = await getDoc(doc(db, "users", user.uid));
-          if (userDocSnap.exists()) {
+          if (userDocSnap.exists() && userDocSnap.data().institutionId) {
             setUserInstitutionId(userDocSnap.data().institutionId);
+          } else {
+            setContentLoadError("Your account is not linked to an institution. Contact an administrator.");
           }
         } catch (error) {
           console.error("Profile extraction error:", error);
+          setContentLoadError(
+            getFirebaseErrorMessage(error, "Unable to load your institution profile."),
+          );
         }
       } else {
         setUserInstitutionId(null);
       }
+      setIsAuthChecking(false);
+    }, (error) => {
+      console.error("Unable to verify the signed-in user for content management:", error);
+      setContentLoadError(
+        getFirebaseErrorMessage(error, "Unable to verify your sign-in. Refresh and try again."),
+      );
       setIsAuthChecking(false);
     });
     return () => unsubscribe();
@@ -99,11 +117,14 @@ const InstituteContentManagement = () => {
             .map((item) => ({ id: item.id, ...item.data(), type: normalizeContentType(item.data().type) }))
             .filter((item) => CONTENT_TYPES.includes(item.type)),
         );
+        setContentReadyCheckLoaded(true);
         setContentLoadError("");
       },
       (error) => {
         console.error("Unable to receive institution content updates:", error);
-        setContentLoadError("Unable to load content updates. Please try again later.");
+        setContentLoadError(
+          getFirebaseErrorMessage(error, "Unable to load content updates. Please try again later."),
+        );
       },
     );
     const updateAssignmentTargets = (landmarks, pois) => {
@@ -122,7 +143,9 @@ const InstituteContentManagement = () => {
       },
       (error) => {
         console.error("Unable to receive landmark assignment updates:", error);
-        setContentLoadError("Unable to load assignment targets. Please try again later.");
+        setContentLoadError(
+          getFirebaseErrorMessage(error, "Unable to load landmark assignment targets."),
+        );
       },
     );
     const unsubscribePois = onSnapshot(
@@ -133,7 +156,9 @@ const InstituteContentManagement = () => {
       },
       (error) => {
         console.error("Unable to receive POI assignment updates:", error);
-        setContentLoadError("Unable to load assignment targets. Please try again later.");
+        setContentLoadError(
+          getFirebaseErrorMessage(error, "Unable to load POI assignment targets."),
+        );
       },
     );
     return () => {
@@ -245,23 +270,33 @@ const InstituteContentManagement = () => {
     setBulkMessage("");
     try {
       await updateDoc(doc(db, target.collectionName, target.id), { contentIds: arrayUnion(...compatibleIds) });
-      await writeAuditLog({
-        actorId: getAuth().currentUser?.uid,
-        actorRole: "institution",
-        action: "content.bulk_assigned",
-        entityType: target.scope.toLowerCase(),
-        entityId: target.id,
-        metadata: { institutionId: userInstitutionId, contentIds: compatibleIds },
-      });
+      let auditWarning = "";
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: "institution",
+          action: "content.bulk_assigned",
+          entityType: target.scope.toLowerCase(),
+          entityId: target.id,
+          metadata: { institutionId: userInstitutionId, contentIds: compatibleIds },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("Content was assigned, but its audit record could not be written:", auditError);
+        auditWarning = " The content was assigned, but its activity record could not be written.";
+      }
       setSelectedContentIds([]);
       setSelectedTargetId("");
-      setBulkMessage(`${compatibleIds.length} item${compatibleIds.length === 1 ? "" : "s"} assigned to ${target.name}.`);
+      let successMessage = `${compatibleIds.length} item${compatibleIds.length === 1 ? "" : "s"} assigned to ${target.name}.`;
       if (compatibleIds.length < selectedContentIds.length) {
-        setBulkMessage(`${compatibleIds.length} compatible item${compatibleIds.length === 1 ? " was" : "s were"} assigned to ${target.name}; items from other content areas were skipped.`);
+        successMessage = `${compatibleIds.length} compatible item${compatibleIds.length === 1 ? " was" : "s were"} assigned to ${target.name}; items from other content areas were skipped.`;
       }
+      setBulkMessage(`${successMessage}${auditWarning}`);
     } catch (error) {
       console.error("Unable to bulk assign content:", error);
-      setBulkMessage("Unable to assign content. Please try again.");
+      setBulkMessage(
+        getFirebaseErrorMessage(error, "Unable to assign content. Please try again."),
+      );
     } finally {
       setAssigningContent(false);
     }
@@ -270,15 +305,20 @@ const InstituteContentManagement = () => {
   // --- SUBMIT HANDLING (INTEGRATED FOR BOTH WRITE AND UPDATE OPERATIONS) ---
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    if (!userInstitutionId) return;
+    if (!userInstitutionId) {
+      setFormError("Your account is not linked to an institution. Contact an administrator.");
+      return;
+    }
     if (formScope === "POI" && selectedType === "Quiz") {
       setFormError("Quizzes can only be added to Landmark content.");
       return;
     }
     setLoading(true);
     setFormError("");
+    setSaveWarning("");
 
     let contentData = {};
+    let contentSaved = false;
 
     try {
       const customData = formCustomData.trim()
@@ -335,6 +375,7 @@ const InstituteContentManagement = () => {
           status: "Awaiting Content",
           updatedAt: serverTimestamp(),
         });
+        contentSaved = true;
       } else {
         // Enforce Standard Firestore Document Creation Pipeline
         const payload = {
@@ -350,22 +391,29 @@ const InstituteContentManagement = () => {
         };
         const createdContent = await addDoc(collection(db, "content"), payload);
         savedContentId = createdContent.id;
+        contentSaved = true;
       }
 
-      await writeAuditLog({
-        actorId: getAuth().currentUser?.uid,
-        actorRole: "institution",
-        action: isEditMode ? "content.updated" : "content.created",
-        entityType: "content",
-        entityId: savedContentId,
-        metadata: {
-          title: formTitle,
-          type: selectedType,
-          scope: formScope,
-          institutionId: userInstitutionId,
-          fileName: contentData.modelFileName || null,
-        },
-      });
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: "institution",
+          action: isEditMode ? "content.updated" : "content.created",
+          entityType: "content",
+          entityId: savedContentId,
+          metadata: {
+            title: formTitle,
+            type: selectedType,
+            scope: formScope,
+            institutionId: userInstitutionId,
+            fileName: contentData.modelFileName || null,
+          },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("Content saved, but its audit record could not be written:", auditError);
+        setSaveWarning("Content was saved, but its activity record could not be written.");
+      }
 
       // Clean Interface Context States
       setIsAddModalOpen(false);
@@ -386,7 +434,15 @@ const InstituteContentManagement = () => {
       setFormError("");
     } catch (error) {
       console.error("Database Transaction Error:", error);
-      alert("Error committing document updates to cloud collection.");
+      if (contentSaved) {
+        setSaveWarning("Content was saved, but a follow-up action failed. Check the content list before retrying.");
+      } else {
+        setFormError(
+          error instanceof SyntaxError
+            ? "Custom data must contain valid JSON."
+            : getFirebaseErrorMessage(error, "Unable to save content. Please try again."),
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -405,6 +461,7 @@ const InstituteContentManagement = () => {
   const incompleteCount = contents.filter(
     (item) => !isContentReady(item),
   ).length;
+  const siteReadiness = getInstitutionContentReadiness(contents);
 
   if (isAuthChecking) {
     return (
@@ -416,6 +473,33 @@ const InstituteContentManagement = () => {
 
   return (
     <div style={{ width: "100%", padding: "20px" }}>
+      <div
+        role="status"
+        style={{
+          color: siteReadiness.isReady ? "#4ade80" : "#fbbf24",
+          background: siteReadiness.isReady ? "rgba(74,222,128,.08)" : "rgba(251,191,36,.08)",
+          border: `1px solid ${siteReadiness.isReady ? "rgba(74,222,128,.3)" : "rgba(251,191,36,.3)"}`,
+          borderRadius: 6,
+          padding: 12,
+          marginBottom: 16,
+        }}
+      >
+        {contentReadyCheckLoaded
+          ? siteReadiness.isReady
+            ? "Site setup is ready: it has published Information and AR/VR content."
+            : `Site setup is incomplete. Add ${siteReadiness.missing.join(" and ")}. Items must pass content checks and be Published by an administrator.`
+          : "Checking site setup readiness..."}
+      </div>
+      {contentLoadError && (
+        <div role="alert" style={{ color: "#fca5a5", marginBottom: 16 }}>
+          {contentLoadError}
+        </div>
+      )}
+      {saveWarning && (
+        <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
+          {saveWarning}
+        </div>
+      )}
       {/* CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
@@ -463,7 +547,6 @@ const InstituteContentManagement = () => {
         <button type="button" className={commonStyles.btnCancel} onClick={() => setSelectedContentIds([])}>Clear selection</button>
       </div>}
       {bulkMessage && <p role="status" style={{ color: bulkMessage.startsWith("Unable") || bulkMessage.startsWith("Select") ? "#fbbf24" : "#86efac" }}>{bulkMessage}</p>}
-      {contentLoadError && <p role="alert" style={{ color: "#f87171" }}>{contentLoadError}</p>}
       <div
         style={{
           color: incompleteCount > 0 ? "#fbbf24" : "#4ade80",
@@ -753,7 +836,9 @@ const InstituteContentManagement = () => {
                         setFormModelUrl(uploaded.url);
                       } catch (error) {
                         console.error("Model upload error:", error);
-                        alert(error.message || "Unable to upload the AR/VR model. Check Firebase Storage permissions.");
+                        setFormError(
+                          getFirebaseErrorMessage(error, error.message || "Unable to upload the AR/VR model."),
+                        );
                       } finally {
                         setUploadingModel(false);
                       }

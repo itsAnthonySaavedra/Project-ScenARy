@@ -7,6 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 import { db } from "../../lib/firebase";
 import { cleanFeedbackComment, getRatingStats, loadFeedback } from "../../lib/userAnalytics";
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import dashboardStyles from '../../components/features/dashboard/Dashboard.module.css';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
@@ -26,6 +27,7 @@ const InstituteDashboard = () => {
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [warning, setWarning] = useState("");
 
     useEffect(() => {
         let active = true;
@@ -37,7 +39,9 @@ const InstituteDashboard = () => {
         };
         const handleSnapshotError = (snapshotError) => {
             console.error("Unable to receive institution dashboard updates:", snapshotError);
-            setError("Unable to load live dashboard data.");
+            setError(
+                getFirebaseErrorMessage(snapshotError, "Unable to load live dashboard data. Reload and try again."),
+            );
             setLoading(false);
         };
 
@@ -102,10 +106,17 @@ const InstituteDashboard = () => {
                     })
                     .catch((feedbackError) => {
                         console.error("Unable to load institution dashboard feedback:", feedbackError);
+                        if (active) {
+                            setWarning(
+                                getFirebaseErrorMessage(feedbackError, "Feedback could not be loaded. Other dashboard data remains available."),
+                            );
+                        }
                     });
             } catch (loadError) {
                 console.error("Unable to load institution dashboard:", loadError);
-                setError("Unable to load live dashboard data.");
+                setError(
+                    getFirebaseErrorMessage(loadError, "Unable to load live dashboard data. Reload and try again."),
+                );
                 setLoading(false);
             }
         };
@@ -118,7 +129,14 @@ const InstituteDashboard = () => {
     }, [currentUser]);
 
     if (loading) return <div className={dashboardStyles.dashboardState}>Loading your institution dashboard...</div>;
-    if (error) return <div className={dashboardStyles.dashboardState}>{error}</div>;
+    if (error) {
+        return (
+            <div className={dashboardStyles.dashboardState} role="alert">
+                <p>{error}</p>
+                <button type="button" onClick={() => window.location.reload()}>Reload dashboard</button>
+            </div>
+        );
+    }
 
     const ratingStats = getRatingStats(dashboard.feedback);
     const contentTypes = ["Information", "Fun Fact", "Quiz", MODEL_CONTENT_TYPE, "Other"];
@@ -146,6 +164,7 @@ const InstituteDashboard = () => {
                     <strong>{dashboard.institution?.curator || "Institution team"}</strong>
                 </div>
             </section>
+            {warning && <p role="status" style={{ color: "#fbbf24" }}>{warning}</p>}
 
             <section className={dashboardStyles.statsGrid}>
                 {[

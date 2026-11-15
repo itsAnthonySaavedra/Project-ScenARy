@@ -3,7 +3,7 @@ import { collection, getDocs, query, where, updateDoc, doc, serverTimestamp } fr
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { uploadStorageFile } from "../../lib/storageUpload";
+import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -14,6 +14,7 @@ import { getContentScope } from "../../lib/contentScope";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
 import { writeAuditLog } from "../../lib/auditLog";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 
 L.Marker.prototype.options.icon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
 
@@ -30,6 +31,7 @@ const LandmarkManagement = () => {
   const [imagePreview, setImagePreview] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pageError, setPageError] = useState("");
 
   useEffect(() => {
     if (!imageFile) {
@@ -43,27 +45,52 @@ const LandmarkManagement = () => {
   }, [imageFile]);
 
   const loadData = async (id) => {
-    const landmarkSnap = await getDocs(query(collection(db, "landmarks"), where("institutionId", "==", id)));
-    const poiSnap = await getDocs(query(collection(db, "pois"), where("institutionId", "==", id)));
-    const contentSnap = await getDocs(query(collection(db, "content"), where("institutionId", "==", id)));
-    const landmarkItems = landmarkSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-    const poiItems = poiSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-    const contentItems = contentSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
-    setLandmarks(landmarkItems);
-    setPois(poiItems);
-    setAllContent(contentItems);
-    setAvailableContent(contentItems.filter((item) => getContentScope(item) === "Landmark"));
-    setLoading(false);
+    setLoading(true);
+    try {
+      const landmarkSnap = await getDocs(query(collection(db, "landmarks"), where("institutionId", "==", id)));
+      const poiSnap = await getDocs(query(collection(db, "pois"), where("institutionId", "==", id)));
+      const contentSnap = await getDocs(query(collection(db, "content"), where("institutionId", "==", id)));
+      const landmarkItems = landmarkSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+      const poiItems = poiSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+      const contentItems = contentSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+      setLandmarks(landmarkItems);
+      setPois(poiItems);
+      setAllContent(contentItems);
+      setAvailableContent(contentItems.filter((item) => getContentScope(item) === "Landmark"));
+      setPageError("");
+    } catch (error) {
+      console.error("Unable to load landmark management data:", error);
+      setPageError(
+        getFirebaseErrorMessage(error, "Unable to load landmark data. Check your connection and try again."),
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => onAuthStateChanged(getAuth(), async (user) => {
     if (!user) { setLoading(false); return; }
-    const profile = await getDoc(doc(db, "users", user.uid));
-    if (profile.exists()) {
-      const id = profile.data().institutionId;
-      setInstitutionId(id);
-      await loadData(id);
-    } else setLoading(false);
+    try {
+      const profile = await getDoc(doc(db, "users", user.uid));
+      if (profile.exists() && profile.data().institutionId) {
+        const id = profile.data().institutionId;
+        setInstitutionId(id);
+        await loadData(id);
+      } else {
+        setPageError("Your account is not linked to an institution. Contact an administrator.");
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error("Unable to initialize landmark management:", error);
+      setPageError(
+        getFirebaseErrorMessage(error, "Unable to load landmark management. Refresh and try again."),
+      );
+      setLoading(false);
+    }
+  }, (error) => {
+    console.error("Unable to check the signed-in user for landmark management:", error);
+    setPageError(getFirebaseErrorMessage(error, "Unable to verify your sign-in."));
+    setLoading(false);
   }), []);
 
   const updateField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
@@ -88,16 +115,23 @@ const LandmarkManagement = () => {
 
   const saveLandmark = async (event) => {
     event.preventDefault();
-    if (!institutionId || !selectedLandmarkId) return;
+    if (!institutionId || !selectedLandmarkId) {
+      setPageError("Select a landmark before saving.");
+      return;
+    }
     const name = form.name.trim();
     const description = form.description.trim();
+    if (!name || !description) {
+      setPageError("Enter both a landmark name and description.");
+      return;
+    }
     setSaving(true);
-    let saveStage = "Uploading landmark picture";
+    setPageError("");
+    let uploadedImage = null;
     try {
-      const uploadedImage = imageFile
+      uploadedImage = imageFile
         ? await uploadStorageFile(imageFile, `markers/${institutionId}`)
         : null;
-      saveStage = "Saving landmark details";
       await updateDoc(doc(db, "landmarks", selectedLandmarkId), {
         landmarkName: name,
         description,
@@ -111,13 +145,30 @@ const LandmarkManagement = () => {
         ),
         updatedAt: serverTimestamp(),
       });
-      try {
-        await syncGeneratedInstitutionTour(institutionId);
-      } catch (tourError) {
-        console.error("Landmark saved, but its generated tour could not be refreshed:", tourError);
-        alert("The landmark was saved, but its generated tour could not be refreshed.");
+    } catch (error) {
+      console.error("Unable to save landmark:", error);
+      if (uploadedImage) {
+        try {
+          await deleteStorageFile(uploadedImage.storagePath);
+        } catch (cleanupError) {
+          console.error("Unable to clean up the uploaded image after the landmark save failed:", cleanupError);
+        }
       }
-      saveStage = "Refreshing landmark list";
+      setPageError(
+        getFirebaseErrorMessage(error, "Unable to save the landmark. Check your connection and try again."),
+      );
+      setSaving(false);
+      return;
+    }
+
+    const warnings = [];
+    try {
+      await syncGeneratedInstitutionTour(institutionId);
+    } catch (tourError) {
+      console.error("Landmark saved, but its generated tour could not be refreshed:", tourError);
+      warnings.push("The landmark was saved, but its generated tour could not be refreshed.");
+    }
+    try {
       await writeAuditLog({
         actorId: getAuth().currentUser?.uid,
         actorRole: "institution",
@@ -129,7 +180,13 @@ const LandmarkManagement = () => {
           name,
           ...(uploadedImage ? { imageFileName: uploadedImage.fileName } : {}),
         },
+        throwOnFailure: true,
       });
+    } catch (error) {
+      console.error("Landmark saved, but its audit record could not be written:", error);
+      warnings.push("Its activity record could not be written.");
+    }
+    try {
       setForm({
         ...form,
         name,
@@ -143,12 +200,10 @@ const LandmarkManagement = () => {
       });
       setImageFile(null);
       await loadData(institutionId);
-    } catch (error) {
-      console.error(`${saveStage} failed:`, error);
-      const errorCode = error?.code ? ` (${error.code})` : "";
-      const errorMessage = error?.message || "Unknown error";
-      alert(`${saveStage} failed${errorCode}: ${errorMessage}`);
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
+    if (warnings.length) setPageError(warnings.join(" "));
   };
 
   const generatedExperiences = buildGeneratedExperiences(landmarks, pois, allContent);
@@ -157,6 +212,7 @@ const LandmarkManagement = () => {
 
   return <div style={{ padding: 20, color: "#ccc" }}>
     <h2 style={{ color: "#d4af37" }}>Landmarks</h2>
+    {pageError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>{pageError}</div>}
     <p>Admin-created map pins are the landmarks and are associated with your institution. Give each pin its own landmark name; POIs such as artworks are added separately and linked to that pin.</p>
     <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 420px) 1fr", gap: "20px" }}>
       <form onSubmit={saveLandmark} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "20px" }}>
@@ -181,12 +237,18 @@ const LandmarkManagement = () => {
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (!file) return;
+              if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+                setPageError("Choose a PNG, JPG, or WEBP landmark picture.");
+                event.target.value = "";
+                return;
+              }
               if (file.size > 10 * 1024 * 1024) {
-                alert("Pictures must be 10 MB or smaller.");
+                setPageError("Landmark pictures must be 10 MB or smaller.");
                 event.target.value = "";
                 return;
               }
               setImageFile(file);
+              setPageError("");
             }}
             style={{ color: "#ccc" }}
           />

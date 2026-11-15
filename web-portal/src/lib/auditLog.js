@@ -9,6 +9,7 @@ export const writeAuditLog = async ({
   entityType,
   entityId = null,
   metadata = {},
+  throwOnFailure = false,
 }) => {
   try {
     let resolvedActorName = actorName;
@@ -34,7 +35,8 @@ export const writeAuditLog = async ({
       createdAt: serverTimestamp(),
     });
   } catch (error) {
-    // Audit logging must not interrupt the operation being recorded.
+    // Keep audit failures non-blocking unless a caller needs to report a follow-up failure.
     console.error("Audit log write failed:", error);
+    if (throwOnFailure) throw error;
   }
 };

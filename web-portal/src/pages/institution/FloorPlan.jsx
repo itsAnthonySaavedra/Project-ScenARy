@@ -8,6 +8,8 @@ import { db, storage } from "../../lib/firebase";
 import { writeAuditLog } from "../../lib/auditLog";
 import { isInstitutionActive } from "../../lib/institutionStatus";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
+import { deleteStorageFile } from "../../lib/storageUpload";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 
 const FloorPlan = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -71,7 +73,9 @@ const FloorPlan = ({ adminMode = false }) => {
         : "This institution is inactive. Its saved floor plan is shown for administrative review.");
     } catch (error) {
       console.error("Unable to load institution floor plan:", error);
-      setMessage("Unable to load this institution's floor plan.");
+      setMessage(
+        getFirebaseErrorMessage(error, "Unable to load this institution's floor plan. Refresh and try again."),
+      );
       setFloorPlan(null);
       setPois([]);
       setLandmarks([]);
@@ -107,7 +111,9 @@ const FloorPlan = ({ adminMode = false }) => {
       await loadInstitutionFloorPlan(id);
     } catch (error) {
       console.error("Unable to initialize floor plan:", error);
-      setMessage("Unable to load floor plan data.");
+      setMessage(
+        getFirebaseErrorMessage(error, "Unable to load floor plan data. Refresh and try again."),
+      );
       setLoading(false);
     }
   }), [adminMode]);
@@ -188,10 +194,14 @@ const FloorPlan = ({ adminMode = false }) => {
     if (!selected) return;
     const validType = ["image/png", "image/jpeg", "image/webp", "application/pdf"].includes(selected.type);
     if (!validType) {
+      setFile(null);
+      event.target.value = "";
       setMessage("Upload a PNG, JPG, WEBP, or PDF floor plan.");
       return;
     }
     if (selected.size > 15 * 1024 * 1024) {
+      setFile(null);
+      event.target.value = "";
       setMessage("The floor plan must be 15 MB or smaller.");
       return;
     }
@@ -205,9 +215,11 @@ const FloorPlan = ({ adminMode = false }) => {
     setUploading(true);
     setMessage("");
     let uploadStage = "uploading the file to Firebase Storage";
+    let uploadedStoragePath = "";
+    let floorPlanSaved = false;
     try {
-      let tourSyncFailed = false;
       const storagePath = `floor-plans/${institutionId}/${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, "-")}`;
+      uploadedStoragePath = storagePath;
       const fileRef = ref(storage, storagePath);
       await uploadBytes(fileRef, file, { contentType: file.type });
       const url = await getDownloadURL(fileRef);
@@ -221,42 +233,72 @@ const FloorPlan = ({ adminMode = false }) => {
         updatedAt: serverTimestamp(),
       };
       await setDoc(doc(db, "floorPlans", institutionId), floorPlanData, { merge: true });
+      floorPlanSaved = true;
+      setFloorPlan({ ...floorPlanData, id: institutionId });
+
+      const warnings = [];
       try {
         await syncGeneratedInstitutionTour(institutionId);
       } catch (tourError) {
         console.error("Floor plan uploaded, but the generated tour could not be refreshed:", tourError);
-        tourSyncFailed = true;
+        warnings.push("the generated tour could not be refreshed");
       }
-      await writeAuditLog({
-        actorId: getAuth().currentUser?.uid,
-        actorRole: "institution",
-        action: "floorPlan.uploaded",
-        entityType: "floorPlan",
-        entityId: institutionId,
-        metadata: { institutionId, fileName: file.name, fileType: file.type },
-      });
-      setFloorPlan({ ...floorPlanData, id: institutionId });
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: "institution",
+          action: "floorPlan.uploaded",
+          entityType: "floorPlan",
+          entityId: institutionId,
+          metadata: { institutionId, fileName: file.name, fileType: file.type },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("Floor plan was saved, but its audit record could not be written:", auditError);
+        warnings.push("its activity record could not be saved");
+      }
+
+      if (floorPlan?.storagePath && floorPlan.storagePath !== storagePath) {
+        try {
+          await deleteStorageFile(floorPlan.storagePath);
+        } catch (cleanupError) {
+          console.error("New floor plan was saved, but the previous file could not be removed:", cleanupError);
+          warnings.push("the previous floor-plan file could not be removed");
+        }
+      }
+
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       resetViewer();
-      setMessage(
-        tourSyncFailed
-          ? "Floor plan uploaded, but the generated tour could not be refreshed."
-          : "Floor plan uploaded successfully.",
-      );
+      setMessage(warnings.length
+        ? `Floor plan saved successfully, but ${warnings.join(" and ")}.`
+        : "Floor plan uploaded successfully.");
     } catch (error) {
       console.error(`Unable to complete floor-plan upload while ${uploadStage}:`, error);
       const code = error?.code || "unknown";
       const details = error?.message || "No additional details were provided by Firebase.";
+      let failureMessage;
       if (code === "storage/unauthorized") {
-        setMessage(`Firebase Storage denied the upload to floor-plans/${institutionId}/. Check the Storage rules for this path and account. (${code})`);
+        failureMessage = `Firebase Storage denied the upload to floor-plans/${institutionId}/. Check the Storage rules for this path and account. (${code})`;
       } else if (code === "storage/cors-unsupported-method" || code === "storage/cors-unsupported-origin") {
-        setMessage(`Firebase Storage blocked this browser request because of its CORS configuration. Check the bucket CORS settings for this site's origin and upload method. (${code})`);
-      } else if (code === "firestore/permission-denied") {
-        setMessage(`The file reached Firebase Storage, but Firestore denied saving its floor-plan record. Check the Firestore rules. (${code})`);
+        failureMessage = `Firebase Storage blocked this browser request because of its CORS configuration. Check the bucket CORS settings for this site's origin and upload method. (${code})`;
+      } else if (code === "firestore/permission-denied" || code === "permission-denied") {
+        failureMessage = `The file reached Firebase Storage, but Firestore denied saving its floor-plan record. Check the Firestore rules. (${code})`;
       } else {
-        setMessage(`Floor-plan upload failed while ${uploadStage} (${code}): ${details}`);
+        failureMessage = getFirebaseErrorMessage(
+          error,
+          `Floor-plan upload failed while ${uploadStage} (${code}): ${details}`,
+        );
       }
+      if (uploadedStoragePath && !floorPlanSaved) {
+        try {
+          await deleteStorageFile(uploadedStoragePath);
+        } catch (cleanupError) {
+          console.error("Unable to remove the uncommitted floor-plan upload:", cleanupError);
+          failureMessage += " The uploaded file could not be cleaned up; contact an administrator.";
+        }
+      }
+      setMessage(failureMessage);
     } finally {
       setUploading(false);
     }
@@ -279,18 +321,25 @@ const FloorPlan = ({ adminMode = false }) => {
       const position = { x: Number(x.toFixed(3)), y: Number(y.toFixed(3)) };
       await updateDoc(doc(db, "pois", selectedPoiId), { floorPlanPosition: position, updatedAt: serverTimestamp() });
       setPois((current) => current.map((poi) => poi.id === selectedPoiId ? { ...poi, floorPlanPosition: position } : poi));
-      await writeAuditLog({
-        actorId: getAuth().currentUser?.uid,
-        actorRole: "institution",
-        action: "floorPlan.poi_placed",
-        entityType: "poi",
-        entityId: selectedPoiId,
-        metadata: { institutionId, name: pois.find((poi) => poi.id === selectedPoiId)?.name || "" },
-      });
       setPlacementMode(false);
+      setMessage("POI location saved.");
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: "institution",
+          action: "floorPlan.poi_placed",
+          entityType: "poi",
+          entityId: selectedPoiId,
+          metadata: { institutionId, name: pois.find((poi) => poi.id === selectedPoiId)?.name || "" },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("POI location was saved, but its audit record could not be written:", auditError);
+        setMessage("POI location saved, but its activity record could not be saved.");
+      }
     } catch (error) {
       console.error("Unable to place POI on floor plan:", error);
-      setMessage("Unable to save the POI location.");
+      setMessage(getFirebaseErrorMessage(error, "Unable to save the POI location. Try again."));
     } finally {
       setSavingMarker(false);
     }
@@ -305,14 +354,6 @@ const FloorPlan = ({ adminMode = false }) => {
         floorPlanPosition: deleteField(),
         updatedAt: serverTimestamp(),
       });
-      await writeAuditLog({
-        actorId: getAuth().currentUser?.uid,
-        actorRole: "institution",
-        action: "floorPlan.poi_pin_removed",
-        entityType: "poi",
-        entityId: selectedPoiId,
-        metadata: { institutionId, name: pois.find((poi) => poi.id === selectedPoiId)?.name || "" },
-      });
       setPois((current) => current.map((poi) => {
         if (poi.id !== selectedPoiId) return poi;
         const updatedPoi = { ...poi };
@@ -321,9 +362,23 @@ const FloorPlan = ({ adminMode = false }) => {
       }));
       setPlacementMode(false);
       setMessage("Pin removed successfully.");
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: "institution",
+          action: "floorPlan.poi_pin_removed",
+          entityType: "poi",
+          entityId: selectedPoiId,
+          metadata: { institutionId, name: pois.find((poi) => poi.id === selectedPoiId)?.name || "" },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("POI pin was removed, but its audit record could not be written:", auditError);
+        setMessage("Pin removed, but its activity record could not be saved.");
+      }
     } catch (error) {
       console.error("Unable to remove POI pin:", error);
-      setMessage("Unable to remove the POI pin.");
+      setMessage(getFirebaseErrorMessage(error, "Unable to remove the POI pin. Try again."));
     } finally {
       setSavingMarker(false);
     }

@@ -54,6 +54,7 @@ const Login: React.FC = () => {
       } else {
         navigate(role === "institution" ? "/institution/dashboard" : "/admin/dashboard");
       }
+      if (result.warning) window.alert(result.warning);
       setLoading(false);
     } catch (err) {
       console.error(err);

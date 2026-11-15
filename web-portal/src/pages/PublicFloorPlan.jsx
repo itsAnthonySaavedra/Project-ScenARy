@@ -3,6 +3,7 @@ import { collection, getDocs, getDoc, query, where, doc } from "firebase/firesto
 import { useParams } from "react-router-dom";
 import { db } from "../lib/firebase";
 import { isInstitutionActive } from "../lib/institutionStatus";
+import { getFirebaseErrorMessage } from "../lib/firebaseErrorMessage";
 
 const PublicFloorPlan = () => {
   const { institutionId } = useParams();
@@ -12,9 +13,12 @@ const PublicFloorPlan = () => {
   const [selectedPoiId, setSelectedPoiId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     const loadMap = async () => {
+      setLoading(true);
+      setError("");
       if (!institutionId) {
         setError("This map link is missing an institution.");
         setLoading(false);
@@ -37,16 +41,28 @@ const PublicFloorPlan = () => {
         setContent(contentSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
       } catch (loadError) {
         console.error("Unable to load public floor plan:", loadError);
-        setError("Unable to load this floor plan.");
+        setError(
+          getFirebaseErrorMessage(loadError, "Unable to load this floor plan. Check your connection and retry."),
+        );
       } finally {
         setLoading(false);
       }
     };
     loadMap();
-  }, [institutionId]);
+  }, [institutionId, loadAttempt]);
 
   if (loading) return <main style={styles.page}><p>Loading floor plan...</p></main>;
-  if (error || !floorPlan) return <main style={styles.page}><p>{error || "No floor plan has been published yet."}</p></main>;
+  if (error) {
+    return (
+      <main style={styles.page} role="alert">
+        <p>{error}</p>
+        <button type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+          Try again
+        </button>
+      </main>
+    );
+  }
+  if (!floorPlan) return <main style={styles.page}><p>No floor plan has been published yet.</p></main>;
 
   const selectedPoi = pois.find((poi) => poi.id === selectedPoiId);
   const selectedContent = (selectedPoi?.contentIds || [])

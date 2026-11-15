@@ -19,10 +19,11 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { uploadStorageFile } from "../../lib/storageUpload";
+import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
 import { isInstitutionActive } from "../../lib/institutionStatus";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
@@ -54,10 +55,13 @@ const MapSystem = () => {
   const [markerImage, setMarkerImage] = useState(null);
   const [markerImagePreview, setMarkerImagePreview] = useState("");
   const [savingMarker, setSavingMarker] = useState(false);
+  const [markerFormError, setMarkerFormError] = useState("");
   const [landmarkNameDrafts, setLandmarkNameDrafts] = useState({});
+  const [mapLoadErrors, setMapLoadErrors] = useState({ institutions: "", landmarks: "" });
 
   const [activeExperiences, setActiveExperiences] = useState({});
   const [loadingExperiences, setLoadingExperiences] = useState({});
+  const [experienceErrors, setExperienceErrors] = useState({});
   const activeInstitutionIds = new Set(
     institutions.filter(isInstitutionActive).map((institution) => institution.id),
   );
@@ -75,15 +79,43 @@ const MapSystem = () => {
   }, [markerImage]);
 
   useEffect(() => {
-    const unsubInst = onSnapshot(collection(db, "institutions"), (snapshot) => {
-      setInstitutions(
-        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-      );
-    });
+    const unsubInst = onSnapshot(
+      collection(db, "institutions"),
+      (snapshot) => {
+        setInstitutions(
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+        );
+        setMapLoadErrors((current) => ({ ...current, institutions: "" }));
+      },
+      (error) => {
+        console.error("Unable to load institutions for the map:", error);
+        setMapLoadErrors((current) => ({
+          ...current,
+          institutions: getFirebaseErrorMessage(
+            error,
+            "Unable to load institutions. Map pins may be unavailable.",
+          ),
+        }));
+      },
+    );
 
-    const unsubMarkers = onSnapshot(collection(db, "landmarks"), (snapshot) => {
-      setMarkers(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-    });
+    const unsubMarkers = onSnapshot(
+      collection(db, "landmarks"),
+      (snapshot) => {
+        setMarkers(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        setMapLoadErrors((current) => ({ ...current, landmarks: "" }));
+      },
+      (error) => {
+        console.error("Unable to load landmarks for the map:", error);
+        setMapLoadErrors((current) => ({
+          ...current,
+          landmarks: getFirebaseErrorMessage(
+            error,
+            "Unable to load landmarks. Map pins may be unavailable.",
+          ),
+        }));
+      },
+    );
 
     return () => {
       unsubInst();
@@ -109,20 +141,34 @@ const MapSystem = () => {
         contentSnap.docs.map((item) => ({ id: item.id, ...item.data() })),
       );
       setActiveExperiences((prev) => ({ ...prev, [institutionId]: experiences }));
+      setExperienceErrors((prev) => ({ ...prev, [institutionId]: "" }));
     } catch (err) {
       console.error("Error generating landmark experiences:", err);
+      setExperienceErrors((prev) => ({
+        ...prev,
+        [institutionId]: getFirebaseErrorMessage(
+          err,
+          "Unable to load available experiences for this institution.",
+        ),
+      }));
     } finally {
       setLoadingExperiences((prev) => ({ ...prev, [institutionId]: false }));
     }
   };
 
   const confirmAddMarker = async (instId, instName) => {
-    if (!tempCoords || !landmarkName.trim()) return;
+    if (!tempCoords || !landmarkName.trim()) {
+      setMarkerFormError("Choose a map location and enter a landmark name.");
+      return;
+    }
     const trimmedLandmarkName = landmarkName.trim();
     const trimmedDescription = description.trim();
     setSavingMarker(true);
+    setMarkerFormError("");
+    let uploadedImage = null;
+    let landmarkSaved = false;
     try {
-      const image = markerImage
+      uploadedImage = markerImage
         ? await uploadStorageFile(markerImage, `markers/${instId}`)
         : null;
       await addDoc(collection(db, "landmarks"), {
@@ -134,8 +180,9 @@ const MapSystem = () => {
         landmarkName: trimmedLandmarkName,
         description: trimmedDescription,
         info: { description: trimmedDescription },
-        ...(image ? { imageUrl: image.url, imageStoragePath: image.storagePath, imageFileName: image.fileName, imageFileType: image.fileType } : {}),
+        ...(uploadedImage ? { imageUrl: uploadedImage.url, imageStoragePath: uploadedImage.storagePath, imageFileName: uploadedImage.fileName, imageFileType: uploadedImage.fileType } : {}),
       });
+      landmarkSaved = true;
       try {
         await syncGeneratedInstitutionTour(instId);
       } catch (tourError) {
@@ -147,9 +194,19 @@ const MapSystem = () => {
       setLandmarkName("");
       setDescription("");
       setMarkerImage(null);
+      setMarkerFormError("");
     } catch (err) {
       console.error("Error saving marker:", err);
-      alert("Unable to save marker or upload its image. Check Firebase Storage permissions.");
+      if (uploadedImage && !landmarkSaved) {
+        try {
+          await deleteStorageFile(uploadedImage.storagePath);
+        } catch (cleanupError) {
+          console.error("Unable to clean up the uploaded landmark image after save failed:", cleanupError);
+        }
+      }
+      setMarkerFormError(
+        getFirebaseErrorMessage(err, "Unable to save the landmark. Check your connection and permissions."),
+      );
     } finally {
       setSavingMarker(false);
     }
@@ -169,7 +226,7 @@ const MapSystem = () => {
       }
     } catch (err) {
       console.error("Unable to delete landmark:", err);
-      alert("Unable to delete the landmark.");
+      alert(getFirebaseErrorMessage(err, "Unable to delete the landmark. Please try again."));
     }
   };
 
@@ -192,7 +249,7 @@ const MapSystem = () => {
       }
     } catch (err) {
       console.error("Error updating landmark name:", err);
-      alert("Unable to update the landmark name.");
+      alert(getFirebaseErrorMessage(err, "Unable to update the landmark name. Please try again."));
     }
   };
 
@@ -200,6 +257,7 @@ const MapSystem = () => {
     useMapEvents({
       click: (e) => {
         setTempCoords(e.latlng);
+        setMarkerFormError("");
         setIsModalOpen(true);
       },
     });
@@ -221,6 +279,11 @@ const MapSystem = () => {
         <h3 style={{ color: "#d4af37", margin: 0 }}>Cebu Pin Management</h3>
         <small style={{ color: "#855e2e" }}>Locked to Cebu Province</small>
       </div>
+      {Object.entries(mapLoadErrors).filter(([, error]) => error).map(([source, error]) => (
+        <div key={source} role="alert" style={{ color: "#fca5a5", padding: "0 1rem 1rem" }}>
+          {error}
+        </div>
+      ))}
 
       <MapContainer
         center={[10.3157, 123.8854]}
@@ -304,6 +367,10 @@ const MapSystem = () => {
                   </span>
                   {loadingExperiences[marker.institutionId] ? (
                     <div style={{ fontSize: "0.8rem" }}>Loading experiences...</div>
+                  ) : experienceErrors[marker.institutionId] ? (
+                    <div role="alert" style={{ fontSize: "0.8rem", color: "#b91c1c" }}>
+                      {experienceErrors[marker.institutionId]}
+                    </div>
                   ) : activeExperiences[marker.institutionId]?.length > 0 ? (
                     activeExperiences[marker.institutionId].map((experience) => (
                       <div
@@ -378,6 +445,11 @@ const MapSystem = () => {
             <h4 style={{ color: "#d4af37", marginTop: 0 }}>
               Create Landmark
             </h4>
+            {markerFormError && (
+              <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
+                {markerFormError}
+              </div>
+            )}
             <p
               style={{
                 fontSize: "0.85rem",
@@ -447,12 +519,18 @@ const MapSystem = () => {
                 accept="image/png,image/jpeg,image/webp"
                 onChange={(e) => {
                   const selected = e.target.files?.[0] || null;
+                  if (selected && !["image/png", "image/jpeg", "image/webp"].includes(selected.type)) {
+                    setMarkerFormError("Choose a PNG, JPG, or WEBP landmark picture.");
+                    e.target.value = "";
+                    return;
+                  }
                   if (selected && selected.size > 10 * 1024 * 1024) {
-                    alert("Marker pictures must be 10 MB or smaller.");
+                    setMarkerFormError("Landmark pictures must be 10 MB or smaller.");
                     e.target.value = "";
                     return;
                   }
                   setMarkerImage(selected);
+                  setMarkerFormError("");
                 }}
                 style={{ color: "#ccc", width: "100%" }}
               />
@@ -505,6 +583,7 @@ const MapSystem = () => {
                 setLandmarkName("");
                 setDescription("");
                 setMarkerImage(null);
+                setMarkerFormError("");
               }}
               style={{
                 marginTop: "1.5rem",
