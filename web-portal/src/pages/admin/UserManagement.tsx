@@ -13,6 +13,7 @@ import {
   addDoc,
   serverTimestamp,
   onSnapshot,
+  Timestamp,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
@@ -41,7 +42,16 @@ interface Institution {
   curator?: string;
   joined?: string;
   isActive?: boolean;
+  requiresPaidAccess?: boolean;
 }
+
+interface SiteAccessRecord {
+  status?: string;
+  expiresAt?: { toDate?: () => Date };
+}
+
+type EditableSiteAccessStatus = "paid" | "inactive";
+const SITE_ACCESS_DURATION_MS = 24 * 60 * 60 * 1000;
 
 const generateTemporaryPassword = () => {
   const characters =
@@ -93,6 +103,11 @@ const UserManagement: React.FC = () => {
   const [savingInstitution, setSavingInstitution] = useState(false);
   const [pageLoadError, setPageLoadError] = useState("");
   const [readinessLoadError, setReadinessLoadError] = useState("");
+  const [accessSiteId, setAccessSiteId] = useState("");
+  const [siteAccessByUser, setSiteAccessByUser] = useState<Record<string, SiteAccessRecord>>({});
+  const [siteAccessLoading, setSiteAccessLoading] = useState(false);
+  const [siteAccessSavingUserId, setSiteAccessSavingUserId] = useState("");
+  const [siteAccessError, setSiteAccessError] = useState("");
 
   /* =====================
      LOAD DATA
@@ -117,6 +132,7 @@ const UserManagement: React.FC = () => {
         curator: d.data().curator || "",
         joined: d.data().joined || "",
         isActive: d.data().isActive !== false,
+        requiresPaidAccess: d.data().requiresPaidAccess === true,
       })),
     );
   };
@@ -143,6 +159,47 @@ const UserManagement: React.FC = () => {
       },
     );
   }, []);
+
+  useEffect(() => {
+    if (!accessSiteId && institutions.length > 0) {
+      setAccessSiteId(institutions[0].id);
+    }
+  }, [accessSiteId, institutions]);
+
+  useEffect(() => {
+    if (!accessSiteId) {
+      setSiteAccessByUser({});
+      return undefined;
+    }
+
+    let active = true;
+    setSiteAccessLoading(true);
+    setSiteAccessError("");
+
+    getDocs(collection(db, "siteAccess", accessSiteId, "users"))
+      .then((snapshot) => {
+        if (!active) return;
+        setSiteAccessByUser(
+          Object.fromEntries(
+            snapshot.docs.map((accessDoc) => [accessDoc.id, accessDoc.data()]),
+          ),
+        );
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error("Unable to load site access statuses:", error);
+        setSiteAccessError(
+          getFirebaseErrorMessage(error, "Unable to load site access statuses."),
+        );
+      })
+      .finally(() => {
+        if (active) setSiteAccessLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [accessSiteId]);
 
   /* =====================
      ACTIONS
@@ -235,6 +292,7 @@ const UserManagement: React.FC = () => {
       location: form.location.value.trim(),
       curator: form.curator.value.trim(),
       joined: currentInst?.joined || new Date().toISOString().split("T")[0],
+      requiresPaidAccess: form.requiresPaidAccess.checked,
     };
 
     if (!data.name || !data.location || !data.curator) {
@@ -476,6 +534,64 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const handleSiteAccessStatusChange = async (
+    user: UserType,
+    status: EditableSiteAccessStatus,
+  ) => {
+    const site = institutions.find((institution) => institution.id === accessSiteId);
+    if (user.role !== "user" || !site?.requiresPaidAccess) return;
+
+    setSiteAccessSavingUserId(user.id);
+    setSiteAccessError("");
+    const expiresAt =
+      status === "paid"
+        ? Timestamp.fromDate(new Date(Date.now() + SITE_ACCESS_DURATION_MS))
+        : null;
+
+    try {
+      await setDoc(
+        doc(db, "siteAccess", site.id, "users", user.id),
+        {
+          userId: user.id,
+          institutionId: site.id,
+          status,
+          demo: true,
+          updatedAt: serverTimestamp(),
+          updatedBy: authUser?.uid,
+          ...(status === "paid"
+            ? { paidAt: serverTimestamp(), expiresAt }
+            : {}),
+        },
+        { merge: true },
+      );
+      setSiteAccessByUser((current) => ({
+        ...current,
+        [user.id]: {
+          ...current[user.id],
+          userId: user.id,
+          institutionId: site.id,
+          status,
+          ...(status === "paid" ? { expiresAt } : {}),
+        },
+      }));
+      await writeAuditLog({
+        actorId: authUser?.uid,
+        actorRole: currentRole,
+        action: `site-access.${status === "paid" ? "demo-pass-granted" : "pass-revoked"}`,
+        entityType: "site-access",
+        entityId: `${site.id}/${user.id}`,
+        metadata: { institutionId: site.id, status, expiresAt },
+      });
+    } catch (error) {
+      console.error("Unable to update user site access:", error);
+      setSiteAccessError(
+        getFirebaseErrorMessage(error, "Unable to update this user's site access."),
+      );
+    } finally {
+      setSiteAccessSavingUserId("");
+    }
+  };
+
   /* =====================
      FILTER
   ===================== */
@@ -531,6 +647,11 @@ const UserManagement: React.FC = () => {
 
       {activeTab === "users" ? (
         <>
+          {siteAccessError && (
+            <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
+              {siteAccessError}
+            </div>
+          )}
           <div className={tableStyles.controls}>
             <input
               type="text"
@@ -539,6 +660,22 @@ const UserManagement: React.FC = () => {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+            <select
+              className={commonStyles.formControl}
+              aria-label="Site for phone-user access status"
+              value={accessSiteId}
+              onChange={(event) => setAccessSiteId(event.target.value)}
+              style={{ maxWidth: "280px" }}
+            >
+              {institutions.length === 0 && (
+                <option value="">No sites available</option>
+              )}
+              {institutions.map((institution) => (
+                <option key={institution.id} value={institution.id}>
+                  {institution.name}
+                </option>
+              ))}
+            </select>
             <button className={tableStyles.btnAdd} onClick={handleAdd}>
               <i className="fa-solid fa-plus" style={{ marginRight: "0.5rem" }}></i>
               Add User
@@ -553,6 +690,7 @@ const UserManagement: React.FC = () => {
                 <th>Institution</th>
                 <th>Email</th>
                 <th>Status</th>
+                <th>Site Access</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -576,6 +714,48 @@ const UserManagement: React.FC = () => {
                       >
                         {user.status}
                       </span>
+                    </td>
+                    <td>
+                      {user.role !== "user" ? (
+                        "—"
+                      ) : !accessSiteId ? (
+                        "Select a site"
+                      ) : siteAccessLoading ? (
+                        "Loading..."
+                      ) : !institutions.find((institution) => institution.id === accessSiteId)
+                          ?.requiresPaidAccess ? (
+                        "Not required"
+                      ) : (
+                        <>
+                          <select
+                            className={commonStyles.formControl}
+                            aria-label={`Site access for ${user.name}`}
+                            value={
+                              siteAccessByUser[user.id]?.status === "paid" &&
+                              siteAccessByUser[user.id]?.expiresAt?.toDate?.() > new Date()
+                                ? "paid"
+                                : "inactive"
+                            }
+                            onChange={(event) =>
+                              handleSiteAccessStatusChange(
+                                user,
+                                event.target.value as EditableSiteAccessStatus,
+                              )
+                            }
+                            disabled={siteAccessSavingUserId === user.id}
+                          >
+                            <option value="inactive">Inactive</option>
+                            <option value="paid">Paid for 24 hours</option>
+                          </select>
+                          {siteAccessByUser[user.id]?.status === "paid" && (
+                            <small style={{ display: "block", marginTop: "0.35rem" }}>
+                              {siteAccessByUser[user.id]?.expiresAt?.toDate?.() > new Date()
+                                ? `Expires ${formatUserDate(siteAccessByUser[user.id]?.expiresAt)}`
+                                : `Expired ${formatUserDate(siteAccessByUser[user.id]?.expiresAt)}`}
+                            </small>
+                          )}
+                        </>
+                      )}
                     </td>
                     <td>
                       <button
@@ -607,7 +787,7 @@ const UserManagement: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "2rem" }}>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }}>
                     No users found
                   </td>
                 </tr>
@@ -807,6 +987,14 @@ const UserManagement: React.FC = () => {
                 <input name="curator" className={commonStyles.formControl} defaultValue={currentInst?.curator} required />
               </div>
 
+              <label style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <input
+                  type="checkbox"
+                  name="requiresPaidAccess"
+                  defaultChecked={currentInst?.requiresPaidAccess === true}
+                />
+                Require a paid pass in the phone app (demo)
+              </label>
             </form>
           </Modal>
         </>
