@@ -1,21 +1,42 @@
 import React, { useEffect, useState } from "react";
 import styles from "../components/common/Common.module.css";
 import { useAuth } from "../context/AuthContext";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { getFirebaseErrorMessage } from "../lib/firebaseErrorMessage";
 import {
   updatePassword,
   reauthenticateWithCredential,
   EmailAuthProvider,
 } from "firebase/auth";
 
-const Settings = () => {
+const legalDocuments = [
+  {
+    id: "termsAndConditions",
+    title: "Terms & Conditions",
+    fieldId: "terms-and-conditions-content",
+    path: "/terms-and-conditions",
+  },
+  {
+    id: "privacyPolicy",
+    title: "Privacy Policy",
+    fieldId: "privacy-policy-content",
+    path: "/privacy-policy",
+  },
+];
+
+const Settings = ({ adminMode = false }) => {
   const { currentUser } = useAuth();
   const [role, setRole] = useState("Loading...");
   const [displayName, setDisplayName] = useState("Loading...");
   const [newPassword, setNewPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState(""); // Needed for re-authentication
   const [message, setMessage] = useState({ type: "", text: "" });
+  const [policyLoading, setPolicyLoading] = useState(adminMode);
+  const [legalContent, setLegalContent] = useState({});
+  const [legalUpdatedAt, setLegalUpdatedAt] = useState({});
+  const [savingDocument, setSavingDocument] = useState("");
+  const [legalMessages, setLegalMessages] = useState({});
 
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
@@ -66,6 +87,89 @@ const Settings = () => {
     };
     fetchUserInfo();
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!adminMode) return;
+
+    const fetchLegalDocuments = async () => {
+      try {
+        const snapshots = await Promise.all(
+          legalDocuments.map(({ id }) =>
+            getDoc(doc(db, "siteSettings", id)),
+          ),
+        );
+        const content = {};
+        const updatedAt = {};
+        snapshots.forEach((snapshot, index) => {
+          if (!snapshot.exists()) return;
+          const documentId = legalDocuments[index].id;
+          const data = snapshot.data();
+          content[documentId] = data.content || "";
+          updatedAt[documentId] = data.updatedAt?.toDate?.() || null;
+        });
+        setLegalContent(content);
+        setLegalUpdatedAt(updatedAt);
+      } catch (err) {
+        console.error("Error fetching legal documents:", err);
+        setLegalMessages({
+          load: {
+            type: "error",
+            text: getFirebaseErrorMessage(err, "Could not load legal documents."),
+          },
+        });
+      } finally {
+        setPolicyLoading(false);
+      }
+    };
+
+    fetchLegalDocuments();
+  }, [adminMode]);
+
+  const handleSaveLegalDocument = async (e, documentId) => {
+    e.preventDefault();
+    const content = legalContent[documentId] || "";
+    const document = legalDocuments.find(({ id }) => id === documentId);
+    if (!content.trim()) {
+      setLegalMessages((current) => ({
+        ...current,
+        [documentId]: { type: "error", text: `${document.title} cannot be empty.` },
+      }));
+      return;
+    }
+
+    setSavingDocument(documentId);
+    setLegalMessages((current) => ({
+      ...current,
+      [documentId]: { type: "", text: "" },
+    }));
+    try {
+      await setDoc(
+        doc(db, "siteSettings", documentId),
+        {
+          content,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+        },
+        { merge: true },
+      );
+      setLegalUpdatedAt((current) => ({ ...current, [documentId]: new Date() }));
+      setLegalMessages((current) => ({
+        ...current,
+        [documentId]: { type: "success", text: `${document.title} saved.` },
+      }));
+    } catch (err) {
+      console.error(`Error saving ${document.title}:`, err);
+      setLegalMessages((current) => ({
+        ...current,
+        [documentId]: {
+          type: "error",
+          text: getFirebaseErrorMessage(err, `Could not save ${document.title}.`),
+        },
+      }));
+    } finally {
+      setSavingDocument("");
+    }
+  };
 
   const formattedRole =
     role.toLowerCase() === "superadmin"
@@ -208,6 +312,79 @@ const Settings = () => {
         </div>
       </div>
 
+      {adminMode && (
+        <>
+          {legalDocuments.map((document) => {
+            const message = legalMessages[document.id] || legalMessages.load;
+            const updatedAt = legalUpdatedAt[document.id];
+            const isSaving = savingDocument === document.id;
+
+            return (
+              <section
+                key={document.id}
+                className={styles.settingsCard}
+                style={{ alignItems: "stretch", flexDirection: "column", gap: "1rem" }}
+              >
+                <div>
+                  <h2>{document.title}</h2>
+                  <p>
+                    Public page:{" "}
+                    <a href={document.path} target="_blank" rel="noreferrer">
+                      {document.path}
+                    </a>
+                  </p>
+                  <p>
+                    Last updated:{" "}
+                    {updatedAt ? updatedAt.toLocaleString() : "Not published"}
+                  </p>
+                </div>
+                <form onSubmit={(e) => handleSaveLegalDocument(e, document.id)}>
+                  <div className={styles.formGroup}>
+                    <label htmlFor={document.fieldId}>{document.title} text</label>
+                    <textarea
+                      id={document.fieldId}
+                      className={styles.formControl}
+                      value={legalContent[document.id] || ""}
+                      onChange={(e) =>
+                        setLegalContent((current) => ({
+                          ...current,
+                          [document.id]: e.target.value,
+                        }))
+                      }
+                      rows={14}
+                      disabled={policyLoading || isSaving}
+                      required
+                    />
+                  </div>
+                  {message?.text && (
+                    <p
+                      role="status"
+                      style={{
+                        color: message.type === "success" ? "#4ade80" : "#f87171",
+                        marginTop: "0.75rem",
+                      }}
+                    >
+                      {message.text}
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    className={styles.btnPrimary}
+                    style={{ display: "block", marginLeft: "auto", marginTop: "1rem" }}
+                    disabled={policyLoading || Boolean(savingDocument)}
+                  >
+                    {policyLoading
+                      ? "Loading..."
+                      : isSaving
+                        ? "Saving..."
+                        : `Save ${document.title}`}
+                  </button>
+                </form>
+              </section>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 };

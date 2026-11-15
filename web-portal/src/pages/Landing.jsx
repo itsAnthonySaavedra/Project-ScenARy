@@ -76,6 +76,8 @@ const Landing = () => {
           </div>
           <div className={styles.footerLinks}>
             <Link to="/collab">Collab</Link>
+            <Link to="/terms-and-conditions">Terms & Conditions</Link>
+            <Link to="/privacy-policy">Privacy Policy</Link>
             <a href="#">Create for Institution</a>
             <Link to="/login?type=admin">Admin</Link>
           </div>

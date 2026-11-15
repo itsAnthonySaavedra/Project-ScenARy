@@ -12,6 +12,7 @@ import Layout from "./components/layout/Layout";
 import Landing from "./pages/Landing";
 import CollabPage from "./pages/CollabPage";
 import PublicFloorPlan from "./pages/PublicFloorPlan";
+import PrivacyPolicy, { TermsAndConditions } from "./pages/PrivacyPolicy";
 
 /* Auth */
 import Login from "./pages/auth/Login";
@@ -73,6 +74,8 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/change-password" element={<PasswordChange />} />
       <Route path="/collab" element={<CollabPage />} />
+      <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
+      <Route path="/privacy-policy" element={<PrivacyPolicy />} />
       <Route path="/institution-map/:institutionId" element={<PublicFloorPlan />} />
 
       {/* Admin Routes */}
@@ -94,7 +97,7 @@ function AppRoutes() {
         <Route path="tours" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="activity-logs" element={<ActivityLogs />} />
         <Route path="analytics" element={<AdminAnalytics />} />
-        <Route path="settings" element={<Settings />} />
+        <Route path="settings" element={<Settings adminMode />} />
       </Route>
 
       {/* Institute Routes */}

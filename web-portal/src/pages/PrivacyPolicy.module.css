@@ -1,0 +1,47 @@
+.page {
+  min-height: 100vh;
+  padding: 1.5rem;
+  color: var(--color-text-light);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.header a {
+  color: var(--color-text-muted);
+}
+
+.header .brand {
+  color: var(--color-accent-gold);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.content {
+  max-width: 900px;
+  margin: 3rem auto;
+}
+
+.content h1 {
+  margin-bottom: 1.5rem;
+}
+
+.updated {
+  margin-bottom: 1.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.policy {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
