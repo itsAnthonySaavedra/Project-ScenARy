@@ -87,7 +87,7 @@ function AppRoutes() {
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="map" element={<MapSystem />} />
         <Route path="floor-plan" element={<FloorPlan adminMode />} />
-        <Route path="pois" element={<Navigate to="/admin/floor-plan" replace />} />
+        <Route path="pois" element={<POIManagement adminMode />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="content" element={<ContentManagement />} />
         <Route path="tours" element={<Navigate to="/admin/dashboard" replace />} />

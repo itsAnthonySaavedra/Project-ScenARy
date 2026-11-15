@@ -109,6 +109,11 @@
   color: #000;
 }
 
+.active {
+  background-color: #c19a4b;
+  color: #000;
+}
+
 .btnGold {
   background: #fff;
   border: none;

@@ -53,6 +53,8 @@ const InstituteAnalytics = () => {
   });
   const [userAnalytics, setUserAnalytics] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [feedbackSearchTerm, setFeedbackSearchTerm] = useState("");
   const [feedback, setFeedback] = useState([]);
   const [feedbackPeriod, setFeedbackPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
@@ -126,6 +128,16 @@ const InstituteAnalytics = () => {
     const date = typeof item.createdAt?.toDate === "function" ? item.createdAt.toDate() : new Date(item.createdAt);
     return !Number.isNaN(date.getTime()) && date >= periodStart;
   });
+  const userQuery = userSearchTerm.trim().toLowerCase();
+  const feedbackQuery = feedbackSearchTerm.trim().toLowerCase();
+  const filteredUsers = userAnalytics.filter((item) =>
+    [item.username, item.email, item.userId]
+      .some((value) => String(value || "").toLowerCase().includes(userQuery)),
+  );
+  const filteredFeedback = feedbackForPeriod.filter((item) =>
+    [item.username, item.email, item.comment, item.rating]
+      .some((value) => String(value ?? "").toLowerCase().includes(feedbackQuery)),
+  );
   const ratingStats = getRatingStats(feedbackForPeriod);
   const selectedUser = userAnalytics.find((item) => item.id === selectedUserId);
   const selectedUserMetrics = selectedUser ? getUserAnalyticsMetrics(selectedUser) : null;
@@ -295,9 +307,31 @@ const InstituteAnalytics = () => {
       <div className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`} style={{ marginTop: "2rem" }}><h3>Feedback activity</h3>{feedbackForPeriod.length === 0 ? <p style={{ color: "#888" }}>No feedback in this period.</p> : <div className={dashboardStyles.chartContainer}><Bar data={feedbackTrendData} options={{ ...options, maintainAspectRatio: false, scales: { ...options.scales, x: { ...options.scales.x, ticks: { ...options.scales.x.ticks, maxTicksLimit: 10 } } } }} /></div>}</div>
       <div className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`} style={{ marginTop: "2rem" }}><h3>Rating Distribution</h3>{ratingStats.reviewCount === 0 ? <p style={{ color: "#888" }}>No star ratings in this period.</p> : ratingStats.distribution.map((item) => <div key={item.rating} style={{ display: "grid", gridTemplateColumns: "70px 1fr 50px", gap: "0.75rem", alignItems: "center", margin: "0.5rem 0" }}><span>{item.rating} star{item.rating === 1 ? "" : "s"}</span><div style={{ height: "8px", background: "#333" }}><div style={{ width: `${(item.count / ratingStats.reviewCount) * 100}%`, height: "100%", background: "#d4af37" }} /></div><span style={{ color: "#aaa" }}>{item.count}</span></div>)}</div>
       <div className={dashboardStyles.chartsGrid} style={{ marginTop: "2rem" }}>
-        <div className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`}><h3>Users</h3>{userAnalytics.length === 0 ? <p style={{ color: "#888" }}>No cached user analytics yet.</p> : <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>User</th><th>Interactions</th><th>AR clicks</th><th>VR clicks</th><th>Quiz clicks</th><th>Quiz attempts</th><th>Sessions</th><th>Session time</th><th>Last active</th></tr></thead><tbody>{userAnalytics.slice().sort((left, right) => left.username.localeCompare(right.username)).map((item) => { const metrics = getUserAnalyticsMetrics(item); return <tr key={item.id}><td><button type="button" onClick={() => setSelectedUserId(item.id)} style={{ border: 0, padding: 0, background: "none", color: "#d4af37", cursor: "pointer", textDecoration: "underline" }}>{item.username}</button></td><td>{findNumericValue(item, ["interactionCount"]) || 0}</td><td>{metrics.arClicks}</td><td>{metrics.vrClicks}</td><td>{metrics.quizClicks}</td><td>{metrics.quizAttempts}</td><td>{metrics.sessionCount}</td><td>{formatDuration(metrics.totalSessionDurationSeconds)}</td><td>{formatAnalyticsDate(metrics.lastActiveAt)}</td></tr>; })}</tbody></table></div>}</div>
+        <div className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`}>
+          <h3>Users</h3>
+          <input
+            type="search"
+            aria-label="Search users"
+            placeholder="Search users by name or email"
+            value={userSearchTerm}
+            onChange={(event) => setUserSearchTerm(event.target.value)}
+            style={{ width: "min(100%, 360px)", padding: "0.65rem", marginBottom: "1rem", background: "#111", color: "#fff", border: "1px solid #444", borderRadius: "4px" }}
+          />
+          {userAnalytics.length === 0 ? <p style={{ color: "#888" }}>No cached user analytics yet.</p> : filteredUsers.length === 0 ? <p style={{ color: "#888" }}>No users match that search.</p> : <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>User</th><th>Interactions</th><th>AR clicks</th><th>VR clicks</th><th>Quiz clicks</th><th>Quiz attempts</th><th>Sessions</th><th>Session time</th><th>Last active</th></tr></thead><tbody>{filteredUsers.slice().sort((left, right) => left.username.localeCompare(right.username)).map((item) => { const metrics = getUserAnalyticsMetrics(item); return <tr key={item.id}><td><button type="button" onClick={() => setSelectedUserId(item.id)} style={{ border: 0, padding: 0, background: "none", color: "#d4af37", cursor: "pointer", textDecoration: "underline" }}>{item.username}</button></td><td>{findNumericValue(item, ["interactionCount"]) || 0}</td><td>{metrics.arClicks}</td><td>{metrics.vrClicks}</td><td>{metrics.quizClicks}</td><td>{metrics.quizAttempts}</td><td>{metrics.sessionCount}</td><td>{formatDuration(metrics.totalSessionDurationSeconds)}</td><td>{formatAnalyticsDate(metrics.lastActiveAt)}</td></tr>; })}</tbody></table></div>}
+        </div>
         {selectedUser && <div className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`}><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}><h3>{selectedUser.username}</h3><button type="button" onClick={() => setSelectedUserId("")} style={{ border: "1px solid #777", color: "#ddd", background: "transparent", padding: "0.45rem 0.75rem", cursor: "pointer" }}>Back to users</button></div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>Interactions</th><th>AR clicks</th><th>VR clicks</th><th>Quiz clicks</th><th>Comments</th><th>Rating average</th><th>Quiz average</th><th>Quiz attempts</th><th>Sessions</th><th>Clicks / session</th><th>Avg. session</th><th>Last click</th><th>Last session</th><th>Last session duration</th><th>Last quiz</th></tr></thead><tbody><tr><td>{findNumericValue(selectedUser, ["interactionCount"]) || 0}</td><td>{selectedUserMetrics.arClicks}</td><td>{selectedUserMetrics.vrClicks}</td><td>{selectedUserMetrics.quizClicks}</td><td>{selectedUserMetrics.commentCount}</td><td>{selectedUserMetrics.ratingAverage === null ? "-" : `${selectedUserMetrics.ratingAverage.toFixed(1)} / 5`}</td><td>{selectedUserMetrics.quizAverage === null ? "-" : `${selectedUserMetrics.quizAverage.toFixed(1)}%`}</td><td>{selectedUserMetrics.quizAttempts}</td><td>{selectedUserMetrics.sessionCount}</td><td>{selectedUserMetrics.clicksPerSession === null ? "-" : selectedUserMetrics.clicksPerSession.toFixed(1)}</td><td>{formatDuration(selectedUserMetrics.averageSessionDurationSeconds)}</td><td>{formatAnalyticsDate(selectedUserMetrics.lastClickAt)}</td><td>{formatAnalyticsDate(selectedUserMetrics.lastSessionAt)}</td><td>{formatDuration(selectedUserMetrics.lastSessionDurationSeconds)}</td><td>{formatAnalyticsDate(selectedUserMetrics.lastQuizAt)}</td></tr></tbody></table></div>{selectedUserFeedback.map((item) => <p key={item.id} style={{ color: "#ccc" }}>{item.rating ? `${item.rating}/5 · ` : ""}{cleanFeedbackComment(item.comment) || "Rated without a comment"}</p>)}</div>}
-        <div className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`}><h3>Recent Feedback ({feedbackForPeriod.filter((item) => item.comment?.trim()).length} comments)</h3>{feedbackForPeriod.length === 0 ? <p style={{ color: "#888" }}>No feedback in this period.</p> : <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>User</th><th>Rating</th><th>Date</th><th>Comment</th></tr></thead><tbody>{feedbackForPeriod.slice(0, 10).map((item) => <tr key={item.id}><td>{item.username}</td><td>{item.rating ? `${item.rating}/5` : "Unrated"}</td><td>{formatAnalyticsDate(item.createdAt)}</td><td>{item.comment ? cleanFeedbackComment(item.comment) : "—"}</td></tr>)}</tbody></table></div>}</div>
+        <div className={`${dashboardStyles.chartCard} ${dashboardStyles.fullWidth}`}>
+          <h3>Recent Feedback ({feedbackForPeriod.filter((item) => item.comment?.trim()).length} comments)</h3>
+          <input
+            type="search"
+            aria-label="Search feedback"
+            placeholder="Search feedback by user, comment, or rating"
+            value={feedbackSearchTerm}
+            onChange={(event) => setFeedbackSearchTerm(event.target.value)}
+            style={{ width: "min(100%, 360px)", padding: "0.65rem", marginBottom: "1rem", background: "#111", color: "#fff", border: "1px solid #444", borderRadius: "4px" }}
+          />
+          {feedbackForPeriod.length === 0 ? <p style={{ color: "#888" }}>No feedback in this period.</p> : filteredFeedback.length === 0 ? <p style={{ color: "#888" }}>No feedback matches that search.</p> : <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>User</th><th>Rating</th><th>Date</th><th>Comment</th></tr></thead><tbody>{filteredFeedback.map((item) => <tr key={item.id}><td>{item.username}</td><td>{item.rating ? `${item.rating}/5` : "Unrated"}</td><td>{formatAnalyticsDate(item.createdAt)}</td><td>{item.comment ? cleanFeedbackComment(item.comment) : "—"}</td></tr>)}</tbody></table></div>}
+        </div>
       </div>
     </div>
   );

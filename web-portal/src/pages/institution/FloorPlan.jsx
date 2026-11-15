@@ -352,7 +352,8 @@ const FloorPlan = ({ adminMode = false }) => {
               id="admin-floor-plan-institution"
               value={institutionId || ""}
               onChange={handleInstitutionChange}
-              style={{ display: "block", marginTop: 6, minWidth: 280, padding: 8 }}
+              className={commonStyles.formControl}
+              style={{ display: "block", marginTop: 6, width: "auto", minWidth: 280, padding: 8, colorScheme: "dark" }}
             >
               <option value="">Select an institution</option>
               {institutions.map((institution) => (
@@ -551,7 +552,7 @@ const FloorPlan = ({ adminMode = false }) => {
           </div>
           {floorPlan ? floorPlan.fileType === "application/pdf" ? <iframe title="Uploaded floor plan" src={floorPlan.url} style={{ width: "100%", height: 600, border: "1px solid #444", background: "#fff" }} /> : <>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-              <select value={selectedPoiId} onChange={(event) => setSelectedPoiId(event.target.value)} style={{ minWidth: 220, padding: 8 }}>
+              <select className={commonStyles.formControl} value={selectedPoiId} onChange={(event) => setSelectedPoiId(event.target.value)} style={{ width: "auto", minWidth: 220, padding: 8, colorScheme: "dark" }}>
                 <option value="">Select a POI to place or move</option>
                 {pois.map((poi) => <option key={poi.id} value={poi.id}>{poi.name}</option>)}
               </select>

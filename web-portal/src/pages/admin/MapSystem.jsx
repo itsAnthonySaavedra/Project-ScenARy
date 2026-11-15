@@ -25,17 +25,18 @@ import { isInstitutionActive } from "../../lib/institutionStatus";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
-// Standard Icon Fix
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
-let DefaultIcon = L.icon({
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
+const mapPinIcon = L.divIcon({
+  className: "",
+  html: `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="52" viewBox="0 0 44 52" style="filter: drop-shadow(0 3px 4px rgba(0,0,0,.45))">
+    <path d="M22 2C10.95 2 2 10.72 2 21.48 2 35.1 22 50 22 50s20-14.9 20-28.52C42 10.72 33.05 2 22 2Z" fill="#f4c542" stroke="#755300" stroke-width="2"/>
+    <circle cx="22" cy="21" r="11" fill="#fffaf0"/>
+    <path d="M14.5 25.5V18l7.5-4 7.5 4v7.5h-5v-5h-5v5h-5Z" fill="#755300" stroke="#755300" stroke-linejoin="round"/>
+    <path d="M20 17.5h4" stroke="#fffaf0" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>`,
+  iconSize: [44, 52],
+  iconAnchor: [22, 50],
+  popupAnchor: [0, -46],
 });
-L.Marker.prototype.options.icon = DefaultIcon;
 
 const cebuBounds = [
   [9.3826, 123.2324],
@@ -210,6 +211,7 @@ const MapSystem = () => {
           <Marker
             key={marker.id}
             position={[marker.lat, marker.lng]}
+            icon={mapPinIcon}
             eventHandlers={{
               click: () => handleMarkerClick(marker.institutionId),
             }} // NEW EVENT HANDLER

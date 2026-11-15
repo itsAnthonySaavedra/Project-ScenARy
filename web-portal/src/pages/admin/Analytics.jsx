@@ -23,6 +23,8 @@ const AdminAnalytics = () => {
     const [institutions, setInstitutions] = useState([]);
     const [selectedInstitutionId, setSelectedInstitutionId] = useState("all");
     const [selectedUserId, setSelectedUserId] = useState("");
+    const [userSearchTerm, setUserSearchTerm] = useState("");
+    const [feedbackSearchTerm, setFeedbackSearchTerm] = useState("");
     const [error, setError] = useState("");
     const [deletingFeedbackId, setDeletingFeedbackId] = useState("");
 
@@ -43,6 +45,16 @@ const AdminAnalytics = () => {
     const institutionNames = Object.fromEntries(institutions.map((item) => [item.id, item.name]));
     const selectedRows = selectedInstitutionId === "all" ? rows : rows.filter((item) => item.institutionId === selectedInstitutionId);
     const selectedFeedback = selectedInstitutionId === "all" ? feedback : feedback.filter((item) => item.institutionId === selectedInstitutionId);
+    const userQuery = userSearchTerm.trim().toLowerCase();
+    const feedbackQuery = feedbackSearchTerm.trim().toLowerCase();
+    const filteredRows = selectedRows.filter((item) =>
+        [item.username, item.email, item.userId, institutionNames[item.institutionId]]
+            .some((value) => String(value || "").toLowerCase().includes(userQuery)),
+    );
+    const filteredFeedback = selectedFeedback.filter((item) =>
+        [item.username, item.email, item.comment, item.rating, institutionNames[item.institutionId]]
+            .some((value) => String(value ?? "").toLowerCase().includes(feedbackQuery)),
+    );
     const totalInteractions = selectedRows.reduce((total, item) => total + findNumericValue(item, ["interactionCount"]), 0);
     const selectedMetrics = selectedRows.map((item) => getUserAnalyticsMetrics(item));
     const metricTotals = selectedMetrics.reduce((totals, metrics) => ({
@@ -120,9 +132,31 @@ const AdminAnalytics = () => {
                 <section className="chart-card"><h3>Sessions</h3><div style={{ display: "grid", gap: "0.65rem" }}><div style={{ display: "flex", justifyContent: "space-between", color: "#ddd" }}><span>Sessions</span><strong>{metricTotals.sessions}</strong></div><div style={{ display: "flex", justifyContent: "space-between", color: "#ddd" }}><span>Total time</span><strong>{formatDuration(metricTotals.sessionSeconds)}</strong></div></div></section>
             </div>
             <div className="chart-card full-width"><h3>Rating Distribution</h3>{ratingStats.reviewCount === 0 ? <p style={{ color: "#888" }}>No star ratings have been submitted yet.</p> : ratingStats.distribution.map((item) => <div key={item.rating} style={{ display: "grid", gridTemplateColumns: "70px 1fr 50px", gap: "0.75rem", alignItems: "center", margin: "0.5rem 0" }}><span>{item.rating} star{item.rating === 1 ? "" : "s"}</span><div style={{ height: "8px", background: "#333" }}><div style={{ width: `${(item.count / ratingStats.reviewCount) * 100}%`, height: "100%", background: "#d4af37" }} /></div><span style={{ color: "#aaa" }}>{item.count}</span></div>)}</div>
-            <div className="chart-card full-width"><h3>Users</h3>{selectedRows.length === 0 ? <p style={{ color: "#888" }}>No cached user analytics for this selection.</p> : <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>User</th><th>Institution</th><th>Interactions</th><th>AR clicks</th><th>VR clicks</th><th>Quiz clicks</th><th>Quiz attempts</th><th>Sessions</th><th>Last active</th></tr></thead><tbody>{selectedRows.slice().sort((left, right) => left.username.localeCompare(right.username)).map((item) => { const metrics = getUserAnalyticsMetrics(item); return <tr key={item.id}><td><button type="button" onClick={() => setSelectedUserId(item.id)} style={{ border: 0, padding: 0, background: "none", color: "#d4af37", cursor: "pointer", textDecoration: "underline" }}>{item.username}</button></td><td>{institutionNames[item.institutionId] || "—"}</td><td>{findNumericValue(item, ["interactionCount"])}</td><td>{metrics.arClicks}</td><td>{metrics.vrClicks}</td><td>{metrics.quizClicks}</td><td>{metrics.quizAttempts}</td><td>{metrics.sessionCount}</td><td>{formatAnalyticsDate(metrics.lastActiveAt)}</td></tr>; })}</tbody></table></div>}</div>
+            <div className="chart-card full-width">
+                <h3>Users</h3>
+                <input
+                    type="search"
+                    aria-label="Search users"
+                    placeholder="Search users by name, email, or institution"
+                    value={userSearchTerm}
+                    onChange={(event) => setUserSearchTerm(event.target.value)}
+                    style={{ width: "min(100%, 360px)", padding: "0.65rem", marginBottom: "1rem", background: "#111", color: "#fff", border: "1px solid #444", borderRadius: "4px" }}
+                />
+                {selectedRows.length === 0 ? <p style={{ color: "#888" }}>No cached user analytics for this selection.</p> : filteredRows.length === 0 ? <p style={{ color: "#888" }}>No users match that search.</p> : <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>User</th><th>Institution</th><th>Interactions</th><th>AR clicks</th><th>VR clicks</th><th>Quiz clicks</th><th>Quiz attempts</th><th>Sessions</th><th>Last active</th></tr></thead><tbody>{filteredRows.slice().sort((left, right) => left.username.localeCompare(right.username)).map((item) => { const metrics = getUserAnalyticsMetrics(item); return <tr key={item.id}><td><button type="button" onClick={() => setSelectedUserId(item.id)} style={{ border: 0, padding: 0, background: "none", color: "#d4af37", cursor: "pointer", textDecoration: "underline" }}>{item.username}</button></td><td>{institutionNames[item.institutionId] || "—"}</td><td>{findNumericValue(item, ["interactionCount"])}</td><td>{metrics.arClicks}</td><td>{metrics.vrClicks}</td><td>{metrics.quizClicks}</td><td>{metrics.quizAttempts}</td><td>{metrics.sessionCount}</td><td>{formatAnalyticsDate(metrics.lastActiveAt)}</td></tr>; })}</tbody></table></div>}
+            </div>
             {selectedUser && <div className="chart-card full-width"><div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}><h3>{selectedUser.username}</h3><button type="button" onClick={() => setSelectedUserId("")} style={{ border: "1px solid #777", color: "#ddd", background: "transparent", padding: "0.45rem 0.75rem", cursor: "pointer" }}>Back to users</button></div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>Interactions</th><th>AR clicks</th><th>VR clicks</th><th>Quiz clicks</th><th>Comments</th><th>Rating average</th><th>Quiz average</th><th>Quiz attempts</th><th>Sessions</th><th>Clicks / session</th><th>Avg. session</th><th>Last click</th><th>Last session</th><th>Last session duration</th><th>Last quiz</th></tr></thead><tbody><tr><td>{findNumericValue(selectedUser, ["interactionCount"])}</td><td>{selectedUserMetrics.arClicks}</td><td>{selectedUserMetrics.vrClicks}</td><td>{selectedUserMetrics.quizClicks}</td><td>{selectedUserMetrics.commentCount}</td><td>{selectedUserMetrics.ratingAverage === null ? "-" : `${selectedUserMetrics.ratingAverage.toFixed(1)} / 5`}</td><td>{selectedUserMetrics.quizAverage === null ? "-" : `${selectedUserMetrics.quizAverage.toFixed(1)}%`}</td><td>{selectedUserMetrics.quizAttempts}</td><td>{selectedUserMetrics.sessionCount}</td><td>{selectedUserMetrics.clicksPerSession === null ? "-" : selectedUserMetrics.clicksPerSession.toFixed(1)}</td><td>{formatDuration(selectedUserMetrics.averageSessionDurationSeconds)}</td><td>{formatAnalyticsDate(selectedUserMetrics.lastClickAt)}</td><td>{formatAnalyticsDate(selectedUserMetrics.lastSessionAt)}</td><td>{formatDuration(selectedUserMetrics.lastSessionDurationSeconds)}</td><td>{formatAnalyticsDate(selectedUserMetrics.lastQuizAt)}</td></tr></tbody></table></div>{selectedUserFeedback.map((item) => <p key={item.id} style={{ color: "#ccc" }}>{item.rating ? `${item.rating}/5 · ` : ""}{cleanFeedbackComment(item.comment) || "Rated without a comment"}</p>)}</div>}
-            <div className="chart-card full-width"><h3>Recent Feedback</h3>{selectedFeedback.length === 0 ? <p style={{ color: "#888" }}>No feedback has been submitted for this selection.</p> : <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>User</th><th>Rating</th><th>Institution</th><th>Date</th><th>Comment</th><th>Actions</th></tr></thead><tbody>{selectedFeedback.slice(0, 20).map((item) => <tr key={item.id}><td>{item.username}</td><td>{item.rating ? `${item.rating}/5` : "Unrated"}</td><td>{institutionNames[item.institutionId] || "Platform"}</td><td>{formatAnalyticsDate(item.createdAt)}</td><td>{item.comment ? cleanFeedbackComment(item.comment) : "—"}</td><td><button type="button" onClick={() => handleRemoveFeedback(item.id)} disabled={deletingFeedbackId === item.id} title="Remove feedback" style={{ border: "1px solid #ef4444", color: "#ef4444", background: "transparent", padding: "0.4rem 0.6rem", cursor: "pointer" }}>{deletingFeedbackId === item.id ? "Removing..." : "Remove"}</button></td></tr>)}</tbody></table></div>}</div>
+            <div className="chart-card full-width">
+                <h3>Recent Feedback</h3>
+                <input
+                    type="search"
+                    aria-label="Search feedback"
+                    placeholder="Search feedback by user, comment, or rating"
+                    value={feedbackSearchTerm}
+                    onChange={(event) => setFeedbackSearchTerm(event.target.value)}
+                    style={{ width: "min(100%, 360px)", padding: "0.65rem", marginBottom: "1rem", background: "#111", color: "#fff", border: "1px solid #444", borderRadius: "4px" }}
+                />
+                {selectedFeedback.length === 0 ? <p style={{ color: "#888" }}>No feedback has been submitted for this selection.</p> : filteredFeedback.length === 0 ? <p style={{ color: "#888" }}>No feedback matches that search.</p> : <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr><th>User</th><th>Rating</th><th>Institution</th><th>Date</th><th>Comment</th><th>Actions</th></tr></thead><tbody>{filteredFeedback.map((item) => <tr key={item.id}><td>{item.username}</td><td>{item.rating ? `${item.rating}/5` : "Unrated"}</td><td>{institutionNames[item.institutionId] || "Platform"}</td><td>{formatAnalyticsDate(item.createdAt)}</td><td>{item.comment ? cleanFeedbackComment(item.comment) : "—"}</td><td><button type="button" onClick={() => handleRemoveFeedback(item.id)} disabled={deletingFeedbackId === item.id} title="Remove feedback" style={{ border: "1px solid #ef4444", color: "#ef4444", background: "transparent", padding: "0.4rem 0.6rem", cursor: "pointer" }}>{deletingFeedbackId === item.id ? "Removing..." : "Remove"}</button></td></tr>)}</tbody></table></div>}
+            </div>
         </div>
     );
 };

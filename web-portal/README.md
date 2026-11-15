@@ -1,5 +1,19 @@
 # Web Portal
 
+## AR plaque images for POIs
+
+POIs can optionally store an AR image target and its measured real-world width:
+
+- `markerImageUrl` (string): Firebase Storage download URL for a tightly cropped, straight-on plaque photo.
+- `markerWidthMeters` (number): plaque width in metres, such as `0.30` for 30 cm.
+- `markerStoragePath` (string): Storage object path used by the portal when replacing or removing the image.
+
+Admins can manage them from **POI Management**; institutions can use **POIs**. Uploading a plaque image and entering its width saves both fields to the POI document. Plaque images are stored under `markers/{institutionId}/`. The separate POI location image remains unchanged.
+
+To seed a test POI manually, upload its photo under `markers/{institutionId}/` in Firebase Storage, copy its download URL, then add `markerImageUrl` and a numeric `markerWidthMeters` to that POI document in Firestore. The repository's `storage.rules` allows authorized uploads and public reads at that path; make sure those rules are deployed to the Firebase project. Also confirm the deployed Firestore rules allow the POI fields to be written.
+
+The Unity project in this repository does not yet contain the mobile app’s Firestore scan flow or runtime image-tracking scripts; adding these portal fields alone does not enable AR tracking.
+
 ## User analytics data contract
 
 The analytics screens read two Firestore collections. They are intentionally read-only until the phone app or a trusted backend begins writing data:

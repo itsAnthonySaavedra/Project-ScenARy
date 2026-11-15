@@ -397,34 +397,18 @@ const UserManagement: React.FC = () => {
   ===================== */
   return (
     <div className={tableStyles.tableContainer}>
-      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem", borderBottom: "1px solid #333", paddingBottom: "0.75rem" }}>
+      <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
         <button
           type="button"
           onClick={() => setActiveTab("users")}
-          style={{
-            padding: "0.7rem 1rem",
-            borderRadius: "6px",
-            border: activeTab === "users" ? "1px solid #d4af37" : "1px solid #444",
-            background: activeTab === "users" ? "rgba(212, 175, 55, 0.12)" : "transparent",
-            color: activeTab === "users" ? "#f5d77a" : "#ddd",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
+          className={`${tableStyles.tabBtn} ${activeTab === "users" ? tableStyles.active : ""}`}
         >
           Users
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("institutions")}
-          style={{
-            padding: "0.7rem 1rem",
-            borderRadius: "6px",
-            border: activeTab === "institutions" ? "1px solid #d4af37" : "1px solid #444",
-            background: activeTab === "institutions" ? "rgba(212, 175, 55, 0.12)" : "transparent",
-            color: activeTab === "institutions" ? "#f5d77a" : "#ddd",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
+          className={`${tableStyles.tabBtn} ${activeTab === "institutions" ? tableStyles.active : ""}`}
         >
           Institutions
         </button>

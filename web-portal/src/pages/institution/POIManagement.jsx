@@ -16,15 +16,19 @@ const POIManagement = ({ adminMode = false }) => {
   const [availableContent, setAvailableContent] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
   const [selectedPoiId, setSelectedPoiId] = useState(null);
-  const [form, setForm] = useState({ institutionId: "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "" });
+  const [form, setForm] = useState({ institutionId: "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "", markerImageUrl: "", markerStoragePath: "", markerFileName: "", markerWidthMeters: "" });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [removeImage, setRemoveImage] = useState(false);
+  const [markerImageFile, setMarkerImageFile] = useState(null);
+  const [markerImagePreviewUrl, setMarkerImagePreviewUrl] = useState("");
+  const [removeMarkerImage, setRemoveMarkerImage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const qrCanvasRef = useRef(null);
   const imageInputRef = useRef(null);
+  const markerImageInputRef = useRef(null);
   useEffect(() => {
     if (!imageFile) {
       setImagePreviewUrl("");
@@ -34,6 +38,15 @@ const POIManagement = ({ adminMode = false }) => {
     setImagePreviewUrl(previewUrl);
     return () => URL.revokeObjectURL(previewUrl);
   }, [imageFile]);
+  useEffect(() => {
+    if (!markerImageFile) {
+      setMarkerImagePreviewUrl("");
+      return undefined;
+    }
+    const previewUrl = URL.createObjectURL(markerImageFile);
+    setMarkerImagePreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [markerImageFile]);
 
   const loadData = useCallback(async (id) => {
     if (!id) {
@@ -79,10 +92,13 @@ const POIManagement = ({ adminMode = false }) => {
   const resetForm = () => {
     setSelectedPoiId(null);
     setSelectedContentIds([]);
-    setForm({ institutionId: adminMode ? institutionId || "" : "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "" });
+    setForm({ institutionId: adminMode ? institutionId || "" : "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "", markerImageUrl: "", markerStoragePath: "", markerFileName: "", markerWidthMeters: "" });
     setImageFile(null);
     setRemoveImage(false);
     if (imageInputRef.current) imageInputRef.current.value = "";
+    setMarkerImageFile(null);
+    setRemoveMarkerImage(false);
+    if (markerImageInputRef.current) markerImageInputRef.current.value = "";
     setFormError("");
   };
 
@@ -90,10 +106,13 @@ const POIManagement = ({ adminMode = false }) => {
     setInstitutionId(id);
     setSelectedPoiId(null);
     setSelectedContentIds([]);
-    setForm({ institutionId: id, landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "" });
+    setForm({ institutionId: id, landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "", markerImageUrl: "", markerStoragePath: "", markerFileName: "", markerWidthMeters: "" });
     setImageFile(null);
     setRemoveImage(false);
     if (imageInputRef.current) imageInputRef.current.value = "";
+    setMarkerImageFile(null);
+    setRemoveMarkerImage(false);
+    if (markerImageInputRef.current) markerImageInputRef.current.value = "";
     setFormError("");
     setLandmarks([]);
     setPois([]);
@@ -160,10 +179,17 @@ const POIManagement = ({ adminMode = false }) => {
       qrCode: poi.qrCode || landmark?.poiQrCode || "",
       imageUrl: poi.imageUrl || "",
       imageStoragePath: poi.imageStoragePath || "",
+      markerImageUrl: poi.markerImageUrl || "",
+      markerStoragePath: poi.markerStoragePath || "",
+      markerFileName: poi.markerFileName || "",
+      markerWidthMeters: poi.markerWidthMeters == null ? "" : String(poi.markerWidthMeters),
     });
     setImageFile(null);
     setRemoveImage(false);
     if (imageInputRef.current) imageInputRef.current.value = "";
+    setMarkerImageFile(null);
+    setRemoveMarkerImage(false);
+    if (markerImageInputRef.current) markerImageInputRef.current.value = "";
     setFormError("");
   };
 
@@ -176,6 +202,14 @@ const POIManagement = ({ adminMode = false }) => {
       } catch (error) {
         console.error("POI was removed but its image could not be deleted:", error);
         alert("The POI was removed, but its image could not be deleted from storage.");
+      }
+    }
+    if (poi.markerStoragePath) {
+      try {
+        await deleteStorageFile(poi.markerStoragePath);
+      } catch (error) {
+        console.error("POI was removed but its plaque image could not be deleted:", error);
+        alert("The POI was removed, but its plaque image could not be deleted from storage.");
       }
     }
     await writeAuditLog({
@@ -202,12 +236,21 @@ const POIManagement = ({ adminMode = false }) => {
       setFormError("Generate the shared landmark POI QR before saving POIs.");
       return;
     }
+    const hasMarkerWidth = form.markerWidthMeters.trim() !== "";
+    const markerWidthMeters = hasMarkerWidth ? Number(form.markerWidthMeters) : null;
+    const hasMarkerImage = Boolean(markerImageFile || (form.markerImageUrl && !removeMarkerImage));
+    if ((hasMarkerWidth || hasMarkerImage) && (!hasMarkerImage || !Number.isFinite(markerWidthMeters) || markerWidthMeters <= 0)) {
+      setFormError("A plaque image and a real width greater than 0 metres are both required.");
+      return;
+    }
     setSaving(true);
     setFormError("");
     let uploadedImage = null;
+    let uploadedMarkerImage = null;
     let poiSaved = false;
     try {
       if (imageFile) uploadedImage = await uploadStorageFile(imageFile, `poi-images/${ownerId}`);
+      if (markerImageFile) uploadedMarkerImage = await uploadStorageFile(markerImageFile, `markers/${ownerId}`);
       const poiData = {
         institutionId: ownerId,
         landmarkId: form.landmarkId,
@@ -224,22 +267,41 @@ const POIManagement = ({ adminMode = false }) => {
           imageFileType: uploadedImage.fileType,
         }
         : {};
+      const markerImageFields = uploadedMarkerImage
+        ? {
+          markerImageUrl: uploadedMarkerImage.url,
+          markerStoragePath: uploadedMarkerImage.storagePath,
+          markerFileName: uploadedMarkerImage.fileName,
+          markerFileType: uploadedMarkerImage.fileType,
+        }
+        : {};
       let savedPoiId = selectedPoiId;
       if (selectedPoiId) {
         await updateDoc(doc(db, "pois", selectedPoiId), {
           ...poiData,
           ...imageFields,
+          ...markerImageFields,
+          ...(markerWidthMeters !== null ? { markerWidthMeters } : {}),
           ...(removeImage ? {
             imageUrl: deleteField(),
             imageStoragePath: deleteField(),
             imageFileName: deleteField(),
             imageFileType: deleteField(),
           } : {}),
+          ...(removeMarkerImage ? {
+            markerImageUrl: deleteField(),
+            markerStoragePath: deleteField(),
+            markerFileName: deleteField(),
+            markerFileType: deleteField(),
+            markerWidthMeters: deleteField(),
+          } : {}),
         });
       } else {
         const createdPoi = await addDoc(collection(db, "pois"), {
           ...poiData,
           ...imageFields,
+          ...markerImageFields,
+          ...(markerWidthMeters !== null ? { markerWidthMeters } : {}),
           createdAt: serverTimestamp(),
         });
         savedPoiId = createdPoi.id;
@@ -251,6 +313,14 @@ const POIManagement = ({ adminMode = false }) => {
         } catch (error) {
           console.error("POI image was updated but the previous image could not be deleted:", error);
           alert("The POI was saved, but its previous image could not be deleted from storage.");
+        }
+      }
+      if (form.markerStoragePath && (uploadedMarkerImage || removeMarkerImage)) {
+        try {
+          await deleteStorageFile(form.markerStoragePath);
+        } catch (error) {
+          console.error("POI plaque image was updated but the previous image could not be deleted:", error);
+          alert("The POI was saved, but its previous plaque image could not be deleted from storage.");
         }
       }
       await writeAuditLog({
@@ -272,7 +342,15 @@ const POIManagement = ({ adminMode = false }) => {
           console.error("Unable to clean up the uploaded POI image after save failed:", cleanupError);
         }
       }
-      alert("Unable to save POI.");
+      if (uploadedMarkerImage && !poiSaved) {
+        try {
+          await deleteStorageFile(uploadedMarkerImage.storagePath);
+        } catch (cleanupError) {
+          console.error("Unable to clean up the uploaded plaque image after POI save failed:", cleanupError);
+        }
+      }
+      const errorCode = error?.code ? ` (${error.code})` : "";
+      alert(`Unable to save POI${errorCode}: ${error?.message || "Unknown error"}`);
     } finally { setSaving(false); }
   };
 
@@ -334,6 +412,57 @@ const POIManagement = ({ adminMode = false }) => {
             }}>Remove image</button>
           </div>
         )}
+        <label htmlFor="poi-marker-image" style={{ color: "#fff" }}>Plaque image for AR tracking (optional)</label>
+        <input
+          ref={markerImageInputRef}
+          id="poi-marker-image"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={(event) => {
+            const selected = event.target.files?.[0] || null;
+            if (selected && !["image/png", "image/jpeg", "image/webp"].includes(selected.type)) {
+              setMarkerImageFile(null);
+              setFormError("Choose a PNG, JPG, or WEBP plaque image.");
+              event.target.value = "";
+              return;
+            }
+            if (selected && selected.size > 10 * 1024 * 1024) {
+              setMarkerImageFile(null);
+              setFormError("Plaque images must be 10 MB or smaller.");
+              event.target.value = "";
+              return;
+            }
+            setMarkerImageFile(selected);
+            setRemoveMarkerImage(false);
+            setFormError("");
+          }}
+          style={{ color: "#ccc" }}
+        />
+        <small style={{ color: "#888" }}>Choose a straight-on, tightly cropped plaque photo. PNG, JPG, or WEBP, maximum 10 MB.</small>
+        <label htmlFor="poi-marker-width" style={{ color: "#fff" }}>Plaque real width (metres)</label>
+        <input
+          id="poi-marker-width"
+          className={commonStyles.formControl}
+          type="number"
+          min="0.001"
+          step="0.001"
+          placeholder="e.g. 0.30"
+          value={form.markerWidthMeters}
+          onChange={(event) => updateField("markerWidthMeters", event.target.value)}
+        />
+        <small style={{ color: "#888" }}>For example, enter 0.30 for a plaque that is 30 cm wide. An image and width are saved together.</small>
+        {(markerImagePreviewUrl || (form.markerImageUrl && !removeMarkerImage)) && (
+          <div>
+            <img src={markerImagePreviewUrl || form.markerImageUrl} alt={`AR plaque preview for ${form.name || "POI"}`} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "contain", borderRadius: 6, background: "#111" }} />
+            {!markerImageFile && form.markerFileName && <small style={{ display: "block", color: "#888", marginTop: 6 }}>Current plaque image: {form.markerFileName}</small>}
+            <button type="button" className={commonStyles.btnCancel} onClick={() => {
+              setMarkerImageFile(null);
+              setRemoveMarkerImage(true);
+              updateField("markerWidthMeters", "");
+              if (markerImageInputRef.current) markerImageInputRef.current.value = "";
+            }}>Remove plaque image</button>
+          </div>
+        )}
         <label style={{ color: "#fff" }}>Shared Landmark POI QR</label>
         <small style={{ color: "#888" }}>Each landmark can have one POI QR that can include many POIs or sub-modules under it.</small>
         <button type="button" className={commonStyles.btnOutline} onClick={generateQrCode}>Generate Shared Landmark QR</button>
@@ -390,6 +519,7 @@ const POIManagement = ({ adminMode = false }) => {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <div>
                       <strong>{poi.name}</strong>
+                      {poi.markerImageUrl && Number.isFinite(poi.markerWidthMeters) && <div style={{ color: "#4ade80", fontSize: 12, marginTop: 4 }}>AR plaque configured ({poi.markerWidthMeters} m wide)</div>}
                       {poiContent.length > 0 && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>{poiContent.map((content) => `${content.title} (${content.type})`).join(" • ")}</div>}
                       {!poiContent.length && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>No content assigned</div>}
                     </div>
