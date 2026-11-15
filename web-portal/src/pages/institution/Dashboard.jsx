@@ -58,7 +58,7 @@ const InstituteDashboard = () => {
 
                 const institutionRef = doc(db, "institutions", institutionId);
                 const contentQuery = query(collection(db, "content"), where("institutionId", "==", institutionId));
-                const landmarkQuery = query(collection(db, "markers"), where("institutionId", "==", institutionId));
+                const landmarkQuery = query(collection(db, "landmarks"), where("institutionId", "==", institutionId));
                 const poiQuery = query(collection(db, "pois"), where("institutionId", "==", institutionId));
                 const analyticsQuery = query(collection(db, "userAnalytics"), where("institutionId", "==", institutionId));
 

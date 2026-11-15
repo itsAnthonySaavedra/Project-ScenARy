@@ -13,6 +13,7 @@ import commonStyles from "../../components/common/Common.module.css";
 import { getContentScope } from "../../lib/contentScope";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
 import { writeAuditLog } from "../../lib/auditLog";
+import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
 
 L.Marker.prototype.options.icon = L.icon({ iconUrl: markerIcon, shadowUrl: markerShadow, iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34] });
 
@@ -42,7 +43,7 @@ const LandmarkManagement = () => {
   }, [imageFile]);
 
   const loadData = async (id) => {
-    const landmarkSnap = await getDocs(query(collection(db, "markers"), where("institutionId", "==", id)));
+    const landmarkSnap = await getDocs(query(collection(db, "landmarks"), where("institutionId", "==", id)));
     const poiSnap = await getDocs(query(collection(db, "pois"), where("institutionId", "==", id)));
     const contentSnap = await getDocs(query(collection(db, "content"), where("institutionId", "==", id)));
     const landmarkItems = landmarkSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
@@ -97,7 +98,7 @@ const LandmarkManagement = () => {
         ? await uploadStorageFile(imageFile, `markers/${institutionId}`)
         : null;
       saveStage = "Saving landmark details";
-      await updateDoc(doc(db, "markers", selectedLandmarkId), {
+      await updateDoc(doc(db, "landmarks", selectedLandmarkId), {
         landmarkName: name,
         description,
         info: { description },
@@ -110,6 +111,12 @@ const LandmarkManagement = () => {
         ),
         updatedAt: serverTimestamp(),
       });
+      try {
+        await syncGeneratedInstitutionTour(institutionId);
+      } catch (tourError) {
+        console.error("Landmark saved, but its generated tour could not be refreshed:", tourError);
+        alert("The landmark was saved, but its generated tour could not be refreshed.");
+      }
       saveStage = "Refreshing landmark list";
       await writeAuditLog({
         actorId: getAuth().currentUser?.uid,

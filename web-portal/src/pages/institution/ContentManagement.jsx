@@ -108,14 +108,14 @@ const InstituteContentManagement = () => {
     );
     const updateAssignmentTargets = (landmarks, pois) => {
       setAssignmentTargets([
-        ...landmarks.map((item) => ({ id: item.id, targetKey: `markers:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "markers", scope: "Landmark" })),
+        ...landmarks.map((item) => ({ id: item.id, targetKey: `landmarks:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "landmarks", scope: "Landmark" })),
         ...pois.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI" })),
       ]);
     };
     let landmarks = [];
     let pois = [];
     const unsubscribeLandmarks = onSnapshot(
-      query(collection(db, "markers"), where("institutionId", "==", institutionId)),
+      query(collection(db, "landmarks"), where("institutionId", "==", institutionId)),
       (snapshot) => {
         landmarks = snapshot.docs;
         updateAssignmentTargets(landmarks, pois);

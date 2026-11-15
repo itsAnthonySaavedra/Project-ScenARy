@@ -109,7 +109,7 @@ const MyTours = () => {
       );
       const [snap, landmarkSnap, feedbackRows] = await Promise.all([
         getDocs(q),
-        getDocs(query(collection(db, "markers"), where("institutionId", "==", instId.trim()))),
+        getDocs(query(collection(db, "landmarks"), where("institutionId", "==", instId.trim()))),
         loadFeedback(instId.trim()),
       ]);
 
@@ -185,7 +185,7 @@ const MyTours = () => {
     e.preventDefault();
     if (!userInstitutionId) return;
 
-    if (tours.length >= 1) {
+    if (tours.some((tour) => !tour.isGenerated)) {
       alert("You have reached the maximum limit of 1 tour per institution.");
       setIsCreateModalOpen(false);
       return;
@@ -255,7 +255,8 @@ const MyTours = () => {
     );
   }
 
-  const isCreateDisabled = !userInstitutionId || tours.length >= 1;
+  const hasManualTour = tours.some((tour) => !tour.isGenerated);
+  const isCreateDisabled = !userInstitutionId || hasManualTour;
 
   // Filter content arrays dynamically for the active tab view mapping
   const filteredTabItems = availableContent.filter(
@@ -387,7 +388,7 @@ const MyTours = () => {
             </div>
           ))}
 
-          {userInstitutionId && tours.length < 1 && (
+          {userInstitutionId && !hasManualTour && (
             <div
               onClick={() => setIsCreateModalOpen(true)}
               style={{

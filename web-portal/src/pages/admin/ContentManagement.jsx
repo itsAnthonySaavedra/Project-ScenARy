@@ -103,7 +103,7 @@ const ContentManagement = () => {
       onSnapshot(collection(db, "institutions"), (snapshot) => {
         setInstitutions(snapshot.docs.map((item) => ({ id: item.id, name: item.data().name })));
       }, handleSnapshotError),
-      onSnapshot(collection(db, "markers"), (snapshot) => {
+      onSnapshot(collection(db, "landmarks"), (snapshot) => {
         markers = snapshot.docs;
         updateUsage();
       }, handleSnapshotError),

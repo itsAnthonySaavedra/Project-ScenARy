@@ -7,6 +7,7 @@ import commonStyles from "../../components/common/Common.module.css";
 import { db, storage } from "../../lib/firebase";
 import { writeAuditLog } from "../../lib/auditLog";
 import { isInstitutionActive } from "../../lib/institutionStatus";
+import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
 
 const FloorPlan = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -47,7 +48,7 @@ const FloorPlan = ({ adminMode = false }) => {
         getDoc(doc(db, "institutions", id)),
         getDoc(doc(db, "floorPlans", id)),
         getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
-        getDocs(query(collection(db, "markers"), where("institutionId", "==", id))),
+        getDocs(query(collection(db, "landmarks"), where("institutionId", "==", id))),
       ]);
       if (!institutionSnapshot.exists()) {
         setInstitutionName("");
@@ -205,6 +206,7 @@ const FloorPlan = ({ adminMode = false }) => {
     setMessage("");
     let uploadStage = "uploading the file to Firebase Storage";
     try {
+      let tourSyncFailed = false;
       const storagePath = `floor-plans/${institutionId}/${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, "-")}`;
       const fileRef = ref(storage, storagePath);
       await uploadBytes(fileRef, file, { contentType: file.type });
@@ -219,6 +221,12 @@ const FloorPlan = ({ adminMode = false }) => {
         updatedAt: serverTimestamp(),
       };
       await setDoc(doc(db, "floorPlans", institutionId), floorPlanData, { merge: true });
+      try {
+        await syncGeneratedInstitutionTour(institutionId);
+      } catch (tourError) {
+        console.error("Floor plan uploaded, but the generated tour could not be refreshed:", tourError);
+        tourSyncFailed = true;
+      }
       await writeAuditLog({
         actorId: getAuth().currentUser?.uid,
         actorRole: "institution",
@@ -231,7 +239,11 @@ const FloorPlan = ({ adminMode = false }) => {
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       resetViewer();
-      setMessage("Floor plan uploaded successfully.");
+      setMessage(
+        tourSyncFailed
+          ? "Floor plan uploaded, but the generated tour could not be refreshed."
+          : "Floor plan uploaded successfully.",
+      );
     } catch (error) {
       console.error(`Unable to complete floor-plan upload while ${uploadStage}:`, error);
       const code = error?.code || "unknown";

@@ -21,6 +21,7 @@ import {
 import { db } from "../../lib/firebase";
 import { uploadStorageFile } from "../../lib/storageUpload";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
+import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
 import { isInstitutionActive } from "../../lib/institutionStatus";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -80,7 +81,7 @@ const MapSystem = () => {
       );
     });
 
-    const unsubMarkers = onSnapshot(collection(db, "markers"), (snapshot) => {
+    const unsubMarkers = onSnapshot(collection(db, "landmarks"), (snapshot) => {
       setMarkers(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
 
@@ -124,7 +125,7 @@ const MapSystem = () => {
       const image = markerImage
         ? await uploadStorageFile(markerImage, `markers/${instId}`)
         : null;
-      await addDoc(collection(db, "markers"), {
+      await addDoc(collection(db, "landmarks"), {
         lat: parseFloat(tempCoords.lat),
         lng: parseFloat(tempCoords.lng),
         createdAt: serverTimestamp(),
@@ -135,6 +136,12 @@ const MapSystem = () => {
         info: { description: trimmedDescription },
         ...(image ? { imageUrl: image.url, imageStoragePath: image.storagePath, imageFileName: image.fileName, imageFileType: image.fileType } : {}),
       });
+      try {
+        await syncGeneratedInstitutionTour(instId);
+      } catch (tourError) {
+        console.error("Landmark saved, but its generated tour could not be refreshed:", tourError);
+        alert("The landmark was saved, but its generated tour could not be refreshed.");
+      }
       setIsModalOpen(false);
       setTempCoords(null);
       setLandmarkName("");
@@ -150,9 +157,19 @@ const MapSystem = () => {
 
   const removeMarker = async (docId) => {
     try {
-      await deleteDoc(doc(db, "markers", docId));
+      const institutionId = markers.find((marker) => marker.id === docId)?.institutionId;
+      await deleteDoc(doc(db, "landmarks", docId));
+      if (institutionId) {
+        try {
+          await syncGeneratedInstitutionTour(institutionId);
+        } catch (tourError) {
+          console.error("Landmark deleted, but its generated tour could not be refreshed:", tourError);
+          alert("The landmark was deleted, but its generated tour could not be refreshed.");
+        }
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Unable to delete landmark:", err);
+      alert("Unable to delete the landmark.");
     }
   };
 
@@ -160,7 +177,19 @@ const MapSystem = () => {
     const trimmedName = value.trim();
     if (!trimmedName) return;
     try {
-      await updateDoc(doc(db, "markers", markerId), { landmarkName: trimmedName });
+      await updateDoc(doc(db, "landmarks", markerId), {
+        landmarkName: trimmedName,
+        updatedAt: serverTimestamp(),
+      });
+      const institutionId = markers.find((marker) => marker.id === markerId)?.institutionId;
+      if (institutionId) {
+        try {
+          await syncGeneratedInstitutionTour(institutionId);
+        } catch (tourError) {
+          console.error("Landmark name updated, but its generated tour could not be refreshed:", tourError);
+          alert("The landmark name was updated, but its generated tour could not be refreshed.");
+        }
+      }
     } catch (err) {
       console.error("Error updating landmark name:", err);
       alert("Unable to update the landmark name.");

@@ -78,7 +78,7 @@ const Dashboard: React.FC = () => {
         setData((current) => ({ ...current, content, institutions }));
         setLoading(false);
       }, handleSnapshotError),
-      onSnapshot(collection(db, "markers"), (snapshot) => {
+      onSnapshot(collection(db, "landmarks"), (snapshot) => {
         setData((current) => ({ ...current, landmarks: snapshot.size }));
         setLoading(false);
       }, handleSnapshotError),

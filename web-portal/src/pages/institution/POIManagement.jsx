@@ -57,7 +57,7 @@ const POIManagement = ({ adminMode = false }) => {
       return;
     }
     const [landmarkSnap, poiSnap, contentSnap] = await Promise.all([
-      getDocs(query(collection(db, "markers"), where("institutionId", "==", id))),
+      getDocs(query(collection(db, "landmarks"), where("institutionId", "==", id))),
       getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
       getDocs(query(collection(db, "content"), where("institutionId", "==", id))),
     ]);
@@ -131,7 +131,7 @@ const POIManagement = ({ adminMode = false }) => {
     const id = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const generatedQrCode = `SCENARY|POI_GROUP|${id}`;
     try {
-      await updateDoc(doc(db, "markers", landmarkId), { poiQrCode: generatedQrCode });
+      await updateDoc(doc(db, "landmarks", landmarkId), { poiQrCode: generatedQrCode });
       await writeAuditLog({
         actorId: getAuth().currentUser?.uid,
         actorRole: adminMode ? "admin" : "institution",

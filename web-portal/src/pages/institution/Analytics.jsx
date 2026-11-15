@@ -77,7 +77,7 @@ const InstituteAnalytics = () => {
 
         const [contentSnap, landmarkSnap, poiSnap, analyticsRows, feedbackRows] = await Promise.all([
           getDocs(query(collection(db, "content"), where("institutionId", "==", institutionId))),
-          getDocs(query(collection(db, "markers"), where("institutionId", "==", institutionId))),
+          getDocs(query(collection(db, "landmarks"), where("institutionId", "==", institutionId))),
           getDocs(query(collection(db, "pois"), where("institutionId", "==", institutionId))),
           loadUserAnalytics(institutionId),
           loadFeedback(institutionId),
