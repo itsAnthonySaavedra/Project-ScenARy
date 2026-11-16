@@ -25,7 +25,7 @@ import {
   loadUserAnalytics,
   toRating,
 } from "../../lib/userAnalytics";
-import { MODEL_CONTENT_TYPE, LEGACY_MODEL_CONTENT_TYPE } from "../../lib/contentTypes";
+import { MODEL_CONTENT_TYPE, LEGACY_MODEL_CONTENT_TYPES } from "../../lib/contentTypes";
 import dashboardStyles from "../../components/features/dashboard/Dashboard.module.css";
 
 ChartJS.register(
@@ -117,7 +117,10 @@ const InstituteAnalytics = () => {
   const contentTypeCounts = contentTypeOrder.map((type) => ({
     type,
     count: type === MODEL_CONTENT_TYPE
-      ? (analytics.byType[type] || 0) + (analytics.byType[LEGACY_MODEL_CONTENT_TYPE] || 0)
+      ? LEGACY_MODEL_CONTENT_TYPES.reduce(
+        (count, legacyType) => count + (analytics.byType[legacyType] || 0),
+        analytics.byType[type] || 0,
+      )
       : analytics.byType[type] || 0,
   }));
   const periodDays = Number(feedbackPeriod);

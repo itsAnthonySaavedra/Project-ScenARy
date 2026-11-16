@@ -20,9 +20,19 @@ export const getContentQualityIssues = (item) => {
   }
   if (
     item?.type === "Fun Fact" &&
-    !(typeof data.fact === "string" && data.fact.trim())
+    !(
+      (Array.isArray(data.facts) && data.facts.some((fact) => typeof fact === "string" && fact.trim())) ||
+      (typeof data.fact === "string" && data.fact.trim())
+    )
   ) {
     issues.push("Add a fun fact");
+  }
+  if (
+    item?.type === "Fun Fact" &&
+    Array.isArray(data.facts) &&
+    data.facts.some((fact) => !(typeof fact === "string" && fact.trim()))
+  ) {
+    issues.push("Complete every fun fact");
   }
   if (
     normalizeContentType(item?.type) === MODEL_CONTENT_TYPE &&
@@ -44,7 +54,14 @@ export const getContentQualityIssues = (item) => {
     data.quizzes.some(
       (quiz) =>
         !quiz ||
-        !(typeof quiz.question === "string" && quiz.question.trim()),
+        !(typeof quiz.question === "string" && quiz.question.trim()) ||
+        (quiz.questionType === "multiple-choice" &&
+          (!Array.isArray(quiz.options) ||
+            quiz.options.length < 2 ||
+            quiz.options.some((option) => !(typeof option === "string" && option.trim())) ||
+            !quiz.options.includes(quiz.correctAnswer))) ||
+        ((quiz.questionType || "true-false") === "true-false" &&
+          !["True", "False"].includes(quiz.correctAnswer || "")),
     )
   ) {
     issues.push("Complete every quiz question");
@@ -68,7 +85,7 @@ export const getInstitutionContentReadiness = (items = []) => {
   const missing = [];
 
   if (!hasInformation) missing.push("one Published Information item");
-  if (!hasModel) missing.push("one Published AR/VR model");
+  if (!hasModel) missing.push("one Published VR model");
 
   return { isReady: missing.length === 0, missing };
 };

@@ -19,9 +19,17 @@ import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
 import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
+import QuizEditor from "../../components/common/QuizEditor";
+import FunFactsEditor from "../../components/common/FunFactsEditor";
 import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
-import { CONTENT_TYPES, MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
-import { isContentReady } from "../../lib/contentQuality";
+import {
+  CONTENT_TYPES,
+  MODEL_CONTENT_TYPE,
+  getInstitutionContentLimitError,
+  normalizeContentType,
+} from "../../lib/contentTypes";
+import { createDefaultQuizQuestion, normalizeFunFacts, normalizeQuizQuestions } from "../../lib/contentData";
+import { getContentQualityIssues, isContentReady } from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 
 const ContentManagement = () => {
@@ -57,12 +65,12 @@ const ContentManagement = () => {
   const [modelFile, setModelFile] = useState(null);
   const [uploadingModel, setUploadingModel] = useState(false);
   const [modelUploadProgress, setModelUploadProgress] = useState(0);
-  const [formFactText, setFormFactText] = useState("");
+  const [formFacts, setFormFacts] = useState([""]);
 
   // Dynamic Quiz Questions Array State
-  const [quizQuestions, setQuizQuestions] = useState([
-    { question: "", answer: "True" },
-  ]);
+  const [quizQuestions, setQuizQuestions] = useState([createDefaultQuizQuestion()]);
+  const [shuffleQuestions, setShuffleQuestions] = useState(false);
+  const [shuffleAnswers, setShuffleAnswers] = useState(false);
 
   // Modals
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -120,21 +128,6 @@ const ContentManagement = () => {
   }, []);
 
   // --- QUIZ FIELDS MANAGEMENT ---
-  const addQuizQuestionField = () => {
-    setQuizQuestions([...quizQuestions, { question: "", answer: "True" }]);
-  };
-
-  const updateQuizQuestionValue = (index, field, value) => {
-    const updated = [...quizQuestions];
-    updated[index][field] = value;
-    setQuizQuestions(updated);
-  };
-
-  const removeQuizQuestionField = (index) => {
-    if (quizQuestions.length === 1) return;
-    setQuizQuestions(quizQuestions.filter((_, i) => i !== index));
-  };
-
   // --- OPEN MODAL CLEANING FUNCTION ---
   const handleOpenCreateModal = () => {
     setIsEditMode(false);
@@ -148,9 +141,11 @@ const ContentManagement = () => {
     setFormModelSpawnPoint(createDefaultModelSpawnPoint());
     setModelSpawnPointEnabled(false);
     setModelFile(null);
-    setFormFactText("");
+    setFormFacts([""]);
     setSelectedType("");
-    setQuizQuestions([{ question: "", answer: "True" }]);
+    setQuizQuestions([createDefaultQuizQuestion()]);
+    setShuffleQuestions(false);
+    setShuffleAnswers(false);
     setIsAddModalOpen(true);
   };
 
@@ -173,17 +168,14 @@ const ContentManagement = () => {
       setModelFile(null);
     } else if (item.type === "Quiz") {
       if (item.data?.quizzes && item.data.quizzes.length > 0) {
-        setQuizQuestions(
-          item.data.quizzes.map((q) => ({
-            question: q.question || "",
-            answer: q.correctAnswer || "True",
-          })),
-        );
+        setQuizQuestions(normalizeQuizQuestions(item.data.quizzes));
+        setShuffleQuestions(item.data.shuffleQuestions === true);
+        setShuffleAnswers(item.data.shuffleAnswers === true);
       } else {
-        setQuizQuestions([{ question: "", answer: "True" }]);
+        setQuizQuestions([createDefaultQuizQuestion()]);
       }
     } else if (item.type === "Fun Fact") {
-      setFormFactText(item.data?.fact || "");
+      setFormFacts(normalizeFunFacts(item.data));
     }
 
     setIsAddModalOpen(true);
@@ -219,6 +211,20 @@ const ContentManagement = () => {
   // --- FORM SUBMIT HANDLER ---
   const handleFormSubmit = async (e) => {
     e.preventDefault();
+    const editedContent = contents.find((item) => item.id === editDocId);
+    const institutionChanged =
+      isEditMode && editedContent?.institutionId !== formInstitutionId;
+    if ((!isEditMode || institutionChanged) && formInstitutionId) {
+      const limitError = getInstitutionContentLimitError(
+        contents.filter((item) => item.institutionId === formInstitutionId),
+        selectedType,
+        isEditMode ? editDocId : undefined,
+      );
+      if (limitError) {
+        alert(limitError);
+        return;
+      }
+    }
     setLoading(true);
 
     let contentData = {};
@@ -236,16 +242,34 @@ const ContentManagement = () => {
         };
       } else if (selectedType === "Quiz") {
         contentData = {
-          quizzes: quizQuestions.map((q, index) => ({
+          quizzes: quizQuestions.map((question, index) => ({
             id: index + 1,
-            question: q.question,
-            correctAnswer: q.answer,
+            question: question.question,
+            questionType: question.questionType || "true-false",
+            ...(question.questionType === "multiple-choice"
+              ? { options: question.options }
+              : {}),
+            correctAnswer: question.correctAnswer,
           })),
+          shuffleQuestions,
+          shuffleAnswers,
         };
       } else if (selectedType === "Fun Fact") {
         contentData = {
-          fact: formFactText,
+          facts: formFacts,
+          fact: formFacts[0] || "",
         };
+      }
+
+      const qualityIssues = getContentQualityIssues({
+        title: formTitle,
+        type: selectedType,
+        scope: formScope,
+        data: contentData,
+      });
+      if (qualityIssues.length) {
+        alert(qualityIssues.join(" | "));
+        return;
       }
 
       if (isEditMode && editDocId) {
@@ -286,9 +310,11 @@ const ContentManagement = () => {
       setFormModelSpawnPoint(createDefaultModelSpawnPoint());
       setModelSpawnPointEnabled(false);
       setModelFile(null);
-      setFormFactText("");
+      setFormFacts([""]);
       setSelectedType("");
-      setQuizQuestions([{ question: "", answer: "True" }]);
+      setQuizQuestions([createDefaultQuizQuestion()]);
+      setShuffleQuestions(false);
+      setShuffleAnswers(false);
     } catch (error) {
       console.error("Save Error:", error);
       alert("Error saving content. Check console.");
@@ -301,6 +327,18 @@ const ContentManagement = () => {
     setCurrentContent(item);
     setIsViewModalOpen(true);
   };
+
+  const editedContent = contents.find((item) => item.id === editDocId);
+  const shouldCheckContentLimit =
+    !isEditMode || editedContent?.institutionId !== formInstitutionId;
+  const getFormContentLimitError = (type) =>
+    shouldCheckContentLimit && formInstitutionId
+      ? getInstitutionContentLimitError(
+          contents.filter((item) => item.institutionId === formInstitutionId),
+          type,
+          isEditMode ? editDocId : undefined,
+        )
+      : "";
 
   const filteredContents = contents
     .filter((c) => filter === "All" || (filter === "Needs attention" ? !isContentReady(c) : c.status === filter))
@@ -549,11 +587,26 @@ const ContentManagement = () => {
             >
               <option value="">Select Type</option>
               {CONTENT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type === "Information" ? "Information (Description)" : type === "Quiz" ? "True / False Quiz" : type === MODEL_CONTENT_TYPE ? "AR/VR Model (.glb)" : type}
+                <option
+                  key={type}
+                  value={type}
+                  disabled={Boolean(getFormContentLimitError(type))}
+                >
+                  {type === "Information"
+                    ? "Information (Description)"
+                    : type === "Quiz"
+                      ? "Quiz (true/false or multiple choice)"
+                      : type === MODEL_CONTENT_TYPE
+                        ? "VR Model (.glb)"
+                        : type}
                 </option>
               ))}
             </select>
+            {!isEditMode && selectedType && getFormContentLimitError(selectedType) && (
+              <small role="alert" style={{ display: "block", color: "#fbbf24", marginTop: 6 }}>
+                {getFormContentLimitError(selectedType)}
+              </small>
+            )}
           </div>
           <div className={commonStyles.formGroup}>
             <label>Content Area</label>
@@ -611,10 +664,9 @@ const ContentManagement = () => {
                 </>
               )}
 
-              {/* AR/VR MODEL LINK */}
               {selectedType === MODEL_CONTENT_TYPE && (
                 <div className={commonStyles.formGroup}>
-                  <label>Upload AR/VR Model (.glb)</label>
+                  <label>Upload VR Model (.glb)</label>
                   <input
                     type="file"
                     accept=".glb,model/gltf-binary,application/octet-stream"
@@ -622,7 +674,7 @@ const ContentManagement = () => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       if (file.size > MAX_GLB_FILE_SIZE_BYTES) {
-                        alert("AR/VR models must be 1 GB or smaller.");
+                        alert("VR models must be 1 GB or smaller.");
                         e.target.value = "";
                         return;
                       }
@@ -638,7 +690,7 @@ const ContentManagement = () => {
                         setFormModelUrl(uploaded.url);
                       } catch (error) {
                         console.error("Model upload error:", error);
-                        alert(error.message || "Unable to upload the AR/VR model. Check Firebase Storage permissions.");
+                        alert(error.message || "Unable to upload the VR model. Check Firebase Storage permissions.");
                       } finally {
                         setUploadingModel(false);
                       }
@@ -666,117 +718,19 @@ const ContentManagement = () => {
                 </div>
               )}
 
-              {/* TRUE / FALSE QUIZ */}
               {selectedType === "Quiz" && (
-                <div>
-                  <h4 style={{ color: "#C19A4B", marginBottom: "1rem" }}>
-                    Construct True / False Question Set
-                  </h4>
-                  {quizQuestions.map((item, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        borderBottom: "1px solid rgba(255,255,255,0.1)",
-                        paddingBottom: "15px",
-                        marginBottom: "15px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifySpace: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <label style={{ fontSize: "0.85rem", color: "#aaa" }}>
-                          Question {idx + 1}
-                        </label>
-                        {quizQuestions.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeQuizQuestionField(idx)}
-                            style={{
-                              background: "transparent",
-                              color: "#ef4444",
-                              border: "none",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                      <input
-                        type="text"
-                        className={commonStyles.formControl}
-                        style={{ marginTop: "5px", marginBottom: "8px" }}
-                        placeholder="Enter statement..."
-                        value={item.question}
-                        onChange={(e) =>
-                          updateQuizQuestionValue(
-                            idx,
-                            "question",
-                            e.target.value,
-                          )
-                        }
-                        required
-                      />
-                      <label
-                        style={{ fontSize: "0.8rem", marginRight: "10px" }}
-                      >
-                        Correct Answer:
-                      </label>
-                      <select
-                        value={item.answer}
-                        onChange={(e) =>
-                          updateQuizQuestionValue(idx, "answer", e.target.value)
-                        }
-                        style={{
-                          padding: "4px 8px",
-                          background: "#1a1a1a",
-                          border: "1px solid #333",
-                          color: "#fff",
-                          borderRadius: "4px",
-                        }}
-                      >
-                        <option value="True">True</option>
-                        <option value="False">False</option>
-                      </select>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={addQuizQuestionField}
-                    style={{
-                      padding: "6px 12px",
-                      background: "rgba(193, 154, 75, 0.2)",
-                      border: "1px solid #C19A4B",
-                      color: "#C19A4B",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    + Add Question
-                  </button>
-                </div>
+                <QuizEditor
+                  questions={quizQuestions}
+                  setQuestions={setQuizQuestions}
+                  shuffleQuestions={shuffleQuestions}
+                  setShuffleQuestions={setShuffleQuestions}
+                  shuffleAnswers={shuffleAnswers}
+                  setShuffleAnswers={setShuffleAnswers}
+                />
               )}
 
-              {/* FUN FACT STRUCTURE */}
               {selectedType === "Fun Fact" && (
-                <div className={commonStyles.formGroup}>
-                  <label>Fun Fact Text</label>
-                  <textarea
-                    name="factText"
-                    className={commonStyles.formControl}
-                    rows={3}
-                    maxLength={100}
-                    placeholder="Enter an interesting fact..."
-                    value={formFactText}
-                    onChange={(e) => setFormFactText(e.target.value)}
-                    required
-                  />
-                  <small>{formFactText.length}/100 characters</small>
-                </div>
+                <FunFactsEditor facts={formFacts} setFacts={setFormFacts} />
               )}
             </div>
           )}

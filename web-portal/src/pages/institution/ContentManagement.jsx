@@ -20,8 +20,16 @@ import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
 import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
+import QuizEditor from "../../components/common/QuizEditor";
+import FunFactsEditor from "../../components/common/FunFactsEditor";
 import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
-import { CONTENT_TYPES, MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
+import {
+  CONTENT_TYPES,
+  MODEL_CONTENT_TYPE,
+  getInstitutionContentLimitError,
+  normalizeContentType,
+} from "../../lib/contentTypes";
+import { createDefaultQuizQuestion, normalizeFunFacts, normalizeQuizQuestions } from "../../lib/contentData";
 import {
   getContentQualityIssues,
   getInstitutionContentReadiness,
@@ -46,7 +54,7 @@ const InstituteContentManagement = () => {
   const [editDocId, setEditDocId] = useState(null);
   const [formTitle, setFormTitle] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
-  const [formFactText, setFormFactText] = useState("");
+  const [formFacts, setFormFacts] = useState([""]);
   const [formModelUrl, setFormModelUrl] = useState("");
   const [formModelSpawnPoint, setFormModelSpawnPoint] = useState(createDefaultModelSpawnPoint);
   const [modelSpawnPointEnabled, setModelSpawnPointEnabled] = useState(false);
@@ -57,9 +65,9 @@ const InstituteContentManagement = () => {
   const [formNeedsAttention, setFormNeedsAttention] = useState(false);
   const [userInstitutionId, setUserInstitutionId] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [quizQuestions, setQuizQuestions] = useState([
-    { question: "", answer: "True" },
-  ]);
+  const [quizQuestions, setQuizQuestions] = useState([createDefaultQuizQuestion()]);
+  const [shuffleQuestions, setShuffleQuestions] = useState(false);
+  const [shuffleAnswers, setShuffleAnswers] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [currentContent, setCurrentContent] = useState(null);
@@ -168,28 +176,13 @@ const InstituteContentManagement = () => {
     };
   }, [userInstitutionId, isAuthChecking]);
 
-  const addQuizQuestionField = () => {
-    setQuizQuestions([...quizQuestions, { question: "", answer: "True" }]);
-  };
-
-  const updateQuizQuestionValue = (index, field, value) => {
-    const updated = [...quizQuestions];
-    updated[index][field] = value;
-    setQuizQuestions(updated);
-  };
-
-  const removeQuizQuestionField = (index) => {
-    if (quizQuestions.length === 1) return;
-    setQuizQuestions(quizQuestions.filter((_, i) => i !== index));
-  };
-
   const handleOpenCreateModal = () => {
     setIsEditMode(false);
     setEditDocId(null);
     setFormTitle("");
     setFormScope("");
     setFormInfoDesc("");
-    setFormFactText("");
+    setFormFacts([""]);
     setFormModelUrl("");
     setFormModelSpawnPoint(createDefaultModelSpawnPoint());
     setModelSpawnPointEnabled(false);
@@ -197,7 +190,9 @@ const InstituteContentManagement = () => {
     setFormCustomData("");
     setFormNeedsAttention(false);
     setSelectedType("");
-    setQuizQuestions([{ question: "", answer: "True" }]);
+    setQuizQuestions([createDefaultQuizQuestion()]);
+    setShuffleQuestions(false);
+    setShuffleAnswers(false);
     setFormError("");
     setIsAddModalOpen(true);
   };
@@ -209,7 +204,7 @@ const InstituteContentManagement = () => {
     setFormTitle(item.title || "");
     setFormScope(item.scope || item.contentScope || "");
     setSelectedType(normalizeContentType(item.type || ""));
-    setFormFactText(item.data?.fact || "");
+    setFormFacts(normalizeFunFacts(item.data));
     setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
     setFormModelSpawnPoint(normalizeModelSpawnPoint(item.data));
     setModelSpawnPointEnabled(item.data?.spawnX !== undefined || item.data?.SpawnZ !== undefined || Boolean(item.data?.spawnPoint));
@@ -222,14 +217,9 @@ const InstituteContentManagement = () => {
     if (item.type === "Information") {
       setFormInfoDesc(item.data?.description || "");
     } else if (item.type === "Quiz") {
-      setQuizQuestions(
-        item.data?.quizzes?.length
-          ? item.data.quizzes.map((q) => ({
-              question: q.question || "",
-              answer: q.correctAnswer || "True",
-            }))
-          : [{ question: "", answer: "True" }],
-      );
+      setQuizQuestions(normalizeQuizQuestions(item.data?.quizzes));
+      setShuffleQuestions(item.data?.shuffleQuestions === true);
+      setShuffleAnswers(item.data?.shuffleAnswers === true);
     }
 
     setIsAddModalOpen(true);
@@ -243,15 +233,15 @@ const InstituteContentManagement = () => {
     setSelectedType(normalizeContentType(item.type || ""));
     setFormNeedsAttention(item.needsAttention === true);
     setFormInfoDesc(data.description || "");
-    setFormFactText(data.fact || "");
+    setFormFacts(normalizeFunFacts(data));
     setFormModelUrl(data.modelUrl || data.modelPath || "");
     setFormModelSpawnPoint(normalizeModelSpawnPoint(data));
     setModelSpawnPointEnabled(data.spawnX !== undefined || data.SpawnZ !== undefined || Boolean(data.spawnPoint));
     setFormCustomData(data.customData ? JSON.stringify(data.customData, null, 2) : "");
     if (item.type === "Quiz") {
-      setQuizQuestions(data.quizzes?.length
-        ? data.quizzes.map((quiz) => ({ question: quiz.question || "", answer: quiz.correctAnswer || "True" }))
-        : [{ question: "", answer: "True" }]);
+      setQuizQuestions(normalizeQuizQuestions(data.quizzes));
+      setShuffleQuestions(data.shuffleQuestions === true);
+      setShuffleAnswers(data.shuffleAnswers === true);
     }
   };
 
@@ -309,9 +299,34 @@ const InstituteContentManagement = () => {
       setFormError("Your account is not linked to an institution. Contact an administrator.");
       return;
     }
-    if (formScope === "POI" && selectedType === "Quiz") {
-      setFormError("Quizzes can only be added to Landmark content.");
+    const existingContent = contents.find((item) => item.id === editDocId);
+    const editingLegacyPoiContent =
+      isEditMode &&
+      existingContent &&
+      getContentScope(existingContent) === "POI" &&
+      existingContent.type === selectedType;
+    if (
+      formScope === "POI" &&
+      !["Information", "Fun Fact"].includes(selectedType) &&
+      !editingLegacyPoiContent
+    ) {
+      setFormError("Only Information and Fun Fact content can be added to POIs.");
       return;
+    }
+    if (
+      !isEditMode &&
+      ["Information", MODEL_CONTENT_TYPE, "Quiz"].includes(selectedType) &&
+      !contentReadyCheckLoaded
+    ) {
+      setFormError("Wait for institution content to finish loading before adding this item.");
+      return;
+    }
+    if (!isEditMode) {
+      const limitError = getInstitutionContentLimitError(contents, selectedType);
+      if (limitError) {
+        setFormError(limitError);
+        return;
+      }
     }
     setLoading(true);
     setFormError("");
@@ -330,14 +345,23 @@ const InstituteContentManagement = () => {
           description: formInfoDesc,
         };
       } else if (selectedType === "Fun Fact") {
-        contentData = { fact: formFactText };
+        contentData = {
+          facts: formFacts,
+          fact: formFacts[0] || "",
+        };
       } else if (selectedType === "Quiz") {
         contentData = {
-          quizzes: quizQuestions.map((q, index) => ({
+          quizzes: quizQuestions.map((question, index) => ({
             id: index + 1,
-            question: q.question,
-            correctAnswer: q.answer,
+            question: question.question,
+            questionType: question.questionType || "true-false",
+            ...(question.questionType === "multiple-choice"
+              ? { options: question.options }
+              : {}),
+            correctAnswer: question.correctAnswer,
           })),
+          shuffleQuestions,
+          shuffleAnswers,
         };
       } else if (selectedType === MODEL_CONTENT_TYPE) {
         contentData = {
@@ -422,7 +446,7 @@ const InstituteContentManagement = () => {
       setFormTitle("");
       setFormScope("");
       setFormInfoDesc("");
-      setFormFactText("");
+      setFormFacts([""]);
       setFormModelUrl("");
       setFormModelSpawnPoint(createDefaultModelSpawnPoint());
       setModelSpawnPointEnabled(false);
@@ -430,7 +454,9 @@ const InstituteContentManagement = () => {
       setFormCustomData("");
       setFormNeedsAttention(false);
       setSelectedType("");
-      setQuizQuestions([{ question: "", answer: "True" }]);
+      setQuizQuestions([createDefaultQuizQuestion()]);
+      setShuffleQuestions(false);
+      setShuffleAnswers(false);
       setFormError("");
     } catch (error) {
       console.error("Database Transaction Error:", error);
@@ -728,9 +754,34 @@ const InstituteContentManagement = () => {
               style={{ opacity: isEditMode ? 0.6 : 1 }}
             >
               <option value="">Select Type</option>
-              {CONTENT_TYPES.map((type) => <option key={type} value={type} disabled={formScope === "POI" && type === "Quiz"}>{type}</option>)}
+              {CONTENT_TYPES
+                .filter((type) =>
+                  formScope !== "POI" ||
+                  isEditMode ||
+                  ["Information", "Fun Fact"].includes(type),
+                )
+                .map((type) => (
+                <option
+                  key={type}
+                  value={type}
+                  disabled={
+                    (!isEditMode && Boolean(getInstitutionContentLimitError(contents, type)))
+                  }
+                >
+                  {type}
+                </option>
+              ))}
             </select>
-            {formScope === "POI" && <small style={{ color: "#888" }}>Quizzes are available for Landmark content only.</small>}
+            {formScope === "POI" && (
+              <small style={{ color: "#888" }}>
+                POIs can use Information and Fun Fact content. VR models and quizzes are limited to landmarks.
+              </small>
+            )}
+            {!isEditMode && selectedType && getInstitutionContentLimitError(contents, selectedType) && (
+              <small role="alert" style={{ display: "block", color: "#fbbf24", marginTop: 6 }}>
+                {getInstitutionContentLimitError(contents, selectedType)}
+              </small>
+            )}
           </div>
           <div className={commonStyles.formGroup}>
             <label>Content Area</label>
@@ -739,7 +790,11 @@ const InstituteContentManagement = () => {
               value={formScope}
               onChange={(e) => {
                 setFormScope(e.target.value);
-                if (e.target.value === "POI" && selectedType === "Quiz") {
+                if (
+                  !isEditMode &&
+                  e.target.value === "POI" &&
+                  !["Information", "Fun Fact"].includes(selectedType)
+                ) {
                   setSelectedType("");
                 }
               }}
@@ -796,23 +851,12 @@ const InstituteContentManagement = () => {
               )}
 
               {selectedType === "Fun Fact" && (
-                <div className={commonStyles.formGroup}>
-                  <label>Fun Fact Text</label>
-                  <textarea
-                    className={commonStyles.formControl}
-                    rows={3}
-                    maxLength={100}
-                    value={formFactText}
-                    onChange={(e) => setFormFactText(e.target.value)}
-                    required
-                  />
-                  <small>{formFactText.length}/100 characters</small>
-                </div>
+                <FunFactsEditor facts={formFacts} setFacts={setFormFacts} />
               )}
 
               {selectedType === MODEL_CONTENT_TYPE && (
                 <div className={commonStyles.formGroup}>
-                  <label>Upload AR/VR Model (.glb)</label>
+                  <label>Upload VR Model (.glb)</label>
                   <input
                     type="file"
                     accept=".glb,model/gltf-binary,application/octet-stream"
@@ -820,7 +864,7 @@ const InstituteContentManagement = () => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       if (file.size > MAX_GLB_FILE_SIZE_BYTES) {
-                        alert("AR/VR models must be 1 GB or smaller.");
+                        alert("VR models must be 1 GB or smaller.");
                         e.target.value = "";
                         return;
                       }
@@ -837,7 +881,7 @@ const InstituteContentManagement = () => {
                       } catch (error) {
                         console.error("Model upload error:", error);
                         setFormError(
-                          getFirebaseErrorMessage(error, error.message || "Unable to upload the AR/VR model."),
+                          getFirebaseErrorMessage(error, error.message || "Unable to upload the VR model."),
                         );
                       } finally {
                         setUploadingModel(false);
@@ -865,99 +909,15 @@ const InstituteContentManagement = () => {
                 </div>
               )}
 
-              {/* DYNAMIC TRUE / FALSE QUIZ */}
               {selectedType === "Quiz" && (
-                <div>
-                  <h4 style={{ color: "#C19A4B", marginBottom: "1rem" }}>
-                    Modify True / False Matrix Nodes
-                  </h4>
-                  {quizQuestions.map((item, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        borderBottom: "1px solid #333",
-                        paddingBottom: "15px",
-                        marginBottom: "15px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <label style={{ fontSize: "0.85rem", color: "#aaa" }}>
-                          Question {idx + 1}
-                        </label>
-                        {quizQuestions.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeQuizQuestionField(idx)}
-                            style={{
-                              background: "transparent",
-                              color: "#ef4444",
-                              border: "none",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                      <input
-                        type="text"
-                        className={commonStyles.formControl}
-                        style={{ marginTop: "5px", marginBottom: "8px" }}
-                        placeholder="Enter statement..."
-                        value={item.question}
-                        onChange={(e) =>
-                          updateQuizQuestionValue(
-                            idx,
-                            "question",
-                            e.target.value,
-                          )
-                        }
-                        required
-                      />
-                      <label
-                        style={{ fontSize: "0.8rem", marginRight: "10px" }}
-                      >
-                        Correct Answer:
-                      </label>
-                      <select
-                        value={item.answer}
-                        onChange={(e) =>
-                          updateQuizQuestionValue(idx, "answer", e.target.value)
-                        }
-                        style={{
-                          padding: "4px 8px",
-                          background: "#1a1a1a",
-                          border: "1px solid #333",
-                          color: "#fff",
-                          borderRadius: "4px",
-                        }}
-                      >
-                        <option value="True">True</option>
-                        <option value="False">False</option>
-                      </select>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={addQuizQuestionField}
-                    style={{
-                      padding: "6px 12px",
-                      background: "rgba(193, 154, 75, 0.2)",
-                      border: "1px solid #C19A4B",
-                      color: "#C19A4B",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    + Add Question
-                  </button>
-                </div>
+                <QuizEditor
+                  questions={quizQuestions}
+                  setQuestions={setQuizQuestions}
+                  shuffleQuestions={shuffleQuestions}
+                  setShuffleQuestions={setShuffleQuestions}
+                  shuffleAnswers={shuffleAnswers}
+                  setShuffleAnswers={setShuffleAnswers}
+                />
               )}
 
               <div className={commonStyles.formGroup}>

@@ -5,6 +5,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import { db } from "../../lib/firebase";
 import { getContentScope } from "../../lib/contentScope";
+import { normalizeContentType } from "../../lib/contentTypes";
 import { writeAuditLog } from "../../lib/auditLog";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
@@ -69,7 +70,10 @@ const POIManagement = ({ adminMode = false }) => {
       setAvailableContent(
         contentSnap.docs
           .map((item) => ({ id: item.id, ...item.data() }))
-          .filter((item) => getContentScope(item) === "POI"),
+          .filter((item) =>
+            getContentScope(item) === "POI" &&
+            (adminMode || ["Information", "Fun Fact"].includes(normalizeContentType(item.type))),
+          ),
       );
       setFormError("");
     } catch (error) {
@@ -80,7 +84,7 @@ const POIManagement = ({ adminMode = false }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [adminMode]);
 
   useEffect(() => onAuthStateChanged(getAuth(), async (user) => {
     if (!user) { setLoading(false); return; }
@@ -309,7 +313,12 @@ const POIManagement = ({ adminMode = false }) => {
         landmarkId: form.landmarkId,
         name: form.name.trim(),
         qrCode: sharedLandmarkQr,
-        contentIds: selectedContentIds,
+        contentIds: adminMode
+          ? selectedContentIds
+          : selectedContentIds.filter((contentId) =>
+            availableContent.some((item) => item.id === contentId) ||
+            (pois.find((poi) => poi.id === selectedPoiId)?.contentIds || []).includes(contentId),
+          ),
         updatedAt: serverTimestamp(),
       };
       const imageFields = uploadedImage
@@ -534,6 +543,11 @@ const POIManagement = ({ adminMode = false }) => {
           <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
             Assign Existing Content
           </label>
+          {!adminMode && (
+            <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
+              Institutions can attach Information and Fun Facts to POIs. Existing VR model and quiz attachments are preserved.
+            </small>
+          )}
           {availableContent.length === 0 ? (
             <small style={{ color: "#888" }}>No reusable POI content found.</small>
           ) : availableContent.map((item) => (

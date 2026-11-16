@@ -16,6 +16,9 @@ const ContentPreview = ({ content }) => {
 
   const data = content.data || {};
   const modelUrl = data.modelUrl || data.modelPath;
+  const facts = Array.isArray(data.facts) && data.facts.length
+    ? data.facts
+    : data.fact ? [data.fact] : [];
   const modelState = modelStates[modelUrl] || "loading";
   const updateModelState = (state) => setModelStates((current) => ({ ...current, [modelUrl]: state }));
 
@@ -38,9 +41,15 @@ const ContentPreview = ({ content }) => {
 
       {content.type === "Fun Fact" && (
         <div style={previewPanelStyle}>
-          <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
-            {data.fact || "No fun fact provided."}
-          </p>
+          {facts.length ? (
+            <ol>
+              {facts.map((fact, index) => (
+                <li key={index} style={{ marginBottom: "0.75rem", whiteSpace: "pre-wrap" }}>
+                  {fact}
+                </li>
+              ))}
+            </ol>
+          ) : "No fun facts provided."}
         </div>
       )}
 
@@ -51,7 +60,7 @@ const ContentPreview = ({ content }) => {
               key={modelUrl}
               src={modelUrl}
               crossOrigin="anonymous"
-              alt={content.title || "AR/VR model"}
+              alt={content.title || "VR model"}
               auto-rotate
               camera-controls
               camera-orbit="0deg 75deg auto"
@@ -62,7 +71,7 @@ const ContentPreview = ({ content }) => {
             />
             {modelState === "loading" && (
               <p style={{ ...previewPanelStyle, color: "#fbbf24" }}>
-                Loading AR/VR model (Uploading can take a while)...
+                Loading VR model (uploading can take a while)...
               </p>
             )}
             {modelState === "error" && (
@@ -78,11 +87,18 @@ const ContentPreview = ({ content }) => {
 
       {content.type === "Quiz" && (
         <div style={previewPanelStyle}>
+          <p>
+            Question order: {data.shuffleQuestions ? "shuffled" : "fixed"}; multiple-choice answers: {data.shuffleAnswers ? "shuffled" : "fixed"}.
+          </p>
           {data.quizzes?.length ? (
             <ol>
               {data.quizzes.map((quiz, index) => (
                 <li key={quiz.id || index} style={{ marginBottom: "0.75rem" }}>
-                  {quiz.question || "Unfinished question"} ({quiz.correctAnswer || "No answer"})
+                  {quiz.question || "Unfinished question"}{" "}
+                  {quiz.questionType === "multiple-choice" && quiz.options?.length
+                    ? `[${quiz.options.join(" / ")}] `
+                    : ""}
+                  (Correct: {quiz.correctAnswer || "No answer"})
                 </li>
               ))}
             </ol>

@@ -14,6 +14,16 @@ To seed a test POI manually, upload its photo under `markers/{institutionId}/` i
 
 The Unity project in this repository does not yet contain the mobile app’s Firestore scan flow or runtime image-tracking scripts; adding these portal fields alone does not enable AR tracking.
 
+## Institution content limits
+
+Institutions can create one Information item, one Quiz, and one VR Model per institution. A quiz can contain multiple true/false or multiple-choice questions and can save shuffle settings for question order and choices. Fun Fact content can contain multiple entries. POIs can be assigned Information and Fun Fact content by institution accounts; VR models and quizzes are limited to landmark content. Existing legacy model type names are normalized to **VR Model** in the portal.
+
+The quiz builder stores its question types and shuffle settings, but this repository does not include the mobile quiz runtime that would consume them.
+
+## Testing temporary site access
+
+Site-access passes can be granted for 30 minutes, 1 hour, or 24 hours. For a one-minute local test option, set `VITE_SITE_ACCESS_DURATION_MS=60000` in `web-portal/.env.local` and restart the dev server; remove the setting to hide that test option. Expiry is derived from `expiresAt`: the Firestore `status` remains `paid`, while the admin page shows the pass as expired and switches its selector to Inactive when the expiration time arrives. The Unity project does not currently contain the phone app’s paid-access check, so this only tests pass issuance and display in the web portal.
+
 ## User analytics data contract
 
 The analytics screens read two Firestore collections. They are intentionally read-only until the phone app or a trusted backend begins writing data:

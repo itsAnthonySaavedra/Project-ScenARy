@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   onSnapshot,
   Timestamp,
+  deleteField,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
@@ -47,11 +48,58 @@ interface Institution {
 
 interface SiteAccessRecord {
   status?: string;
+  durationMs?: number;
   expiresAt?: { toDate?: () => Date };
 }
 
-type EditableSiteAccessStatus = "paid" | "inactive";
-const SITE_ACCESS_DURATION_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_SITE_ACCESS_DURATION_MS = 24 * 60 * 60 * 1000;
+const configuredSiteAccessDuration = import.meta.env.VITE_SITE_ACCESS_DURATION_MS;
+const SITE_ACCESS_TEST_DURATION_MS =
+  configuredSiteAccessDuration === undefined
+    ? null
+    : Number(configuredSiteAccessDuration);
+
+if (
+  SITE_ACCESS_TEST_DURATION_MS !== null &&
+  (!Number.isSafeInteger(SITE_ACCESS_TEST_DURATION_MS) || SITE_ACCESS_TEST_DURATION_MS <= 0)
+) {
+  throw new Error("VITE_SITE_ACCESS_DURATION_MS must be a positive whole number of milliseconds.");
+}
+
+const formatAccessDuration = (durationMs: number) => {
+  const units = [
+    { milliseconds: 24 * 60 * 60 * 1000, label: "day" },
+    { milliseconds: 60 * 60 * 1000, label: "hour" },
+    { milliseconds: 60 * 1000, label: "minute" },
+    { milliseconds: 1000, label: "second" },
+    { milliseconds: 1, label: "millisecond" },
+  ];
+  const unit = units.find(({ milliseconds }) =>
+    durationMs >= milliseconds && durationMs % milliseconds === 0,
+  ) || units[units.length - 1];
+  const amount = durationMs / unit.milliseconds;
+  return `${amount} ${unit.label}${amount === 1 ? "" : "s"}`;
+};
+
+const standardSiteAccessDurations = [
+  { durationMs: 30 * 60 * 1000, label: "Paid for 30 minutes" },
+  { durationMs: 60 * 60 * 1000, label: "Paid for 1 hour" },
+  { durationMs: DEFAULT_SITE_ACCESS_DURATION_MS, label: "Paid for 24 hours" },
+];
+const siteAccessDurationOptions = [
+  ...(SITE_ACCESS_TEST_DURATION_MS !== null &&
+  !standardSiteAccessDurations.some((option) => option.durationMs === SITE_ACCESS_TEST_DURATION_MS)
+    ? [{
+        durationMs: SITE_ACCESS_TEST_DURATION_MS,
+        label: `Paid for ${formatAccessDuration(SITE_ACCESS_TEST_DURATION_MS)} (test)`,
+      }]
+    : []),
+  ...standardSiteAccessDurations,
+];
+
+const isSiteAccessPaid = (record: SiteAccessRecord | undefined, now: number) =>
+  record?.status === "paid" &&
+  (record.expiresAt?.toDate?.().getTime() ?? 0) > now;
 
 const generateTemporaryPassword = () => {
   const characters =
@@ -108,6 +156,7 @@ const UserManagement: React.FC = () => {
   const [siteAccessLoading, setSiteAccessLoading] = useState(false);
   const [siteAccessSavingUserId, setSiteAccessSavingUserId] = useState("");
   const [siteAccessError, setSiteAccessError] = useState("");
+  const [siteAccessNow, setSiteAccessNow] = useState(() => Date.now());
 
   /* =====================
      LOAD DATA
@@ -200,6 +249,23 @@ const UserManagement: React.FC = () => {
       active = false;
     };
   }, [accessSiteId]);
+
+  useEffect(() => {
+    const nextExpiry = Object.values(siteAccessByUser)
+      .filter((record) => record.status === "paid")
+      .map((record) => record.expiresAt?.toDate?.().getTime())
+      .filter((expiresAt): expiresAt is number =>
+        Number.isFinite(expiresAt) && expiresAt > siteAccessNow,
+      )
+      .sort((first, second) => first - second)[0];
+
+    if (nextExpiry === undefined) return undefined;
+    const timer = window.setTimeout(
+      () => setSiteAccessNow(Date.now()),
+      nextExpiry - siteAccessNow,
+    );
+    return () => window.clearTimeout(timer);
+  }, [siteAccessByUser, siteAccessNow]);
 
   /* =====================
      ACTIONS
@@ -536,17 +602,17 @@ const UserManagement: React.FC = () => {
 
   const handleSiteAccessStatusChange = async (
     user: UserType,
-    status: EditableSiteAccessStatus,
+    durationMs: number | null,
   ) => {
     const site = institutions.find((institution) => institution.id === accessSiteId);
     if (user.role !== "user" || !site?.requiresPaidAccess) return;
 
     setSiteAccessSavingUserId(user.id);
     setSiteAccessError("");
-    const expiresAt =
-      status === "paid"
-        ? Timestamp.fromDate(new Date(Date.now() + SITE_ACCESS_DURATION_MS))
-        : null;
+    const status = durationMs === null ? "inactive" : "paid";
+    const expiresAt = durationMs === null
+      ? null
+      : Timestamp.fromDate(new Date(Date.now() + durationMs));
 
     try {
       await setDoc(
@@ -558,9 +624,9 @@ const UserManagement: React.FC = () => {
           demo: true,
           updatedAt: serverTimestamp(),
           updatedBy: authUser?.uid,
-          ...(status === "paid"
-            ? { paidAt: serverTimestamp(), expiresAt }
-            : {}),
+          ...(durationMs === null
+            ? { expiresAt: deleteField(), durationMs: deleteField() }
+            : { paidAt: serverTimestamp(), expiresAt, durationMs }),
         },
         { merge: true },
       );
@@ -571,7 +637,9 @@ const UserManagement: React.FC = () => {
           userId: user.id,
           institutionId: site.id,
           status,
-          ...(status === "paid" ? { expiresAt } : {}),
+          ...(durationMs === null
+            ? { expiresAt: undefined, durationMs: undefined }
+            : { expiresAt, durationMs }),
         },
       }));
       await writeAuditLog({
@@ -580,7 +648,7 @@ const UserManagement: React.FC = () => {
         action: `site-access.${status === "paid" ? "demo-pass-granted" : "pass-revoked"}`,
         entityType: "site-access",
         entityId: `${site.id}/${user.id}`,
-        metadata: { institutionId: site.id, status, expiresAt },
+        metadata: { institutionId: site.id, status, expiresAt, durationMs },
       });
     } catch (error) {
       console.error("Unable to update user site access:", error);
@@ -731,25 +799,34 @@ const UserManagement: React.FC = () => {
                             className={commonStyles.formControl}
                             aria-label={`Site access for ${user.name}`}
                             value={
-                              siteAccessByUser[user.id]?.status === "paid" &&
-                              siteAccessByUser[user.id]?.expiresAt?.toDate?.() > new Date()
-                                ? "paid"
+                              isSiteAccessPaid(siteAccessByUser[user.id], siteAccessNow)
+                                ? typeof siteAccessByUser[user.id]?.durationMs === "number"
+                                  ? String(siteAccessByUser[user.id].durationMs)
+                                  : "legacy"
                                 : "inactive"
                             }
-                            onChange={(event) =>
-                              handleSiteAccessStatusChange(
-                                user,
-                                event.target.value as EditableSiteAccessStatus,
-                              )
-                            }
+                            onChange={(event) => handleSiteAccessStatusChange(
+                              user,
+                              event.target.value === "inactive"
+                                ? null
+                                : Number(event.target.value),
+                            )}
                             disabled={siteAccessSavingUserId === user.id}
                           >
                             <option value="inactive">Inactive</option>
-                            <option value="paid">Paid for 24 hours</option>
+                            {isSiteAccessPaid(siteAccessByUser[user.id], siteAccessNow) &&
+                              typeof siteAccessByUser[user.id]?.durationMs !== "number" && (
+                                <option value="legacy" disabled>Current paid pass</option>
+                              )}
+                            {siteAccessDurationOptions.map((option) => (
+                              <option key={option.durationMs} value={option.durationMs}>
+                                {option.label}
+                              </option>
+                            ))}
                           </select>
                           {siteAccessByUser[user.id]?.status === "paid" && (
                             <small style={{ display: "block", marginTop: "0.35rem" }}>
-                              {siteAccessByUser[user.id]?.expiresAt?.toDate?.() > new Date()
+                              {isSiteAccessPaid(siteAccessByUser[user.id], siteAccessNow)
                                 ? `Expires ${formatUserDate(siteAccessByUser[user.id]?.expiresAt)}`
                                 : `Expired ${formatUserDate(siteAccessByUser[user.id]?.expiresAt)}`}
                             </small>
@@ -969,7 +1046,7 @@ const UserManagement: React.FC = () => {
               )}
               {!currentInst && (
                 <p style={{ color: "#a8a29e", marginTop: 0 }}>
-                  After registration, the site is marked incomplete until it has at least one quality-ready, Published Information item and one quality-ready, Published AR/VR model. Staff can sign in and complete setup meanwhile.
+                  After registration, the site is marked incomplete until it has one quality-ready, Published Information item and one quality-ready, Published VR model. Staff can sign in and complete setup meanwhile.
                 </p>
               )}
               <div className={commonStyles.formGroup}>
