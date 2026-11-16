@@ -22,7 +22,20 @@ The quiz builder stores its question types and shuffle settings, but this reposi
 
 ## Testing temporary site access
 
-Site-access passes can be granted for 30 minutes, 1 hour, or 24 hours. For a one-minute local test option, set `VITE_SITE_ACCESS_DURATION_MS=60000` in `web-portal/.env.local` and restart the dev server; remove the setting to hide that test option. Expiry is derived from `expiresAt`: the Firestore `status` remains `paid`, while the admin page shows the pass as expired and switches its selector to Inactive when the expiration time arrives. The Unity project does not currently contain the phone app’s paid-access check, so this only tests pass issuance and display in the web portal.
+Site-access passes can be granted for 30 minutes, 1 hour, or 24 hours. For a one-minute local test option, set `VITE_SITE_ACCESS_DURATION_MS=60000` in `web-portal/.env.local` and restart the dev server; remove the setting to hide that test option. Access expiry is determined from `expiresAt`.
+
+### Persisting expired status
+
+The scheduled `expireSiteAccessPasses` Cloud Function checks paid passes every minute and changes expired records at `siteAccess/{institutionId}/users/{userId}` to `status: "expired"`. The admin page listens to Firestore updates and shows the persisted status. The function is in `functions/` and needs Cloud Scheduler enabled and the Firebase project on the Blaze plan.
+
+Deploy the composite index first and wait for it to finish building, then deploy the function:
+
+```powershell
+firebase deploy --only firestore:indexes
+firebase deploy --only functions:expireSiteAccessPasses
+```
+
+One job runs about 43,200 times per 30-day month. Firebase currently includes 3 Cloud Scheduler jobs per Google account at no charge; Cloud Functions includes 2 million invocations/month and Firestore includes 50,000 reads/day on Blaze. This workload should normally fit those no-cost allowances, but Blaze requires a billing account and actual charges depend on usage and region. See [Firebase pricing](https://firebase.google.com/pricing) and [scheduled functions](https://firebase.google.com/docs/functions/schedule-functions). The function marks records within about one minute of expiry; access checks should still compare `expiresAt`. The Unity project does not currently contain the phone app’s paid-access check.
 
 ## User analytics data contract
 

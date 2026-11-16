@@ -221,33 +221,28 @@ const UserManagement: React.FC = () => {
       return undefined;
     }
 
-    let active = true;
     setSiteAccessLoading(true);
     setSiteAccessError("");
 
-    getDocs(collection(db, "siteAccess", accessSiteId, "users"))
-      .then((snapshot) => {
-        if (!active) return;
+    return onSnapshot(
+      collection(db, "siteAccess", accessSiteId, "users"),
+      (snapshot) => {
         setSiteAccessByUser(
           Object.fromEntries(
             snapshot.docs.map((accessDoc) => [accessDoc.id, accessDoc.data()]),
           ),
         );
-      })
-      .catch((error) => {
-        if (!active) return;
+        setSiteAccessLoading(false);
+        setSiteAccessError("");
+      },
+      (error) => {
         console.error("Unable to load site access statuses:", error);
         setSiteAccessError(
           getFirebaseErrorMessage(error, "Unable to load site access statuses."),
         );
-      })
-      .finally(() => {
-        if (active) setSiteAccessLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
+        setSiteAccessLoading(false);
+      },
+    );
   }, [accessSiteId]);
 
   useEffect(() => {
@@ -626,7 +621,12 @@ const UserManagement: React.FC = () => {
           updatedBy: authUser?.uid,
           ...(durationMs === null
             ? { expiresAt: deleteField(), durationMs: deleteField() }
-            : { paidAt: serverTimestamp(), expiresAt, durationMs }),
+            : {
+                paidAt: serverTimestamp(),
+                expiresAt,
+                durationMs,
+                expiredAt: deleteField(),
+              }),
         },
         { merge: true },
       );
@@ -824,11 +824,12 @@ const UserManagement: React.FC = () => {
                               </option>
                             ))}
                           </select>
-                          {siteAccessByUser[user.id]?.status === "paid" && (
+                          {["paid", "expired"].includes(siteAccessByUser[user.id]?.status || "") && (
                             <small style={{ display: "block", marginTop: "0.35rem" }}>
-                              {isSiteAccessPaid(siteAccessByUser[user.id], siteAccessNow)
-                                ? `Expires ${formatUserDate(siteAccessByUser[user.id]?.expiresAt)}`
-                                : `Expired ${formatUserDate(siteAccessByUser[user.id]?.expiresAt)}`}
+                              {siteAccessByUser[user.id]?.status === "expired" ||
+                              !isSiteAccessPaid(siteAccessByUser[user.id], siteAccessNow)
+                                ? `Expired ${formatUserDate(siteAccessByUser[user.id]?.expiresAt)}`
+                                : `Expires ${formatUserDate(siteAccessByUser[user.id]?.expiresAt)}`}
                             </small>
                           )}
                         </>
