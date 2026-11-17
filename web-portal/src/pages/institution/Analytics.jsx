@@ -26,6 +26,7 @@ import {
   toRating,
 } from "../../lib/userAnalytics";
 import { MODEL_CONTENT_TYPE, LEGACY_MODEL_CONTENT_TYPES } from "../../lib/contentTypes";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import dashboardStyles from "../../components/features/dashboard/Dashboard.module.css";
 
 ChartJS.register(
@@ -59,11 +60,15 @@ const InstituteAnalytics = () => {
   const [feedbackPeriod, setFeedbackPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [siteRevenue, setSiteRevenue] = useState({ amountCentavos: 0, passCount: 0 });
+  const [siteRevenueLoading, setSiteRevenueLoading] = useState(true);
+  const [siteRevenueError, setSiteRevenueError] = useState("");
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setLoading(false);
+        setSiteRevenueLoading(false);
         return;
       }
 
@@ -72,16 +77,44 @@ const InstituteAnalytics = () => {
         const institutionId = profile.data()?.institutionId;
         if (!institutionId) {
           setLoading(false);
+          setSiteRevenueLoading(false);
           return;
         }
 
-        const [contentSnap, landmarkSnap, poiSnap, analyticsRows, feedbackRows] = await Promise.all([
+        setSiteRevenueLoading(true);
+        setSiteRevenueError("");
+        const [contentSnap, landmarkSnap, poiSnap, analyticsRows, feedbackRows, revenueSnap] = await Promise.all([
           getDocs(query(collection(db, "content"), where("institutionId", "==", institutionId))),
           getDocs(query(collection(db, "landmarks"), where("institutionId", "==", institutionId))),
           getDocs(query(collection(db, "pois"), where("institutionId", "==", institutionId))),
           loadUserAnalytics(institutionId),
           loadFeedback(institutionId),
+          getDocs(collection(db, "siteAccess", institutionId, "transactions")).catch((revenueLoadError) => {
+            console.error("Unable to load institution site revenue:", revenueLoadError);
+            setSiteRevenueError(
+              getFirebaseErrorMessage(revenueLoadError, "Unable to load recorded pass revenue."),
+            );
+            return null;
+          }),
         ]);
+
+        if (revenueSnap) {
+          const transactions = revenueSnap.docs
+            .map((item) => item.data())
+            .filter(
+              (item) =>
+                item.currency === "PHP" &&
+                Number.isSafeInteger(item.amountCentavos) &&
+                item.amountCentavos >= 0,
+            );
+          setSiteRevenue({
+            amountCentavos: transactions.reduce((total, item) => total + item.amountCentavos, 0),
+            passCount: transactions.length,
+          });
+        } else {
+          setSiteRevenue({ amountCentavos: 0, passCount: 0 });
+        }
+        setSiteRevenueLoading(false);
 
         const byType = contentSnap.docs.reduce((counts, item) => {
           const type = item.data().type || "Other";
@@ -105,6 +138,7 @@ const InstituteAnalytics = () => {
       } catch (fetchError) {
         console.error("Unable to load institution analytics:", fetchError);
         setError("Unable to load live analytics.");
+        setSiteRevenueLoading(false);
       } finally {
         setLoading(false);
       }
@@ -160,6 +194,14 @@ const InstituteAnalytics = () => {
   const institutionQuizAverage = engagementTotals.quizQuestions
     ? (engagementTotals.quizCorrect / engagementTotals.quizQuestions) * 100
     : null;
+  const siteRevenueLabel = siteRevenueError
+    ? "Unavailable"
+    : siteRevenueLoading
+      ? "Loading..."
+      : new Intl.NumberFormat("en-PH", {
+        style: "currency",
+        currency: "PHP",
+      }).format(siteRevenue.amountCentavos / 100);
   const selectedUserFeedback = selectedUser
     ? feedbackForPeriod.filter((item) => item.userId === (selectedUser.userId || selectedUser.id))
     : [];
@@ -238,6 +280,18 @@ const InstituteAnalytics = () => {
         </div>
         <div className={dashboardStyles.statCard}>
           <div className={dashboardStyles.statIcon}>
+            <i className="fa-solid fa-coins"></i>
+          </div>
+          <div className={dashboardStyles.statInfo}>
+            <h3>Recorded Pass Revenue</h3>
+            <div className={dashboardStyles.value}>{siteRevenueLabel}</div>
+            <small style={{ color: "#888" }}>
+              {siteRevenue.passCount} recorded day passes
+            </small>
+          </div>
+        </div>
+        <div className={dashboardStyles.statCard}>
+          <div className={dashboardStyles.statIcon}>
             <i className="fa-solid fa-location-dot"></i>
           </div>
           <div className={dashboardStyles.statInfo}>
@@ -263,6 +317,13 @@ const InstituteAnalytics = () => {
           <div className={dashboardStyles.statInfo}><h3>Average Rating</h3><div className={dashboardStyles.value}>{ratingStats.average === null ? "-" : `${ratingStats.average.toFixed(1)} / 5`}</div><small style={{ color: "#888" }}>{ratingStats.reviewCount} reviews</small></div>
         </div>
       </div>
+      {siteRevenueError ? (
+        <p role="alert" style={{ color: "#fca5a5" }}>{siteRevenueError}</p>
+      ) : (
+        <p style={{ color: "#888" }}>
+          Revenue reflects admin-granted day passes recorded for your institution. One-minute tests and phone purchases are not included.
+        </p>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1rem", marginBottom: "2.5rem" }}>
         <section className={dashboardStyles.chartCard}>

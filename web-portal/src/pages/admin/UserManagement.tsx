@@ -15,6 +15,7 @@ import {
   onSnapshot,
   Timestamp,
   deleteField,
+  writeBatch,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
@@ -47,6 +48,7 @@ interface Institution {
   joined?: string;
   isActive?: boolean;
   requiresPaidAccess?: boolean;
+  dayPassPriceCentavos?: number | null;
 }
 
 interface SiteAccessRecord {
@@ -55,19 +57,13 @@ interface SiteAccessRecord {
   expiresAt?: { toDate?: () => Date };
 }
 
-const DEFAULT_SITE_ACCESS_DURATION_MS = 24 * 60 * 60 * 1000;
-const configuredSiteAccessDuration = import.meta.env.VITE_SITE_ACCESS_DURATION_MS;
-const SITE_ACCESS_TEST_DURATION_MS =
-  configuredSiteAccessDuration === undefined
-    ? null
-    : Number(configuredSiteAccessDuration);
-
-if (
-  SITE_ACCESS_TEST_DURATION_MS !== null &&
-  (!Number.isSafeInteger(SITE_ACCESS_TEST_DURATION_MS) || SITE_ACCESS_TEST_DURATION_MS <= 0)
-) {
-  throw new Error("VITE_SITE_ACCESS_DURATION_MS must be a positive whole number of milliseconds.");
+interface SiteAccessRevenueRecord {
+  amountCentavos?: number;
+  currency?: string;
 }
+
+const DEFAULT_SITE_ACCESS_DURATION_MS = 24 * 60 * 60 * 1000;
+const SITE_ACCESS_TEST_DURATION_MS = 60 * 1000;
 
 const formatAccessDuration = (durationMs: number) => {
   const units = [
@@ -84,25 +80,23 @@ const formatAccessDuration = (durationMs: number) => {
   return `${amount} ${unit.label}${amount === 1 ? "" : "s"}`;
 };
 
-const standardSiteAccessDurations = [
-  { durationMs: 30 * 60 * 1000, label: "Paid for 30 minutes" },
-  { durationMs: 60 * 60 * 1000, label: "Paid for 1 hour" },
-  { durationMs: DEFAULT_SITE_ACCESS_DURATION_MS, label: "Paid for 24 hours" },
-];
 const siteAccessDurationOptions = [
-  ...(SITE_ACCESS_TEST_DURATION_MS !== null &&
-  !standardSiteAccessDurations.some((option) => option.durationMs === SITE_ACCESS_TEST_DURATION_MS)
-    ? [{
-        durationMs: SITE_ACCESS_TEST_DURATION_MS,
-        label: `Paid for ${formatAccessDuration(SITE_ACCESS_TEST_DURATION_MS)} (test)`,
-      }]
-    : []),
-  ...standardSiteAccessDurations,
+  {
+    durationMs: SITE_ACCESS_TEST_DURATION_MS,
+    label: `Test pass for ${formatAccessDuration(SITE_ACCESS_TEST_DURATION_MS)} (no revenue)`,
+  },
+  { durationMs: DEFAULT_SITE_ACCESS_DURATION_MS, label: "Paid for 24 hours" },
 ];
 
 const isSiteAccessPaid = (record: SiteAccessRecord | undefined, now: number) =>
   record?.status === "paid" &&
   (record.expiresAt?.toDate?.().getTime() ?? 0) > now;
+
+const formatPhp = (amountCentavos: number) =>
+  new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+  }).format(amountCentavos / 100);
 
 const generateTemporaryPassword = () => {
   const characters =
@@ -160,6 +154,11 @@ const UserManagement: React.FC = () => {
   const [siteAccessSavingUserId, setSiteAccessSavingUserId] = useState("");
   const [siteAccessError, setSiteAccessError] = useState("");
   const [siteAccessNow, setSiteAccessNow] = useState(() => Date.now());
+  const [siteAccessRevenueCentavos, setSiteAccessRevenueCentavos] = useState(0);
+  const [siteAccessRevenueCount, setSiteAccessRevenueCount] = useState(0);
+  const [siteAccessRevenueLoading, setSiteAccessRevenueLoading] = useState(false);
+  const [siteAccessRevenueError, setSiteAccessRevenueError] = useState("");
+  const accessSite = institutions.find((institution) => institution.id === accessSiteId);
 
   /* =====================
      LOAD DATA
@@ -185,6 +184,9 @@ const UserManagement: React.FC = () => {
         joined: d.data().joined || "",
         isActive: d.data().isActive !== false,
         requiresPaidAccess: d.data().requiresPaidAccess === true,
+        dayPassPriceCentavos: Number.isSafeInteger(d.data().dayPassPriceCentavos)
+          ? d.data().dayPassPriceCentavos
+          : null,
       })),
     );
   };
@@ -264,6 +266,50 @@ const UserManagement: React.FC = () => {
     );
     return () => window.clearTimeout(timer);
   }, [siteAccessByUser, siteAccessNow]);
+
+  useEffect(() => {
+    if (!accessSiteId) {
+      setSiteAccessRevenueCentavos(0);
+      setSiteAccessRevenueCount(0);
+      setSiteAccessRevenueLoading(false);
+      setSiteAccessRevenueError("");
+      return undefined;
+    }
+
+    setSiteAccessRevenueLoading(true);
+    setSiteAccessRevenueCentavos(0);
+    setSiteAccessRevenueCount(0);
+    setSiteAccessRevenueError("");
+
+    return onSnapshot(
+      collection(db, "siteAccess", accessSiteId, "transactions"),
+      (snapshot) => {
+        const validRecords = snapshot.docs
+          .map((transaction) => transaction.data() as SiteAccessRevenueRecord)
+          .filter(
+            (transaction) =>
+              transaction.currency === "PHP" &&
+              Number.isSafeInteger(transaction.amountCentavos) &&
+              (transaction.amountCentavos || 0) >= 0,
+          );
+        setSiteAccessRevenueCentavos(
+          validRecords.reduce(
+            (total, transaction) => total + (transaction.amountCentavos || 0),
+            0,
+          ),
+        );
+        setSiteAccessRevenueCount(validRecords.length);
+        setSiteAccessRevenueLoading(false);
+      },
+      (error) => {
+        console.error("Unable to load site access revenue records:", error);
+        setSiteAccessRevenueError(
+          getFirebaseErrorMessage(error, "Unable to load site access revenue."),
+        );
+        setSiteAccessRevenueLoading(false);
+      },
+    );
+  }, [accessSiteId]);
 
   /* =====================
      ACTIONS
@@ -351,12 +397,27 @@ const UserManagement: React.FC = () => {
   const handleInstSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.target as any;
+    const rawDayPassPrice = String(form.dayPassPrice.value).trim();
+    const dayPassPrice = rawDayPassPrice === "" ? null : Number(rawDayPassPrice);
+    if (
+      dayPassPrice !== null &&
+      (!Number.isFinite(dayPassPrice) ||
+        dayPassPrice < 0 ||
+        !/^\d+(\.\d{1,2})?$/.test(rawDayPassPrice) ||
+        !Number.isSafeInteger(Math.round(dayPassPrice * 100)))
+    ) {
+      setInstitutionFormError("Enter a valid day-pass price with up to two decimal places.");
+      return;
+    }
+
     const data = {
       name: form.name.value.trim(),
       location: form.location.value.trim(),
       curator: form.curator.value.trim(),
       joined: currentInst?.joined || new Date().toISOString().split("T")[0],
       requiresPaidAccess: form.requiresPaidAccess.checked,
+      dayPassPriceCentavos:
+        dayPassPrice === null ? null : Math.round(dayPassPrice * 100),
     };
 
     if (!data.name || !data.location || !data.curator) {
@@ -617,8 +678,20 @@ const UserManagement: React.FC = () => {
     user: UserType,
     durationMs: number | null,
   ) => {
-    const site = institutions.find((institution) => institution.id === accessSiteId);
+    const site = accessSite;
     if (user.role !== "user" || !site?.requiresPaidAccess) return;
+    const dayPassPriceCentavos =
+      typeof site.dayPassPriceCentavos === "number" &&
+      Number.isSafeInteger(site.dayPassPriceCentavos)
+        ? site.dayPassPriceCentavos
+        : null;
+    if (
+      durationMs === DEFAULT_SITE_ACCESS_DURATION_MS &&
+      dayPassPriceCentavos === null
+    ) {
+      setSiteAccessError("Set this institution's day-pass price before granting a day pass.");
+      return;
+    }
 
     setSiteAccessSavingUserId(user.id);
     setSiteAccessError("");
@@ -628,51 +701,87 @@ const UserManagement: React.FC = () => {
       : Timestamp.fromDate(new Date(Date.now() + durationMs));
 
     try {
-      await setDoc(
-        doc(db, "siteAccess", site.id, "users", user.id),
-        {
-          userId: user.id,
-          institutionId: site.id,
-          status,
-          demo: true,
-          updatedAt: serverTimestamp(),
-          updatedBy: authUser?.uid,
-          ...(durationMs === null
-            ? { expiresAt: deleteField(), durationMs: deleteField() }
-            : {
-                paidAt: serverTimestamp(),
-                expiresAt,
-                durationMs,
-                expiredAt: deleteField(),
-              }),
-        },
-        { merge: true },
-      );
-      setSiteAccessByUser((current) => ({
-        ...current,
-        [user.id]: {
-          ...current[user.id],
-          userId: user.id,
-          institutionId: site.id,
-          status,
-          ...(durationMs === null
-            ? { expiresAt: undefined, durationMs: undefined }
-            : { expiresAt, durationMs }),
-        },
-      }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(
+          doc(db, "siteAccess", site.id, "users", user.id),
+          {
+            userId: user.id,
+            institutionId: site.id,
+            status,
+            demo: true,
+            updatedAt: serverTimestamp(),
+            updatedBy: authUser?.uid,
+            ...(durationMs === null
+              ? { expiresAt: deleteField(), durationMs: deleteField() }
+              : {
+                  paidAt: serverTimestamp(),
+                  expiresAt,
+                  durationMs,
+                  expiredAt: deleteField(),
+                }),
+          },
+          { merge: true },
+        );
+        if (
+          durationMs === DEFAULT_SITE_ACCESS_DURATION_MS &&
+          dayPassPriceCentavos !== null
+        ) {
+          batch.set(doc(collection(db, "siteAccess", site.id, "transactions")), {
+            institutionId: site.id,
+            userId: user.id,
+            type: "admin_day_pass",
+            source: "admin",
+            amountCentavos: dayPassPriceCentavos,
+            currency: "PHP",
+            durationMs,
+            createdAt: serverTimestamp(),
+            createdBy: authUser?.uid || null,
+          });
+        }
+        await batch.commit();
+        setSiteAccessByUser((current) => ({
+          ...current,
+          [user.id]: {
+            ...current[user.id],
+            userId: user.id,
+            institutionId: site.id,
+            status,
+            ...(durationMs === null
+              ? { expiresAt: undefined, durationMs: undefined }
+              : { expiresAt, durationMs }),
+          },
+        }));
+      } catch (error) {
+        console.error("Unable to update user site access:", error);
+        setSiteAccessError(
+          getFirebaseErrorMessage(error, "Unable to update this user's site access."),
+        );
+        return;
+      }
+
       await writeAuditLog({
         actorId: authUser?.uid,
         actorRole: currentRole,
         action: `site-access.${status === "paid" ? "demo-pass-granted" : "pass-revoked"}`,
         entityType: "site-access",
         entityId: `${site.id}/${user.id}`,
-        metadata: { institutionId: site.id, status, expiresAt, durationMs },
+        metadata: {
+          institutionId: site.id,
+          status,
+          expiresAt,
+          durationMs,
+          ...(durationMs === DEFAULT_SITE_ACCESS_DURATION_MS
+            ? {
+                amountCentavos: dayPassPriceCentavos,
+                currency: "PHP",
+              }
+            : {}),
+        },
       });
-    } catch (error) {
-      console.error("Unable to update user site access:", error);
-      setSiteAccessError(
-        getFirebaseErrorMessage(error, "Unable to update this user's site access."),
-      );
+    } catch (auditError) {
+      console.error("Site access was updated, but its audit record could not be written:", auditError);
+      setSiteAccessError("Site access was updated, but its activity record could not be written.");
     } finally {
       setSiteAccessSavingUserId("");
     }
@@ -764,6 +873,37 @@ const UserManagement: React.FC = () => {
                 </option>
               ))}
             </select>
+            <div
+              role="status"
+              style={{
+                color: "#ddd",
+                padding: "0.5rem 0.75rem",
+                border: "1px solid rgba(255,255,255,.15)",
+                borderRadius: 6,
+                minWidth: 250,
+              }}
+            >
+              <div>
+                Day pass:{" "}
+                {Number.isSafeInteger(accessSite?.dayPassPriceCentavos)
+                  ? formatPhp(accessSite?.dayPassPriceCentavos || 0)
+                  : "Price not configured"}
+              </div>
+              <div>
+                Recorded revenue:{" "}
+                {siteAccessRevenueLoading
+                  ? "Loading..."
+                  : `${formatPhp(siteAccessRevenueCentavos)} (${siteAccessRevenueCount} pass${siteAccessRevenueCount === 1 ? "" : "es"})`}
+              </div>
+              {siteAccessRevenueError && (
+                <div role="alert" style={{ color: "#fca5a5" }}>
+                  {siteAccessRevenueError}
+                </div>
+              )}
+              <small style={{ color: "#a8a29e" }}>
+                Admin-granted day passes count at the saved price; one-minute tests are excluded. Phone purchases are not included yet.
+              </small>
+            </div>
             <button className={tableStyles.btnAdd} onClick={handleAdd}>
               <i className="fa-solid fa-plus" style={{ marginRight: "0.5rem" }}></i>
               Add User
@@ -840,14 +980,40 @@ const UserManagement: React.FC = () => {
                           >
                             <option value="inactive">Inactive</option>
                             {isSiteAccessPaid(siteAccessByUser[user.id], siteAccessNow) &&
+                              typeof siteAccessByUser[user.id]?.durationMs === "number" &&
+                              !siteAccessDurationOptions.some(
+                                (option) =>
+                                  option.durationMs === siteAccessByUser[user.id]?.durationMs,
+                              ) && (
+                                <option
+                                  value={String(siteAccessByUser[user.id]?.durationMs)}
+                                  disabled
+                                >
+                                  Existing pass (
+                                  {formatAccessDuration(siteAccessByUser[user.id]?.durationMs || 0)})
+                                </option>
+                              )}
+                            {isSiteAccessPaid(siteAccessByUser[user.id], siteAccessNow) &&
                               typeof siteAccessByUser[user.id]?.durationMs !== "number" && (
                                 <option value="legacy" disabled>Current paid pass</option>
                               )}
-                            {siteAccessDurationOptions.map((option) => (
-                              <option key={option.durationMs} value={option.durationMs}>
-                                {option.label}
-                              </option>
-                            ))}
+                            {siteAccessDurationOptions.map((option) => {
+                              const dayPriceConfigured =
+                                Number.isSafeInteger(accessSite?.dayPassPriceCentavos);
+                              const isDayPass =
+                                option.durationMs === DEFAULT_SITE_ACCESS_DURATION_MS;
+                              return (
+                                <option
+                                  key={option.durationMs}
+                                  value={option.durationMs}
+                                  disabled={isDayPass && !dayPriceConfigured}
+                                >
+                                  {isDayPass && dayPriceConfigured
+                                    ? `${option.label} (${formatPhp(accessSite?.dayPassPriceCentavos || 0)})`
+                                    : option.label}
+                                </option>
+                              );
+                            })}
                           </select>
                           {["paid", "expired"].includes(siteAccessByUser[user.id]?.status || "") && (
                             <small style={{ display: "block", marginTop: "0.35rem" }}>
@@ -1100,6 +1266,27 @@ const UserManagement: React.FC = () => {
               <div className={commonStyles.formGroup}>
                 <label>Head Curator</label>
                 <input name="curator" className={commonStyles.formControl} defaultValue={currentInst?.curator} required />
+              </div>
+
+              <div className={commonStyles.formGroup}>
+                <label htmlFor="institution-day-pass-price">24-hour pass price (PHP)</label>
+                <input
+                  id="institution-day-pass-price"
+                  name="dayPassPrice"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className={commonStyles.formControl}
+                  defaultValue={
+                    currentInst?.dayPassPriceCentavos == null
+                      ? ""
+                      : (currentInst.dayPassPriceCentavos / 100).toFixed(2)
+                  }
+                  placeholder="e.g. 50.00"
+                />
+                <small style={{ color: "#a8a29e" }}>
+                  Leave blank until the site price is configured. Fort San Pedro can be set to ₱50.00.
+                </small>
               </div>
 
               <label style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>

@@ -22,7 +22,13 @@ The quiz builder stores its question types and shuffle settings, but this reposi
 
 ## Testing temporary site access
 
-Site-access passes can be granted for 30 minutes, 1 hour, or 24 hours. For a one-minute local test option, set `VITE_SITE_ACCESS_DURATION_MS=60000` in `web-portal/.env.local` and restart the dev server; remove the setting to hide that test option. Access expiry is determined from `expiresAt`.
+Site-access passes can be granted for a one-minute test or 24 hours. One-minute test passes do not add revenue.
+
+Each institution can store its 24-hour pass price as `dayPassPriceCentavos` on `institutions/{institutionId}`. The value is an integer number of PHP centavos (for example, ₱50.00 is `5000`). A day pass cannot be granted until a price is configured.
+
+Admin-granted day passes add a record to `siteAccess/{institutionId}/transactions/{transactionId}` with `amountCentavos`, `currency`, `durationMs`, `type`, `source`, `userId`, and creation metadata. User Management shows the selected site's revenue; admin analytics shows platform total and per-institution totals. These entries represent admin-granted pass value as requested; they are not verified payment receipts. Phone purchases are not included until a trusted payment integration writes verified transactions using the same ledger.
+
+The institution dashboard and analytics page read the transaction subcollection for the signed-in user's `institutionId`. Deployed Firestore rules must independently restrict each institution to its own transaction subcollection; filtering the path in the client is not an authorization boundary.
 
 ### Persisting expired status
 

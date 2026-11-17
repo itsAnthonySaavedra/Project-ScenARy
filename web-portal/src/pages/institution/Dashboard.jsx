@@ -22,12 +22,16 @@ const InstituteDashboard = () => {
         landmarks: 0,
         pois: 0,
         interactions: 0,
+        revenueCentavos: 0,
+        revenueCount: 0,
         byType: {},
         feedback: [],
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [warning, setWarning] = useState("");
+    const [revenueLoading, setRevenueLoading] = useState(true);
+    const [revenueError, setRevenueError] = useState("");
 
     useEffect(() => {
         let active = true;
@@ -65,7 +69,9 @@ const InstituteDashboard = () => {
                 const landmarkQuery = query(collection(db, "landmarks"), where("institutionId", "==", institutionId));
                 const poiQuery = query(collection(db, "pois"), where("institutionId", "==", institutionId));
                 const analyticsQuery = query(collection(db, "userAnalytics"), where("institutionId", "==", institutionId));
+                const siteAccessTransactions = collection(db, "siteAccess", institutionId, "transactions");
 
+                setRevenueLoading(true);
                 unsubscribers.push(
                     onSnapshot(institutionRef, (snapshot) => {
                         setDashboard((current) => ({ ...current, institution: snapshot.exists() ? snapshot.data() : null }));
@@ -98,6 +104,36 @@ const InstituteDashboard = () => {
                         setDashboard((current) => ({ ...current, interactions }));
                         markLoaded("analytics");
                     }, handleSnapshotError),
+                    onSnapshot(siteAccessTransactions, (snapshot) => {
+                        const transactions = snapshot.docs
+                            .map((item) => item.data())
+                            .filter(
+                                (item) =>
+                                    item.currency === "PHP" &&
+                                    Number.isSafeInteger(item.amountCentavos) &&
+                                    item.amountCentavos >= 0,
+                            );
+                        const revenueCentavos = transactions.reduce(
+                            (total, item) => total + item.amountCentavos,
+                            0,
+                        );
+                        setDashboard((current) => ({
+                            ...current,
+                            revenueCentavos,
+                            revenueCount: transactions.length,
+                        }));
+                        setRevenueError("");
+                        setRevenueLoading(false);
+                    }, (revenueSnapshotError) => {
+                        console.error("Unable to receive institution site revenue:", revenueSnapshotError);
+                        setRevenueError(
+                            getFirebaseErrorMessage(
+                                revenueSnapshotError,
+                                "Unable to load site revenue.",
+                            ),
+                        );
+                        setRevenueLoading(false);
+                    }),
                 );
 
                 loadFeedback(institutionId)
@@ -150,6 +186,14 @@ const InstituteDashboard = () => {
         datasets: [{ label: "Total", data: [dashboard.content, dashboard.published, dashboard.landmarks, dashboard.pois, dashboard.interactions], backgroundColor: ["#d4af37", "#e0c875", "#5f8f88", "#bb8066", "#756f69"], borderRadius: 5, barThickness: 24 }],
     };
     const institutionName = dashboard.institution?.name || "Your institution";
+    const revenueValue = revenueError
+        ? "Unavailable"
+        : revenueLoading
+            ? "Loading..."
+            : new Intl.NumberFormat("en-PH", {
+                style: "currency",
+                currency: "PHP",
+            }).format(dashboard.revenueCentavos / 100);
 
     return (
         <div className={dashboardStyles.institutionDashboard}>
@@ -174,6 +218,7 @@ const InstituteDashboard = () => {
                     ["POIs", dashboard.pois, "fa-location-dot"],
                     ["User interactions", dashboard.interactions, "fa-hand-pointer"],
                     ["Average rating", ratingStats.average === null ? "-" : `${ratingStats.average.toFixed(1)} / 5`, "fa-star"],
+                    [`Recorded pass revenue (${dashboard.revenueCount} passes)`, revenueValue, "fa-coins"],
                 ].map(([label, value, icon]) => (
                     <div className={dashboardStyles.statCard} key={label}>
                         <div className={dashboardStyles.statIcon}><i className={`fa-solid ${icon}`}></i></div>
@@ -181,6 +226,13 @@ const InstituteDashboard = () => {
                     </div>
                 ))}
             </section>
+            {revenueError ? (
+                <p role="alert" style={{ color: "#fca5a5" }}>{revenueError}</p>
+            ) : (
+                <p style={{ color: "#a8a29e" }}>
+                    Revenue includes admin-granted day passes recorded for your institution. One-minute tests and phone purchases are not included.
+                </p>
+            )}
 
             <section className={dashboardStyles.quickActions} aria-label="Quick actions">
                 <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/content")}><i className="fa-solid fa-layer-group" /> Manage content</button>
