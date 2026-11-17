@@ -33,6 +33,7 @@ import { createDefaultQuizQuestion, normalizeFunFacts, normalizeQuizQuestions } 
 import {
   getContentQualityIssues,
   getInstitutionContentReadiness,
+  hasPublishedInstitutionARContent,
   isContentReady,
 } from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
@@ -76,6 +77,8 @@ const InstituteContentManagement = () => {
   const [contentLoadError, setContentLoadError] = useState("");
   const [contentReadyCheckLoaded, setContentReadyCheckLoaded] = useState(false);
   const [saveWarning, setSaveWarning] = useState("");
+  const [approvalError, setApprovalError] = useState("");
+  const [approvingContentId, setApprovingContentId] = useState("");
 
   useEffect(() => {
     const auth = getAuth();
@@ -307,10 +310,10 @@ const InstituteContentManagement = () => {
       existingContent.type === selectedType;
     if (
       formScope === "POI" &&
-      !["Information", "Fun Fact"].includes(selectedType) &&
+      !["Information", "Fun Fact", "Quiz"].includes(selectedType) &&
       !editingLegacyPoiContent
     ) {
-      setFormError("Only Information and Fun Fact content can be added to POIs.");
+      setFormError("Only Information, Fun Fact, and Quiz content can be added to POIs.");
       return;
     }
     if (
@@ -319,6 +322,15 @@ const InstituteContentManagement = () => {
       !contentReadyCheckLoaded
     ) {
       setFormError("Wait for institution content to finish loading before adding this item.");
+      return;
+    }
+    if (
+      normalizeContentType(selectedType) === MODEL_CONTENT_TYPE &&
+      !hasPublishedInstitutionARContent(contents)
+    ) {
+      setFormError(
+        "Publish at least one complete Information, Fun Fact, or Quiz item before uploading a VR model.",
+      );
       return;
     }
     if (!isEditMode) {
@@ -397,6 +409,16 @@ const InstituteContentManagement = () => {
           data: contentData,
           needsAttention: formNeedsAttention,
           status: "Awaiting Content",
+          ...(normalizeContentType(selectedType) === MODEL_CONTENT_TYPE
+            ? {
+                institutionApproved: false,
+                institutionApprovedAt: null,
+                institutionApprovedBy: null,
+                adminApproved: false,
+                adminApprovedAt: null,
+                adminApprovedBy: null,
+              }
+            : {}),
           updatedAt: serverTimestamp(),
         });
         contentSaved = true;
@@ -408,6 +430,12 @@ const InstituteContentManagement = () => {
           scope: formScope,
           institutionId: userInstitutionId.trim(),
           status: "Awaiting Content",
+          ...(normalizeContentType(selectedType) === MODEL_CONTENT_TYPE
+            ? {
+                institutionApproved: false,
+                adminApproved: false,
+              }
+            : {}),
           needsAttention: formNeedsAttention,
           data: contentData,
           createdAt: serverTimestamp(),
@@ -474,6 +502,56 @@ const InstituteContentManagement = () => {
     }
   };
 
+  const handleInstitutionApproveModel = async (item) => {
+    if (item.type !== MODEL_CONTENT_TYPE) return;
+    if (!hasPublishedInstitutionARContent(contents)) {
+      setApprovalError(
+        "A complete, published Information, Fun Fact, or Quiz item is required before approving a VR model.",
+      );
+      return;
+    }
+    if (!isContentReady(item)) {
+      setApprovalError("Complete the model details before approving it.");
+      return;
+    }
+
+    setApprovalError("");
+    setApprovingContentId(item.id);
+    try {
+      await updateDoc(doc(db, "content", item.id), {
+        institutionApproved: true,
+        institutionApprovedAt: serverTimestamp(),
+        institutionApprovedBy: getAuth().currentUser?.uid || null,
+        adminApproved: false,
+        adminApprovedAt: null,
+        adminApprovedBy: null,
+        status: "Awaiting Admin Approval",
+        updatedAt: serverTimestamp(),
+      });
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: "institution",
+          action: "content.institution-approved",
+          entityType: "content",
+          entityId: item.id,
+          metadata: { institutionId: userInstitutionId, title: item.title },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("Model was approved, but its audit record could not be written:", auditError);
+        setApprovalError("The model was approved, but its activity record could not be written.");
+      }
+    } catch (error) {
+      console.error("Unable to approve the VR model:", error);
+      setApprovalError(
+        getFirebaseErrorMessage(error, "Unable to approve the VR model. Please try again."),
+      );
+    } finally {
+      setApprovingContentId("");
+    }
+  };
+
   const handleView = (item) => {
     setCurrentContent(item);
     setIsViewModalOpen(true);
@@ -521,6 +599,11 @@ const InstituteContentManagement = () => {
           {contentLoadError}
         </div>
       )}
+      {approvalError && (
+        <div role="alert" style={{ color: "#fca5a5", marginBottom: 16 }}>
+          {approvalError}
+        </div>
+      )}
       {saveWarning && (
         <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
           {saveWarning}
@@ -529,7 +612,7 @@ const InstituteContentManagement = () => {
       {/* CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
-          {["All", "Awaiting Content", "Published", "Rejected", "Needs attention"].map((status) => (
+          {["All", "Awaiting Content", "Awaiting Admin Approval", "Published", "Rejected", "Needs attention"].map((status) => (
             <button key={status} className={`${tableStyles.tabBtn} ${filter === status ? tableStyles.tabBtnAdminActive : ""}`} onClick={() => setFilter(status)}>
               {status === "All" ? "All Content" : status}
             </button>
@@ -670,6 +753,35 @@ const InstituteContentManagement = () => {
                       <button className={tableStyles.btnAction} onClick={() => handleDuplicateClick(item)} title="Duplicate content">
                         <i className="fa-solid fa-copy"></i>
                       </button>
+                      {item.type === MODEL_CONTENT_TYPE &&
+                        item.status !== "Published" &&
+                        !item.institutionApproved && (
+                          <button
+                            type="button"
+                            className={commonStyles.btnPrimary}
+                            onClick={() => handleInstitutionApproveModel(item)}
+                            disabled={
+                              approvingContentId === item.id ||
+                              !hasPublishedInstitutionARContent(contents) ||
+                              !isContentReady(item)
+                            }
+                            title={
+                              !hasPublishedInstitutionARContent(contents)
+                                ? "Publish complete AR content before approving this model"
+                                : !isContentReady(item)
+                                  ? "Complete the model details before approval"
+                                  : "Approve this model and send it to the administrator"
+                            }
+                          >
+                            {approvingContentId === item.id
+                              ? "Approving..."
+                              : "Approve for admin review"}
+                          </button>
+                        )}
+                      {item.type === MODEL_CONTENT_TYPE &&
+                        item.status === "Awaiting Admin Approval" && (
+                          <span style={{ color: "#fbbf24" }}>Awaiting admin approval</span>
+                        )}
                     </div>
                   </td>
                 </tr>
@@ -758,14 +870,16 @@ const InstituteContentManagement = () => {
                 .filter((type) =>
                   formScope !== "POI" ||
                   isEditMode ||
-                  ["Information", "Fun Fact"].includes(type),
+                  ["Information", "Fun Fact", "Quiz"].includes(type),
                 )
                 .map((type) => (
                 <option
                   key={type}
                   value={type}
                   disabled={
-                    (!isEditMode && Boolean(getInstitutionContentLimitError(contents, type)))
+                    (!isEditMode && Boolean(getInstitutionContentLimitError(contents, type))) ||
+                    (type === MODEL_CONTENT_TYPE &&
+                      !hasPublishedInstitutionARContent(contents))
                   }
                 >
                   {type}
@@ -774,12 +888,17 @@ const InstituteContentManagement = () => {
             </select>
             {formScope === "POI" && (
               <small style={{ color: "#888" }}>
-                POIs can use Information and Fun Fact content. VR models and quizzes are limited to landmarks.
+                POIs can use Information, Fun Fact, and Quiz content. VR models remain limited to landmarks.
               </small>
             )}
             {!isEditMode && selectedType && getInstitutionContentLimitError(contents, selectedType) && (
               <small role="alert" style={{ display: "block", color: "#fbbf24", marginTop: 6 }}>
                 {getInstitutionContentLimitError(contents, selectedType)}
+              </small>
+            )}
+            {!hasPublishedInstitutionARContent(contents) && (
+              <small role="status" style={{ display: "block", color: "#fbbf24", marginTop: 6 }}>
+                Publish one complete Information, Fun Fact, or Quiz item before creating a VR model.
               </small>
             )}
           </div>
@@ -793,7 +912,7 @@ const InstituteContentManagement = () => {
                 if (
                   !isEditMode &&
                   e.target.value === "POI" &&
-                  !["Information", "Fun Fact"].includes(selectedType)
+                  !["Information", "Fun Fact", "Quiz"].includes(selectedType)
                 ) {
                   setSelectedType("");
                 }
@@ -860,6 +979,7 @@ const InstituteContentManagement = () => {
                   <input
                     type="file"
                     accept=".glb,model/gltf-binary,application/octet-stream"
+                    disabled={!hasPublishedInstitutionARContent(contents)}
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
@@ -903,6 +1023,7 @@ const InstituteContentManagement = () => {
                     placeholder="https://.../model.glb"
                     value={formModelUrl}
                     onChange={(e) => setFormModelUrl(e.target.value)}
+                    disabled={!hasPublishedInstitutionARContent(contents)}
                     required
                   />
                   <ModelSpawnPointEditor enabled={modelSpawnPointEnabled} onEnabledChange={setModelSpawnPointEnabled} value={formModelSpawnPoint} onChange={setFormModelSpawnPoint} modelUrl={formModelUrl} />

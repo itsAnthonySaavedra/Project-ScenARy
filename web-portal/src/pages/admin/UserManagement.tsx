@@ -30,11 +30,14 @@ interface UserType {
   name: string;
   email: string;
   role: "admin" | "superadmin" | "institution" | "user";
+  additionalRoles?: "maintenance"[];
   status: "Active" | "Inactive" | "Banned";
   institutionId?: string | null;
   createdAt?: unknown;
   mustChangePassword?: boolean;
 }
+
+type UserAssignmentRole = UserType["role"] | "maintenance";
 
 interface Institution {
   id: string;
@@ -139,7 +142,7 @@ const UserManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
-  const [selectedRole, setSelectedRole] = useState<UserType["role"]>("institution");
+  const [selectedRole, setSelectedRole] = useState<UserAssignmentRole>("institution");
   const [detailsUser, setDetailsUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(false);
   const [userFormError, setUserFormError] = useState("");
@@ -422,7 +425,11 @@ const UserManagement: React.FC = () => {
     }
     setUserFormError("");
     setCurrentUser(user);
-    setSelectedRole(user.role);
+    setSelectedRole(
+      user.role === "institution" && user.additionalRoles?.includes("maintenance")
+        ? "maintenance"
+        : user.role,
+    );
     setIsModalOpen(true);
   };
 
@@ -449,20 +456,24 @@ const UserManagement: React.FC = () => {
     const form = e.target as typeof e.target & {
       name: { value: string };
       email: { value: string };
-      role: { value: UserType["role"] };
+      role: { value: UserAssignmentRole };
       institutionId?: { value: string };
     };
 
     const name = form.name.value.trim();
     const email = form.email.value.trim();
-    const role = form.role.value as UserType["role"];
-    const institutionId =
-      role === "institution" ? form.institutionId?.value || null : null;
+    const assignedRole = form.role.value as UserAssignmentRole;
+    const role = assignedRole === "maintenance" ? "institution" : assignedRole;
+    const additionalRoles: "maintenance"[] =
+      assignedRole === "maintenance" ? ["maintenance"] : [];
+    const institutionId = role === "institution"
+      ? form.institutionId?.value || null
+      : null;
 
     const isSuperAdmin = currentRole === "superadmin";
     if (
       role === "user" ||
-      (!isSuperAdmin && role !== (currentUser?.role || "institution"))
+      (!isSuperAdmin && (currentUser ? role !== currentUser.role : role !== "institution"))
     ) {
       setUserFormError("Only a super admin can create or change an account to the admin role.");
       return;
@@ -472,7 +483,7 @@ const UserManagement: React.FC = () => {
       return;
     }
     if (role === "institution" && !institutionId) {
-      setUserFormError("Select an institution for this institution account.");
+      setUserFormError("Select an institution for this account.");
       return;
     }
     setLoading(true);
@@ -483,13 +494,14 @@ const UserManagement: React.FC = () => {
           name,
           email,
           role,
+          additionalRoles,
           institutionId,
         });
 
         setUsers((prev) =>
           prev.map((u) =>
             u.id === currentUser.id
-              ? { ...u, name, email, role, institutionId }
+              ? { ...u, name, email, role, additionalRoles, institutionId }
               : u,
           ),
         );
@@ -501,7 +513,7 @@ const UserManagement: React.FC = () => {
             action: "user.updated",
             entityType: "user",
             entityId: currentUser.id,
-            metadata: { email, role, institutionId },
+            metadata: { email, role, additionalRoles, institutionId },
             throwOnFailure: true,
           });
         } catch (auditError) {
@@ -523,6 +535,7 @@ const UserManagement: React.FC = () => {
             name,
             email,
             role,
+            additionalRoles,
             institutionId,
             status: "Active",
             mustChangePassword: true,
@@ -551,6 +564,7 @@ const UserManagement: React.FC = () => {
             name,
             email,
             role,
+            additionalRoles,
             institutionId,
             status: "Active",
             mustChangePassword: true,
@@ -572,7 +586,7 @@ const UserManagement: React.FC = () => {
             action: "user.created",
             entityType: "user",
             entityId: cred.user.uid,
-            metadata: { email, role, institutionId },
+            metadata: { email, role, additionalRoles, institutionId },
             throwOnFailure: true,
           });
         } catch (auditError) {
@@ -582,7 +596,11 @@ const UserManagement: React.FC = () => {
 
         handleCloseModal();
         alert(
-          `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user. They must change this password before accessing the portal.${warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : ""}`,
+          `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user. ${
+            assignedRole === "maintenance"
+              ? "They must change this password before first use. The phone app must support password changes."
+              : "They must change this password before accessing the portal."
+          }${warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : ""}`,
         );
       }
     } catch (err: any) {
@@ -672,14 +690,16 @@ const UserManagement: React.FC = () => {
   const filteredInstitutions = institutions.filter((inst) =>
     inst.name.toLowerCase().includes(instSearchTerm.toLowerCase()),
   );
-  const availableRoles: UserType["role"][] =
+  const availableRoles: UserAssignmentRole[] =
     currentRole === "superadmin"
       ? currentUser?.role === "superadmin"
         ? ["superadmin"]
-        : ["admin", "institution"]
+        : ["admin", "institution", "maintenance"]
       : currentUser
-        ? [currentUser.role]
-        : ["institution"];
+        ? currentUser.role === "institution"
+          ? ["institution", "maintenance"]
+          : [currentUser.role]
+        : ["institution", "maintenance"];
 
   /* =====================
      UI
@@ -767,7 +787,12 @@ const UserManagement: React.FC = () => {
                 filteredUsers.map((user) => (
                   <tr key={user.id}>
                     <td style={{ fontWeight: 500, color: "#fff" }}>{user.name}</td>
-                    <td>{user.role}</td>
+                    <td>
+                      {user.role === "institution" &&
+                      user.additionalRoles?.includes("maintenance")
+                        ? "institution + maintenance"
+                        : user.role}
+                    </td>
                     <td>
                       {user.role === "institution"
                         ? institutions.find((i) => i.id === user.institutionId)?.name || "—"
@@ -883,7 +908,15 @@ const UserManagement: React.FC = () => {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
                   <div><small style={{ color: "#999" }}>Name</small><p>{detailsUser.name || "-"}</p></div>
                   <div><small style={{ color: "#999" }}>Email</small><p>{detailsUser.email || "-"}</p></div>
-                  <div><small style={{ color: "#999" }}>Role</small><p>{detailsUser.role || "-"}</p></div>
+                  <div>
+                    <small style={{ color: "#999" }}>Role</small>
+                    <p>
+                      {detailsUser.role === "institution" &&
+                      detailsUser.additionalRoles?.includes("maintenance")
+                        ? "institution + maintenance"
+                        : detailsUser.role || "-"}
+                    </p>
+                  </div>
                   <div><small style={{ color: "#999" }}>Status</small><p>{detailsUser.status || "-"}</p></div>
                   <div><small style={{ color: "#999" }}>Institution</small><p>{institutions.find((item) => item.id === detailsUser.institutionId)?.name || "-"}</p></div>
                   <div><small style={{ color: "#999" }}>Date joined</small><p>{formatUserDate(detailsUser.createdAt)}</p></div>
@@ -929,15 +962,19 @@ const UserManagement: React.FC = () => {
                   name="role"
                   className={commonStyles.formControl}
                   value={selectedRole}
-                  onChange={(event) => setSelectedRole(event.target.value as UserType["role"])}
+                  onChange={(event) => setSelectedRole(event.target.value as UserAssignmentRole)}
                 >
                   {availableRoles.map((r) => (
-                    <option key={r} value={r}>{r}</option>
+                    <option key={r} value={r}>
+                      {r === "maintenance"
+                        ? "institution + maintenance (phone preview access)"
+                        : r}
+                    </option>
                   ))}
                 </select>
               </div>
 
-              {selectedRole === "institution" && (
+              {(selectedRole === "institution" || selectedRole === "maintenance") && (
                 <div className={commonStyles.formGroup}>
                   <label>Institution</label>
                   <select name="institutionId" className={commonStyles.formControl} defaultValue={currentUser?.institutionId || ""}>

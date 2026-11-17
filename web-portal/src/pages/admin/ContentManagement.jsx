@@ -29,7 +29,11 @@ import {
   normalizeContentType,
 } from "../../lib/contentTypes";
 import { createDefaultQuizQuestion, normalizeFunFacts, normalizeQuizQuestions } from "../../lib/contentData";
-import { getContentQualityIssues, isContentReady } from "../../lib/contentQuality";
+import {
+  getContentQualityIssues,
+  hasPublishedInstitutionARContent,
+  isContentReady,
+} from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 
 const ContentManagement = () => {
@@ -79,6 +83,8 @@ const ContentManagement = () => {
   const [usageByContent, setUsageByContent] = useState({});
   const [dataLoadError, setDataLoadError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [approvalError, setApprovalError] = useState("");
+  const [approvingContentId, setApprovingContentId] = useState("");
 
   useEffect(() => {
     let markers = [];
@@ -212,8 +218,36 @@ const ContentManagement = () => {
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     const editedContent = contents.find((item) => item.id === editDocId);
+    const isModelContent = normalizeContentType(selectedType) === MODEL_CONTENT_TYPE;
+    const institutionContents = contents.filter(
+      (item) => item.institutionId === formInstitutionId,
+    );
     const institutionChanged =
       isEditMode && editedContent?.institutionId !== formInstitutionId;
+    const institutionApproved =
+      !institutionChanged &&
+      (editedContent?.institutionApproved === true ||
+        editedContent?.status === "Published");
+    if (isModelContent && formStatus === "Published" && !institutionApproved) {
+      alert("The institution must approve this VR model before an admin can publish it.");
+      return;
+    }
+    if (
+      isModelContent &&
+      formStatus === "Awaiting Admin Approval" &&
+      !institutionApproved
+    ) {
+      alert("The institution must approve this VR model before it can enter admin review.");
+      return;
+    }
+    if (
+      isModelContent &&
+      formStatus === "Published" &&
+      !hasPublishedInstitutionARContent(institutionContents)
+    ) {
+      alert("The institution must have complete, published AR content before this VR model can be published.");
+      return;
+    }
     if ((!isEditMode || institutionChanged) && formInstitutionId) {
       const limitError = getInstitutionContentLimitError(
         contents.filter((item) => item.institutionId === formInstitutionId),
@@ -278,8 +312,27 @@ const ContentManagement = () => {
           title: formTitle,
           scope: formScope,
           institutionId: formInstitutionId.trim(),
-          status: formStatus,
+          status:
+            isModelContent && institutionChanged
+              ? "Awaiting Content"
+              : formStatus,
           data: contentData,
+          ...(isModelContent && institutionChanged
+            ? {
+                institutionApproved: false,
+                institutionApprovedAt: null,
+                institutionApprovedBy: null,
+              }
+            : {}),
+          ...(isModelContent
+            ? {
+                adminApproved: formStatus === "Published",
+                adminApprovedAt:
+                  formStatus === "Published" ? serverTimestamp() : null,
+                adminApprovedBy:
+                  formStatus === "Published" ? currentUser?.uid || null : null,
+              }
+            : {}),
           updatedAt: serverTimestamp(),
         });
         await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "content.updated", entityType: "content", entityId: editDocId, metadata: { title: formTitle, type: selectedType, institutionId: formInstitutionId, status: formStatus } });
@@ -290,6 +343,12 @@ const ContentManagement = () => {
           scope: formScope,
           institutionId: formInstitutionId.trim(),
           status: formStatus,
+          ...(isModelContent
+            ? {
+                institutionApproved: false,
+                adminApproved: false,
+              }
+            : {}),
           data: contentData,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -323,6 +382,58 @@ const ContentManagement = () => {
     }
   };
 
+  const handleAdminApproveModel = async (item) => {
+    if (normalizeContentType(item.type) !== MODEL_CONTENT_TYPE) return;
+    if (item.institutionApproved !== true) {
+      setApprovalError("The institution must approve this model before admin approval.");
+      return;
+    }
+    const institutionContents = contents.filter(
+      (content) => content.institutionId === item.institutionId,
+    );
+    if (!hasPublishedInstitutionARContent(institutionContents)) {
+      setApprovalError(
+        "Complete, published AR content is required before this model can be approved.",
+      );
+      return;
+    }
+    if (!isContentReady(item)) {
+      setApprovalError("Complete the model details before approving it.");
+      return;
+    }
+
+    setApprovalError("");
+    setApprovingContentId(item.id);
+    try {
+      await updateDoc(doc(db, "content", item.id), {
+        adminApproved: true,
+        adminApprovedAt: serverTimestamp(),
+        adminApprovedBy: currentUser?.uid || null,
+        status: "Published",
+        updatedAt: serverTimestamp(),
+      });
+      try {
+        await writeAuditLog({
+          actorId: currentUser?.uid,
+          actorRole: currentRole,
+          action: "content.admin-approved",
+          entityType: "content",
+          entityId: item.id,
+          metadata: { institutionId: item.institutionId, title: item.title },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("Model was published, but its audit record could not be written:", auditError);
+        setApprovalError("The model was published, but its activity record could not be written.");
+      }
+    } catch (error) {
+      console.error("Unable to publish the VR model:", error);
+      setApprovalError("Unable to publish the VR model. Please try again.");
+    } finally {
+      setApprovingContentId("");
+    }
+  };
+
   const handleView = (item) => {
     setCurrentContent(item);
     setIsViewModalOpen(true);
@@ -349,6 +460,7 @@ const ContentManagement = () => {
   return (
     <div style={{ width: "100%", padding: "20px" }}>
       {dataLoadError && <p role="alert" style={{ color: "#f87171" }}>{dataLoadError}</p>}
+      {approvalError && <p role="alert" style={{ color: "#f87171" }}>{approvalError}</p>}
       {/* 1. CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
@@ -363,6 +475,18 @@ const ContentManagement = () => {
             onClick={() => setFilter("Awaiting Content")}
           >
             Awaiting Content
+          </button>
+          <button
+            className={`${tableStyles.tabBtn} ${filter === "Awaiting Admin Approval" ? tableStyles.active : ""}`}
+            onClick={() => setFilter("Awaiting Admin Approval")}
+          >
+            Awaiting Admin Approval
+          </button>
+          <button
+            className={`${tableStyles.tabBtn} ${filter === "Published" ? tableStyles.active : ""}`}
+            onClick={() => setFilter("Published")}
+          >
+            Published
           </button>
           <button
             className={`${tableStyles.tabBtn} ${filter === "Rejected" ? tableStyles.active : ""}`}
@@ -506,6 +630,43 @@ const ContentManagement = () => {
                       >
                         <i className="fa-solid fa-trash"></i>
                       </button>
+                      {normalizeContentType(item.type) === MODEL_CONTENT_TYPE &&
+                        item.status !== "Published" && (
+                          <button
+                            type="button"
+                            className={commonStyles.btnPrimary}
+                            onClick={() => handleAdminApproveModel(item)}
+                            disabled={
+                              approvingContentId === item.id ||
+                              item.institutionApproved !== true ||
+                              !hasPublishedInstitutionARContent(
+                                contents.filter(
+                                  (content) =>
+                                    content.institutionId === item.institutionId,
+                                ),
+                              ) ||
+                              !isContentReady(item)
+                            }
+                            title={
+                              item.institutionApproved !== true
+                                ? "Waiting for institution approval"
+                                : !hasPublishedInstitutionARContent(
+                                      contents.filter(
+                                        (content) =>
+                                          content.institutionId === item.institutionId,
+                                      ),
+                                    )
+                                  ? "Complete and publish AR content first"
+                                  : !isContentReady(item)
+                                    ? "Complete the model details before approval"
+                                    : "Approve and publish this model"
+                            }
+                          >
+                            {approvingContentId === item.id
+                              ? "Publishing..."
+                              : "Approve & publish"}
+                          </button>
+                        )}
                     </div>
                   </td>
                 </tr>
@@ -632,7 +793,19 @@ const ContentManagement = () => {
               onChange={(e) => setFormStatus(e.target.value)}
             >
               <option value="Awaiting Content">Awaiting Content</option>
-              <option value="Published">Published</option>
+              <option value="Awaiting Admin Approval">Awaiting Admin Approval</option>
+              <option
+                value="Published"
+                disabled={
+                  normalizeContentType(selectedType) === MODEL_CONTENT_TYPE &&
+                  !(
+                    editedContent?.institutionApproved === true ||
+                    editedContent?.status === "Published"
+                  )
+                }
+              >
+                Published
+              </option>
               <option value="Rejected">Rejected</option>
               <option value="Archived">Archived</option>
             </select>

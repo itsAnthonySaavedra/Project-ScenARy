@@ -72,7 +72,7 @@ const POIManagement = ({ adminMode = false }) => {
           .map((item) => ({ id: item.id, ...item.data() }))
           .filter((item) =>
             getContentScope(item) === "POI" &&
-            (adminMode || ["Information", "Fun Fact"].includes(normalizeContentType(item.type))),
+            (adminMode || ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type))),
           ),
       );
       setFormError("");
@@ -545,7 +545,7 @@ const POIManagement = ({ adminMode = false }) => {
           </label>
           {!adminMode && (
             <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
-              Institutions can attach Information and Fun Facts to POIs. Existing VR model and quiz attachments are preserved.
+              Institutions can attach Information, Fun Facts, and Quizzes to POIs. VR models remain restricted.
             </small>
           )}
           {availableContent.length === 0 ? (

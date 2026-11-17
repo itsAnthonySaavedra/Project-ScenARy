@@ -1,7 +1,7 @@
 import {
   MODEL_CONTENT_TYPE,
   normalizeContentType,
-} from "./contentTypes";
+} from "./contentTypes.js";
 
 export const getContentQualityIssues = (item) => {
   const issues = [];
@@ -71,6 +71,14 @@ export const getContentQualityIssues = (item) => {
 
 export const isContentReady = (item) =>
   !item?.needsAttention && getContentQualityIssues(item).length === 0;
+
+export const hasPublishedInstitutionARContent = (items = []) =>
+  items.some(
+    (item) =>
+      item.status === "Published" &&
+      ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type)) &&
+      isContentReady(item),
+  );
 
 export const getInstitutionContentReadiness = (items = []) => {
   const publishedReadyItems = items.filter(
