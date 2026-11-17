@@ -72,7 +72,7 @@ const Login: React.FC = () => {
       <div className={styles.authWrapper}>
         <div className={styles.glassCard}>
           <div className={styles.logoArea}>
-            <i className={`fa-solid fa-landmark ${styles.logoIcon}`}></i>
+            <img className={styles.logoIcon} src="/assets/images/scenary-logo.png" alt="" />
             <h3>ScenARy V2</h3>
             <p>{isAdmin ? "Administrator Portal" : "Institution Portal"}</p>
           </div>
