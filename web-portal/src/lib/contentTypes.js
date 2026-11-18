@@ -10,17 +10,31 @@ export const isModelContentType = (type) =>
 
 export const CONTENT_TYPES = ["Information", MODEL_CONTENT_TYPE, "Quiz", "Fun Fact"];
 
-export const getInstitutionContentLimitError = (contents, type, excludedId) => {
-	const normalizedType = normalizeContentType(type);
-	if (!["Information", MODEL_CONTENT_TYPE, "Quiz"].includes(normalizedType)) {
-		return "";
+const LIMITED_ASSIGNMENT_TYPES = {
+	Landmark: ["Information", MODEL_CONTENT_TYPE, "Quiz"],
+	POI: ["Information", "Quiz"],
+};
+
+export const getContentAssignmentLimitError = (scope, contentIds, contents) => {
+	const limitedTypes = LIMITED_ASSIGNMENT_TYPES[scope] || [];
+	const itemsById = new Map(contents.map((item) => [item.id, item]));
+	const assignedTypes = new Set();
+
+	for (const contentId of new Set(contentIds)) {
+		const item = itemsById.get(contentId);
+		if (!item) continue;
+
+		const type = normalizeContentType(item.type);
+		if (scope === "POI" && isModelContentType(item.type)) {
+			return "VR models can only be assigned to Landmarks.";
+		}
+		if (!limitedTypes.includes(type)) continue;
+		if (assignedTypes.has(type)) {
+			const label = type === MODEL_CONTENT_TYPE ? "VR model" : type;
+			return `Each ${scope} can have only one ${label}.`;
+		}
+		assignedTypes.add(type);
 	}
 
-	const existingItem = contents.find(
-		(item) => item.id !== excludedId && normalizeContentType(item.type) === normalizedType,
-	);
-	if (!existingItem) return "";
-
-	const label = normalizedType === MODEL_CONTENT_TYPE ? "VR model" : normalizedType;
-	return `Only one ${label} is allowed per institution. Edit the existing item instead.`;
+	return "";
 };

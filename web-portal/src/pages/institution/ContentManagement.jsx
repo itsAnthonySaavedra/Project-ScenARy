@@ -26,7 +26,7 @@ import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
 import {
   CONTENT_TYPES,
   MODEL_CONTENT_TYPE,
-  getInstitutionContentLimitError,
+  getContentAssignmentLimitError,
   normalizeContentType,
 } from "../../lib/contentTypes";
 import { createDefaultQuizQuestion, normalizeFunFacts, normalizeQuizQuestions } from "../../lib/contentData";
@@ -140,8 +140,8 @@ const InstituteContentManagement = () => {
     );
     const updateAssignmentTargets = (landmarks, pois) => {
       setAssignmentTargets([
-        ...landmarks.map((item) => ({ id: item.id, targetKey: `landmarks:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "landmarks", scope: "Landmark" })),
-        ...pois.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI" })),
+        ...landmarks.map((item) => ({ id: item.id, targetKey: `landmarks:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "landmarks", scope: "Landmark", contentIds: item.data().contentIds || [] })),
+        ...pois.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI", contentIds: item.data().contentIds || [] })),
       ]);
     };
     let landmarks = [];
@@ -259,6 +259,17 @@ const InstituteContentManagement = () => {
       setBulkMessage(`Select content scoped to ${target.scope} to assign it to this target.`);
       return;
     }
+    const assignedIds = target.contentIds || [];
+    const newCompatibleIds = compatibleIds.filter((id) => !assignedIds.includes(id));
+    const limitError = getContentAssignmentLimitError(
+      target.scope,
+      [...assignedIds, ...newCompatibleIds],
+      contents,
+    );
+    if (limitError) {
+      setBulkMessage(limitError);
+      return;
+    }
     setAssigningContent(true);
     setBulkMessage("");
     try {
@@ -332,13 +343,6 @@ const InstituteContentManagement = () => {
         "Publish at least one complete Information, Fun Fact, or Quiz item before uploading a VR model.",
       );
       return;
-    }
-    if (!isEditMode) {
-      const limitError = getInstitutionContentLimitError(contents, selectedType);
-      if (limitError) {
-        setFormError(limitError);
-        return;
-      }
     }
     setLoading(true);
     setFormError("");
@@ -655,7 +659,7 @@ const InstituteContentManagement = () => {
         <button type="button" className={commonStyles.btnPrimary} disabled={!selectedTargetId || assigningContent} onClick={assignSelectedContent}>{assigningContent ? "Assigning..." : "Assign selected"}</button>
         <button type="button" className={commonStyles.btnCancel} onClick={() => setSelectedContentIds([])}>Clear selection</button>
       </div>}
-      {bulkMessage && <p role="status" style={{ color: bulkMessage.startsWith("Unable") || bulkMessage.startsWith("Select") ? "#fbbf24" : "#86efac" }}>{bulkMessage}</p>}
+      {bulkMessage && <p role="status" style={{ color: /^(Unable|Select|Each |VR models)/.test(bulkMessage) ? "#fbbf24" : "#86efac" }}>{bulkMessage}</p>}
       <div
         style={{
           color: incompleteCount > 0 ? "#fbbf24" : "#4ade80",
@@ -877,7 +881,6 @@ const InstituteContentManagement = () => {
                   key={type}
                   value={type}
                   disabled={
-                    (!isEditMode && Boolean(getInstitutionContentLimitError(contents, type))) ||
                     (type === MODEL_CONTENT_TYPE &&
                       !hasPublishedInstitutionARContent(contents))
                   }
@@ -891,11 +894,9 @@ const InstituteContentManagement = () => {
                 POIs can use Information, Fun Fact, and Quiz content. VR models remain limited to landmarks.
               </small>
             )}
-            {!isEditMode && selectedType && getInstitutionContentLimitError(contents, selectedType) && (
-              <small role="alert" style={{ display: "block", color: "#fbbf24", marginTop: 6 }}>
-                {getInstitutionContentLimitError(contents, selectedType)}
-              </small>
-            )}
+            <small style={{ display: "block", color: "#888", marginTop: 6 }}>
+              Information, quizzes, and VR models can be reused across targets; limits apply per Landmark or POI assignment. Fun Facts are unlimited.
+            </small>
             {!hasPublishedInstitutionARContent(contents) && (
               <small role="status" style={{ display: "block", color: "#fbbf24", marginTop: 6 }}>
                 Publish one complete Information, Fun Fact, or Quiz item before creating a VR model.

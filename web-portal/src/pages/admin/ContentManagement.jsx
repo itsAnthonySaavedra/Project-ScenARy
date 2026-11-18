@@ -25,7 +25,6 @@ import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
 import {
   CONTENT_TYPES,
   MODEL_CONTENT_TYPE,
-  getInstitutionContentLimitError,
   normalizeContentType,
 } from "../../lib/contentTypes";
 import { createDefaultQuizQuestion, normalizeFunFacts, normalizeQuizQuestions } from "../../lib/contentData";
@@ -248,17 +247,6 @@ const ContentManagement = () => {
       alert("The institution must have complete, published AR content before this VR model can be published.");
       return;
     }
-    if ((!isEditMode || institutionChanged) && formInstitutionId) {
-      const limitError = getInstitutionContentLimitError(
-        contents.filter((item) => item.institutionId === formInstitutionId),
-        selectedType,
-        isEditMode ? editDocId : undefined,
-      );
-      if (limitError) {
-        alert(limitError);
-        return;
-      }
-    }
     setLoading(true);
 
     let contentData = {};
@@ -440,17 +428,6 @@ const ContentManagement = () => {
   };
 
   const editedContent = contents.find((item) => item.id === editDocId);
-  const shouldCheckContentLimit =
-    !isEditMode || editedContent?.institutionId !== formInstitutionId;
-  const getFormContentLimitError = (type) =>
-    shouldCheckContentLimit && formInstitutionId
-      ? getInstitutionContentLimitError(
-          contents.filter((item) => item.institutionId === formInstitutionId),
-          type,
-          isEditMode ? editDocId : undefined,
-        )
-      : "";
-
   const filteredContents = contents
     .filter((c) => filter === "All" || (filter === "Needs attention" ? !isContentReady(c) : c.status === filter))
     .filter((c) => scopeFilter === "All" || getContentScope(c) === scopeFilter)
@@ -751,7 +728,6 @@ const ContentManagement = () => {
                 <option
                   key={type}
                   value={type}
-                  disabled={Boolean(getFormContentLimitError(type))}
                 >
                   {type === "Information"
                     ? "Information (Description)"
@@ -763,11 +739,9 @@ const ContentManagement = () => {
                 </option>
               ))}
             </select>
-            {!isEditMode && selectedType && getFormContentLimitError(selectedType) && (
-              <small role="alert" style={{ display: "block", color: "#fbbf24", marginTop: 6 }}>
-                {getFormContentLimitError(selectedType)}
-              </small>
-            )}
+            <small style={{ display: "block", color: "#888", marginTop: 6 }}>
+              Reusable content can be assigned to multiple targets. Assignment limits are enforced per Landmark or POI.
+            </small>
           </div>
           <div className={commonStyles.formGroup}>
             <label>Content Area</label>

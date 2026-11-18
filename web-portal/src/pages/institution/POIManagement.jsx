@@ -5,7 +5,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import { db } from "../../lib/firebase";
 import { getContentScope } from "../../lib/contentScope";
-import { normalizeContentType } from "../../lib/contentTypes";
+import { getContentAssignmentLimitError, normalizeContentType } from "../../lib/contentTypes";
 import { writeAuditLog } from "../../lib/auditLog";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
@@ -300,6 +300,15 @@ const POIManagement = ({ adminMode = false }) => {
       setFormError("A plaque image and a real width greater than 0 metres are both required.");
       return;
     }
+    const assignmentLimitError = getContentAssignmentLimitError(
+      "POI",
+      selectedContentIds,
+      availableContent,
+    );
+    if (assignmentLimitError) {
+      setFormError(assignmentLimitError);
+      return;
+    }
     setSaving(true);
     setFormError("");
     let uploadedImage = null;
@@ -543,23 +552,33 @@ const POIManagement = ({ adminMode = false }) => {
           <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
             Assign Existing Content
           </label>
-          {!adminMode && (
-            <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
-              Institutions can attach Information, Fun Facts, and Quizzes to POIs. VR models remain restricted.
-            </small>
-          )}
+          <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
+            Assign at most one Information item and one Quiz per POI. Add any number of Fun Facts. VR models cannot be assigned to POIs.
+          </small>
           {availableContent.length === 0 ? (
             <small style={{ color: "#888" }}>No reusable POI content found.</small>
-          ) : availableContent.map((item) => (
-            <label key={item.id} style={{ display: "flex", gap: 8, padding: "6px 0", color: "#ccc" }}>
-              <input
-                type="checkbox"
-                checked={selectedContentIds.includes(item.id)}
-                onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}
-              />
-              {item.title} ({item.type})
-            </label>
-          ))}
+          ) : availableContent.map((item) => {
+            const isSelected = selectedContentIds.includes(item.id);
+            const limitError = isSelected
+              ? ""
+              : getContentAssignmentLimitError(
+                "POI",
+                [...selectedContentIds, item.id],
+                availableContent,
+              );
+            return (
+              <label key={item.id} style={{ display: "flex", gap: 8, padding: "6px 0", color: "#ccc" }}>
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  disabled={Boolean(limitError)}
+                  title={limitError || undefined}
+                  onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}
+                />
+                {item.title} ({item.type})
+              </label>
+            );
+          })}
         </div>
         <button className={commonStyles.btnPrimary} disabled={saving}>{saving ? "Saving..." : selectedPoiId ? "Save POI Changes" : "Save POI"}</button>
         {selectedPoiId && <button type="button" className={commonStyles.btnCancel} onClick={resetForm}>Cancel Edit</button>}

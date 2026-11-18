@@ -11,6 +11,7 @@ import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import commonStyles from "../../components/common/Common.module.css";
 import { getContentScope } from "../../lib/contentScope";
+import { getContentAssignmentLimitError } from "../../lib/contentTypes";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
 import { writeAuditLog } from "../../lib/auditLog";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
@@ -123,6 +124,15 @@ const LandmarkManagement = () => {
     const description = form.description.trim();
     if (!name || !description) {
       setPageError("Enter both a landmark name and description.");
+      return;
+    }
+    const assignmentLimitError = getContentAssignmentLimitError(
+      "Landmark",
+      selectedContentIds,
+      availableContent,
+    );
+    if (assignmentLimitError) {
+      setPageError(assignmentLimitError);
       return;
     }
     setSaving(true);
@@ -267,18 +277,33 @@ const LandmarkManagement = () => {
           <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
             Assign Existing Content
           </label>
+          <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
+            Assign at most one Information item, one Quiz, and one VR model per Landmark. Fun Facts are unlimited.
+          </small>
           {availableContent.length === 0 ? (
             <small style={{ color: "#888" }}>No reusable landmark content found.</small>
-          ) : availableContent.map((item) => (
-            <label key={item.id} style={{ display: "flex", gap: 8, padding: "6px 0", color: "#ccc" }}>
-              <input
-                type="checkbox"
-                checked={selectedContentIds.includes(item.id)}
-                onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}
-              />
-              {item.title} ({item.type})
-            </label>
-          ))}
+          ) : availableContent.map((item) => {
+            const isSelected = selectedContentIds.includes(item.id);
+            const limitError = isSelected
+              ? ""
+              : getContentAssignmentLimitError(
+                "Landmark",
+                [...selectedContentIds, item.id],
+                availableContent,
+              );
+            return (
+              <label key={item.id} style={{ display: "flex", gap: 8, padding: "6px 0", color: "#ccc" }}>
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  disabled={Boolean(limitError)}
+                  title={limitError || undefined}
+                  onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}
+                />
+                {item.title} ({item.type})
+              </label>
+            );
+          })}
         </div>
         <MapContainer center={[10.3157, 123.8854]} zoom={15} style={{ height: 240, width: "100%" }} dragging={false} doubleClickZoom={false} scrollWheelZoom={false} zoomControl={false}>
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
