@@ -32,7 +32,7 @@ interface UserType {
   email: string;
   role: "admin" | "superadmin" | "institution" | "user";
   additionalRoles?: "maintenance"[];
-  status: "Active" | "Inactive" | "Banned";
+  status: "Active" | "Deactivated" | "Inactive" | "Banned";
   institutionId?: string | null;
   createdAt?: unknown;
   mustChangePassword?: boolean;
@@ -111,6 +111,9 @@ const formatUserDate = (value: unknown) => {
   const date = timestamp.toDate ? timestamp.toDate() : new Date(String(value));
   return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
 };
+
+const getUserStatusLabel = (status: UserType["status"]) =>
+  status === "Active" ? "Active" : "Deactivated";
 
 // Secondary Firebase app for user creation (won't affect your current session)
 const secondaryApp = initializeApp(
@@ -314,13 +317,15 @@ const UserManagement: React.FC = () => {
   /* =====================
      ACTIONS
   ===================== */
-  const handleBanToggle = async (user: UserType) => {
+  const handleUserActiveToggle = async (user: UserType) => {
     if (user.role === "superadmin" && currentRole !== "superadmin") {
       alert("Only a super admin can change a super-admin account's status.");
       return;
     }
-    const nextStatus = user.status === "Banned" ? "Active" : "Banned";
-    if (!window.confirm(`${nextStatus === "Banned" ? "Ban" : "Unban"} ${user.name}?`))
+    const isActive = user.status === "Active";
+    const nextStatus = isActive ? "Deactivated" : "Active";
+    const action = isActive ? "deactivate" : "reactivate";
+    if (!window.confirm(`${isActive ? "Deactivate" : "Reactivate"} ${user.name}?`))
       return;
     try {
       await updateDoc(doc(db, "users", user.id), { status: nextStatus });
@@ -334,7 +339,7 @@ const UserManagement: React.FC = () => {
       await writeAuditLog({
         actorId: authUser?.uid,
         actorRole: currentRole,
-        action: nextStatus === "Banned" ? "user.banned" : "user.unbanned",
+        action: `user.${isActive ? "deactivated" : "reactivated"}`,
         entityType: "user",
         entityId: user.id,
         metadata: { email: user.email, institutionId: user.institutionId || null },
@@ -945,7 +950,7 @@ const UserManagement: React.FC = () => {
                           color: user.status === "Active" ? "#4ade80" : "#ef4444",
                         }}
                       >
-                        {user.status}
+                        {getUserStatusLabel(user.status)}
                       </span>
                     </td>
                     <td>
@@ -1044,12 +1049,12 @@ const UserManagement: React.FC = () => {
                       </button>
                       <button
                         className={tableStyles.btnAction}
-                        title={user.status === "Banned" ? "Unban account" : "Ban account"}
-                        style={{ borderColor: user.status === "Banned" ? "#4ade80" : "#ef4444", color: user.status === "Banned" ? "#4ade80" : "#ef4444" }}
+                        title={user.status === "Active" ? "Deactivate account" : "Reactivate account"}
+                        style={{ borderColor: user.status === "Active" ? "#ef4444" : "#4ade80", color: user.status === "Active" ? "#ef4444" : "#4ade80" }}
                         disabled={user.role === "superadmin" && currentRole !== "superadmin"}
-                        onClick={() => handleBanToggle(user)}
+                        onClick={() => handleUserActiveToggle(user)}
                       >
-                        <i className={`fa-solid ${user.status === "Banned" ? "fa-user-check" : "fa-user-slash"}`}></i>
+                        <i className={`fa-solid ${user.status === "Active" ? "fa-user-slash" : "fa-user-check"}`}></i>
                       </button>
                     </td>
                   </tr>
@@ -1083,7 +1088,7 @@ const UserManagement: React.FC = () => {
                         : detailsUser.role || "-"}
                     </p>
                   </div>
-                  <div><small style={{ color: "#999" }}>Status</small><p>{detailsUser.status || "-"}</p></div>
+                  <div><small style={{ color: "#999" }}>Status</small><p>{getUserStatusLabel(detailsUser.status)}</p></div>
                   <div><small style={{ color: "#999" }}>Institution</small><p>{institutions.find((item) => item.id === detailsUser.institutionId)?.name || "-"}</p></div>
                   <div><small style={{ color: "#999" }}>Date joined</small><p>{formatUserDate(detailsUser.createdAt)}</p></div>
                 </div>
