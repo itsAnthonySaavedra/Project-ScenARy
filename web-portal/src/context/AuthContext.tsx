@@ -49,6 +49,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const isUserDeactivated = (status: unknown) => {
+  const normalizedStatus = String(status || "Active").toLowerCase();
+  return ["deactivated", "inactive", "banned"].includes(normalizedStatus);
+};
+
 export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
   if (!context) throw new Error("useAuth must be used within an AuthProvider");
@@ -96,9 +101,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const profile = snap.data();
-      if (String(profile.status || "Active").toLowerCase() === "banned") {
+      if (isUserDeactivated(profile.status)) {
         await signOut(auth);
-        return { success: false, message: "This account has been banned. Contact an administrator." };
+        return { success: false, message: "This account has been deactivated. Contact an administrator." };
       }
 
       const storedRole = String(profile.role || "").toLowerCase();
@@ -315,7 +320,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const userProfile = profile.data();
         if (
           !profile.exists() ||
-          String(userProfile?.status || "Active").toLowerCase() === "banned"
+          isUserDeactivated(userProfile?.status)
         ) {
           sessionStorage.removeItem("scenaryExpectedRole");
           sessionStorage.removeItem("scenaryUserId");
@@ -415,6 +420,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
     return unsubscribe;
   }, [navigate]);
+
+  useEffect(() => {
+    if (!currentUser) return undefined;
+
+    return onSnapshot(
+      doc(db, "users", currentUser.uid),
+      (profile) => {
+        if (profile.exists() && !isUserDeactivated(profile.data().status)) return;
+
+        sessionStorage.removeItem("scenaryExpectedRole");
+        sessionStorage.removeItem("scenaryUserId");
+        signOut(auth).catch((error) =>
+          console.error("Unable to sign out deactivated user:", error),
+        );
+        setCurrentUser(null);
+        setCurrentRole(null);
+        setMustChangePassword(false);
+        navigate(`/login?type=${currentRole === "institution" ? "institution" : "admin"}`);
+      },
+      (error) => console.error("Unable to monitor user status:", error),
+    );
+  }, [currentRole, currentUser, navigate]);
 
   useEffect(() => {
     if (currentRole !== "institution" || !currentUser) return undefined;

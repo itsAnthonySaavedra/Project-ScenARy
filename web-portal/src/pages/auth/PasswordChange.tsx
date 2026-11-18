@@ -16,6 +16,9 @@ const PasswordChange: React.FC = () => {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -82,44 +85,80 @@ const PasswordChange: React.FC = () => {
           <form onSubmit={handleSubmit}>
             <div className={styles.formGroup}>
               <label htmlFor="current-password">Temporary / current password</label>
-              <input
-                id="current-password"
-                type="password"
-                className={styles.formControl}
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                required
-                disabled={saving}
-              />
+              <div className={styles.passwordField}>
+                <input
+                  id="current-password"
+                  type={showCurrentPassword ? "text" : "password"}
+                  className={styles.formControl}
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  required
+                  disabled={saving}
+                />
+                <button
+                  type="button"
+                  className={styles.passwordToggle}
+                  aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                  aria-pressed={showCurrentPassword}
+                  onClick={() => setShowCurrentPassword((visible) => !visible)}
+                  disabled={saving}
+                >
+                  <i className={`fa-solid ${showCurrentPassword ? "fa-eye-slash" : "fa-eye"}`} aria-hidden="true"></i>
+                </button>
+              </div>
             </div>
             <div className={styles.formGroup}>
               <label htmlFor="new-password">New password</label>
-              <input
-                id="new-password"
-                type="password"
-                className={styles.formControl}
-                autoComplete="new-password"
-                minLength={8}
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                required
-                disabled={saving}
-              />
+              <div className={styles.passwordField}>
+                <input
+                  id="new-password"
+                  type={showNewPassword ? "text" : "password"}
+                  className={styles.formControl}
+                  autoComplete="new-password"
+                  minLength={8}
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  required
+                  disabled={saving}
+                />
+                <button
+                  type="button"
+                  className={styles.passwordToggle}
+                  aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                  aria-pressed={showNewPassword}
+                  onClick={() => setShowNewPassword((visible) => !visible)}
+                  disabled={saving}
+                >
+                  <i className={`fa-solid ${showNewPassword ? "fa-eye-slash" : "fa-eye"}`} aria-hidden="true"></i>
+                </button>
+              </div>
             </div>
             <div className={styles.formGroup}>
               <label htmlFor="confirm-password">Confirm new password</label>
-              <input
-                id="confirm-password"
-                type="password"
-                className={styles.formControl}
-                autoComplete="new-password"
-                minLength={8}
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-                disabled={saving}
-              />
+              <div className={styles.passwordField}>
+                <input
+                  id="confirm-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  className={styles.formControl}
+                  autoComplete="new-password"
+                  minLength={8}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  required
+                  disabled={saving}
+                />
+                <button
+                  type="button"
+                  className={styles.passwordToggle}
+                  aria-label={showConfirmPassword ? "Hide confirmation password" : "Show confirmation password"}
+                  aria-pressed={showConfirmPassword}
+                  onClick={() => setShowConfirmPassword((visible) => !visible)}
+                  disabled={saving}
+                >
+                  <i className={`fa-solid ${showConfirmPassword ? "fa-eye-slash" : "fa-eye"}`} aria-hidden="true"></i>
+                </button>
+              </div>
             </div>
             <button type="submit" className={styles.btnPrimary} disabled={saving}>
               {saving ? "Updating password..." : "Update password"}
