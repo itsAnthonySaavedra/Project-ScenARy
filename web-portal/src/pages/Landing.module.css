@@ -66,10 +66,10 @@
 }
 
 .brandMark {
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0.35rem;
+    width: 2.4rem;
+    height: 2.4rem;
     object-fit: contain;
+    flex: none;
 }
 
 /* Buttons (Scoped variants) */

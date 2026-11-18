@@ -40,6 +40,14 @@
     object-fit: contain;
 }
 
+.brandMark {
+    display: block;
+    width: 4rem;
+    height: 4rem;
+    margin: 0 auto 0.65rem;
+    object-fit: contain;
+}
+
 .logoArea h3 {
     font-size: 1.5rem;
     margin-bottom: 0.5rem;
