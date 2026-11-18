@@ -28,3 +28,18 @@ export const normalizeFunFacts = (data) =>
   Array.isArray(data?.facts) && data.facts.length
     ? data.facts.map((fact) => typeof fact === "string" ? fact : "")
     : [typeof data?.fact === "string" ? data.fact : ""];
+
+export function buildModelEditPatch(model, previous, deleteValue) {
+  const patch = Object.fromEntries(Object.entries(model).map(([field, value]) => [`data.${field}`, value]));
+  const obsoleteFields = [
+    "spawnPoint", "position", "rotation", "surfaceNormal",
+    "spawnX", "spawnY", "spawnZ", "SpawnZ", "spawnRotationY", "spawnRotationalY", "spawnSurfaceNormal",
+  ];
+  if (model.modelUrl !== (previous.modelUrl || previous.modelPath)) {
+    obsoleteFields.push("modelPath", "modelFileName", "modelFileType", "modelStoragePath");
+  }
+  for (const field of obsoleteFields) {
+    if (Object.hasOwn(previous, field) && !Object.hasOwn(model, field)) patch[`data.${field}`] = deleteValue;
+  }
+  return patch;
+}

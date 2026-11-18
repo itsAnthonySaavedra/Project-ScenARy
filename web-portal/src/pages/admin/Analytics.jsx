@@ -4,6 +4,7 @@ import { db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
 import { downloadCsv } from "../../lib/exportCsv";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import {
     findNumericValue,
     formatAnalyticsDate,
@@ -27,22 +28,82 @@ const AdminAnalytics = () => {
     const [feedbackSearchTerm, setFeedbackSearchTerm] = useState("");
     const [error, setError] = useState("");
     const [deletingFeedbackId, setDeletingFeedbackId] = useState("");
+    const [revenueByInstitution, setRevenueByInstitution] = useState({});
+    const [revenueLoading, setRevenueLoading] = useState(true);
+    const [revenueError, setRevenueError] = useState("");
 
     useEffect(() => {
+        let active = true;
         writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "analytics.viewed", entityType: "analytics", metadata: { portal: "admin" } });
         Promise.all([loadUserAnalytics(), loadFeedback(), getDocs(collection(db, "institutions"))])
-            .then(([analyticsRows, feedbackRows, institutionSnap]) => {
+            .then(async ([analyticsRows, feedbackRows, institutionSnap]) => {
+                if (!active) return;
                 setRows(analyticsRows);
                 setFeedback(feedbackRows);
-                setInstitutions(institutionSnap.docs.map((item) => ({ id: item.id, name: item.data().name })));
+                const institutionList = institutionSnap.docs.map((item) => ({ id: item.id, name: item.data().name }));
+                setInstitutions(institutionList);
+                setRevenueLoading(true);
+                setRevenueError("");
+
+                try {
+                    const institutionRevenue = await Promise.all(
+                        institutionList.map(async (institution) => {
+                            const transactionSnap = await getDocs(
+                                collection(db, "siteAccess", institution.id, "transactions"),
+                            );
+                            const transactions = transactionSnap.docs
+                                .map((item) => item.data())
+                                .filter(
+                                    (item) =>
+                                        item.currency === "PHP" &&
+                                        Number.isSafeInteger(item.amountCentavos) &&
+                                        item.amountCentavos >= 0,
+                                );
+                            return [
+                                institution.id,
+                                {
+                                    amountCentavos: transactions.reduce(
+                                        (total, item) => total + item.amountCentavos,
+                                        0,
+                                    ),
+                                    passCount: transactions.length,
+                                },
+                            ];
+                        }),
+                    );
+                    if (active) {
+                        setRevenueByInstitution(Object.fromEntries(institutionRevenue));
+                        setRevenueError("");
+                    }
+                } catch (revenueLoadError) {
+                    console.error("Unable to load platform site revenue:", revenueLoadError);
+                    if (active) {
+                        setRevenueError(
+                            getFirebaseErrorMessage(revenueLoadError, "Unable to load site revenue."),
+                        );
+                    }
+                } finally {
+                    if (active) setRevenueLoading(false);
+                }
             })
             .catch((loadError) => {
                 console.error("Unable to load platform analytics:", loadError);
-                setError("Unable to load platform analytics.");
+                if (active) {
+                    setError("Unable to load platform analytics.");
+                    setRevenueLoading(false);
+                }
             });
+        return () => {
+            active = false;
+        };
     }, [currentRole, currentUser?.uid]);
 
     const institutionNames = Object.fromEntries(institutions.map((item) => [item.id, item.name]));
+    const totalRevenueCentavos = Object.values(revenueByInstitution)
+        .reduce((total, item) => total + item.amountCentavos, 0);
+    const formatPhp = (amountCentavos) =>
+        new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" })
+            .format(amountCentavos / 100);
     const selectedRows = selectedInstitutionId === "all" ? rows : rows.filter((item) => item.institutionId === selectedInstitutionId);
     const selectedFeedback = selectedInstitutionId === "all" ? feedback : feedback.filter((item) => item.institutionId === selectedInstitutionId);
     const userQuery = userSearchTerm.trim().toLowerCase();
@@ -121,6 +182,48 @@ const AdminAnalytics = () => {
                 </select>
                 <button type="button" onClick={exportAnalytics} disabled={!selectedRows.length} className="btn-outline" style={{ padding: "0.65rem 0.9rem", cursor: selectedRows.length ? "pointer" : "not-allowed" }}><i className="fa-solid fa-download" style={{ marginRight: "0.4rem" }} />Export CSV</button>
             </div>
+            <section className="chart-card full-width">
+                <h3>Site Pass Revenue</h3>
+                <p style={{ color: "#888" }}>
+                    Admin-granted day passes are counted at their recorded price. One-minute test passes and phone purchases are not included.
+                </p>
+                {revenueError && <p role="alert" style={{ color: "#fca5a5" }}>{revenueError}</p>}
+                <p>
+                    <strong>Total:</strong>{" "}
+                    {revenueLoading || revenueError ? "Unavailable" : formatPhp(totalRevenueCentavos)}
+                </p>
+                {!revenueError && (
+                    <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", textAlign: "left" }}>
+                            <thead>
+                                <tr><th>Institution</th><th>Recorded revenue</th><th>Day passes</th></tr>
+                            </thead>
+                            <tbody>
+                                {institutions.length === 0 ? (
+                                    <tr><td colSpan={3}>No institutions found.</td></tr>
+                                ) : institutions.map((institution) => {
+                                    const institutionRevenue = revenueByInstitution[institution.id];
+                                    return (
+                                        <tr key={institution.id}>
+                                            <td>{institution.name}</td>
+                                            <td>
+                                                {revenueLoading
+                                                    ? "Loading..."
+                                                    : formatPhp(institutionRevenue?.amountCentavos || 0)}
+                                            </td>
+                                            <td>
+                                                {revenueLoading
+                                                    ? "—"
+                                                    : institutionRevenue?.passCount || 0}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </section>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "1rem" }}>
                 <div className="chart-card"><h3>Interactions</h3><strong style={{ fontSize: "2rem", color: "#d4af37" }}>{totalInteractions}</strong></div>
                 <div className="chart-card"><h3>Average Rating</h3><strong style={{ fontSize: "2rem", color: "#d4af37" }}>{ratingStats.average === null ? "-" : `${ratingStats.average.toFixed(1)} / 5`}</strong><p style={{ color: "#888" }}>{ratingStats.reviewCount} reviews</p></div>

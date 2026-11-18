@@ -1,4 +1,45 @@
-# Web Portal
+# ScenARy Web Portal
+
+The React portal lets administrators and institutions manage landmarks, POIs, AR markers, visitor content, and virtual tour models. The separate **ScenARy Mobile** app consumes published content from Firebase.
+
+## Run locally
+
+From the website repository root, install the locked dependencies and start Vite.
+
+```powershell
+cd web-portal
+npm ci
+npm run dev
+```
+
+Sign in with a Firebase account assigned to the appropriate administrator or institution role. The shared Firebase client configuration is in [src/lib/firebase.js](src/lib/firebase.js). Run `npm run build` from `web-portal` to build into `dist/`, or run `npm run preview` to serve that build locally.
+
+## Export, upload, and publish an interactive tour
+
+1. Set up the landmark and its POIs, then assign the published content each stop should show.
+2. Open **POIs** as the institution, or **POI Management** as an administrator and select the institution. Choose **Export POIs for Unity** on the landmark's card. The JSON contains landmark and POI IDs, names, and published content types.
+3. Send the JSON and GLB to the Unity developer. They can import the catalog or load the landmark's POIs directly from Firebase in the [Unity project](https://github.com/kirksamutya/ScenARy). They link model objects to existing POIs and export a ZIP with `model.glb` and `tour.json`.
+4. In the app admin portal, open **Content Management → Upload interactive tour** and choose the ZIP. Review the landmark and its trigger links, then click **Upload for review**. The portal saves the GLB to Firebase Storage and the trigger links with the draft in Firestore.
+5. The institution previews and approves the draft. In the admin portal, choose **Approve & publish**. If a tour is already published for that landmark, visitors can keep opening it until the replacement is approved. A mobile build that supports POI triggers picks up new published tours on its next online open.
+
+The portal stores the GLB in Firebase Storage and the object-to-POI links in Firestore. The app draws the distance indicators from those links and opens the POI's published Information, Fun Facts, and Quiz content. Older GLB-only app builds need one update for interactive stops.
+
+## Interactive tours checkpoint
+
+Local checks covered Unity ZIP parsing and the approval and replacement flow with simulated Firebase data. The live Firebase check confirmed that Fort San Pedro has a published GLB and AR POIs with published content. The production ZIP upload through Android playback still needs an end-to-end test. Firestore allowed public writes at the time of the check. Restrict access before a production release.
+
+The AI guide opens inside the AR and VR viewers in **ScenARy Mobile** and connects to the separate **ScenARy AI** backend.
+
+## Project structure
+
+| Path | Purpose |
+|---|---|
+| `src/pages/` | Landing, authentication, institution, and admin screens |
+| `src/components/` | Shared components and layouts |
+| `src/context/` | Authentication and session state |
+| `src/lib/` | Firebase access and shared content helpers |
+| `src/styles/` | Global design tokens and base styles. Components also use CSS Modules. |
+| `public/` | Static assets, including the transparent ScenARy mark |
 
 ## AR plaque images for POIs
 
@@ -10,15 +51,11 @@ POIs can optionally store an AR image target and its measured real-world width:
 
 Admins can manage them from **POI Management**; institutions can use **POIs**. Uploading a plaque image and entering its width saves both fields to the POI document. Plaque images are stored under `markers/{institutionId}/`. The separate POI location image remains unchanged.
 
-To seed a test POI manually, upload its photo under `markers/{institutionId}/` in Firebase Storage, copy its download URL, then add `markerImageUrl` and a numeric `markerWidthMeters` to that POI document in Firestore. The repository's `storage.rules` allows authorized uploads and public reads at that path; make sure those rules are deployed to the Firebase project. Also confirm the deployed Firestore rules allow the POI fields to be written.
-
-The Unity project in this repository does not yet contain the mobile app’s Firestore scan flow or runtime image-tracking scripts; adding these portal fields alone does not enable AR tracking.
+The separate ScenARy Mobile Unity project uses these fields in its AR plaque scanner. After editing a test POI, use an ARCore-capable Android phone to check the site QR, stop selection, and plaque scan.
 
 ## Institution content limits
 
-Institutions can create one Information item, one Quiz, and one VR Model per institution. A quiz can contain multiple true/false or multiple-choice questions and can save shuffle settings for question order and choices. Fun Fact content can contain multiple entries. POIs can be assigned Information and Fun Fact content by institution accounts; VR models and quizzes are limited to landmark content. Existing legacy model type names are normalized to **VR Model** in the portal.
-
-The quiz builder stores its question types and shuffle settings, but this repository does not include the mobile quiz runtime that would consume them.
+Institutions can create one Information item, one Quiz, and one VR Model per institution. A quiz can contain multiple true/false or multiple-choice questions and can save shuffle settings for question order and choices. Fun Fact content can contain multiple entries. The POI catalog uses assigned and published Information, Fun Fact, and Quiz content. VR models belong to landmarks. Existing legacy model type names are normalized to **VR Model** in the portal.
 
 ## Testing temporary site access
 
@@ -35,7 +72,7 @@ firebase deploy --only firestore:indexes
 firebase deploy --only functions:expireSiteAccessPasses
 ```
 
-One job runs about 43,200 times per 30-day month. Firebase currently includes 3 Cloud Scheduler jobs per Google account at no charge; Cloud Functions includes 2 million invocations/month and Firestore includes 50,000 reads/day on Blaze. This workload should normally fit those no-cost allowances, but Blaze requires a billing account and actual charges depend on usage and region. See [Firebase pricing](https://firebase.google.com/pricing) and [scheduled functions](https://firebase.google.com/docs/functions/schedule-functions). The function marks records within about one minute of expiry; access checks should still compare `expiresAt`. The Unity project does not currently contain the phone app’s paid-access check.
+Check [Firebase pricing](https://firebase.google.com/pricing) before deploying the scheduler. The function updates the stored status on its next run. The mobile app also checks the pass's `expiresAt` when granting access. Pass purchases currently use the demo flow.
 
 ## User analytics data contract
 
@@ -62,51 +99,3 @@ Audit records are stored in `auditLogs` with `actorId`, `actorRole`, `action`, `
 - `analytics.viewed`
 
 The same pattern can cover `landmark.created`, `landmark.updated`, `landmark.deleted`, `poi.created`, `poi.updated`, `poi.deleted`, `tour.created`, `tour.updated`, `tour.deleted`, `quiz.completed`, and `session.started` / `session.ended` when those events are written by the institution portal, mobile app, or trusted backend.
-# ScenARy v2 - React Migration
-
-ScenARy V2 is an Augmented Reality (AR) platform for historical sites, featuring an Administrator Portal for management and an Institution Portal for content creators.
-
-## Project Structure
-
-This project has been migrated from a static HTML/CSS template to a modern Vite + React application with a modular architecture.
-
-```
-/
-├── src/
-│   ├── components/
-│   │   ├── common/         # Shared UI (StatCard, Modals) & Modules (Common.module.css)
-│   │   ├── features/       # Feature-specific components (Dashboard widgets)
-│   │   └── layout/         # Layout wrapper, Sidebar, Header
-│   ├── context/            # Global State (AuthContext)
-│   ├── pages/              # Page Views (Admin, Institute, Auth, Landing)
-│   └── styles/             # Global Variables & Resets (main.css)
-└── public/                 # Static Assets
-```
-
-## CSS Architecture
-
-The project uses **CSS Modules** for 100% style isolation.
--   **No Global Utility Classes**: Components import their own styles from `*.module.css`.
--   **Common Styles**: Shared patterns (Buttons, Input Fields, Modals) are imported from `src/components/common/Common.module.css`.
--   **Variables**: Design tokens (colors, fonts) are defined in `src/styles/variables.css`.
-
-## Getting Started
-
-1.  **Install Dependencies**
-    ```bash
-    npm install
-    ```
-
-2.  **Run Development Server**
-    ```bash
-    npm run dev
-    ```
-
-3.  **Build for Production**
-    ```bash
-    npm run build
-    ```
-
-## Key Credentials (Mock)
--   **Admin Portal**: Select "Admin Login" (auto-filled mock credentials).
--   **Institute Portal**: Select "Institute Login" (auto-filled mock credentials).

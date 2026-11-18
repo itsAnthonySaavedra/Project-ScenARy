@@ -53,7 +53,14 @@ export const uploadStorageFile = async (file, folder, onProgress) => {
       resolve,
     );
   });
-  const url = await getDownloadURL(fileRef);
+  let url;
+  try {
+    url = await getDownloadURL(fileRef);
+  } catch (error) {
+    try { await deleteStorageFile(storagePath); }
+    catch (cleanupError) { console.warn("Unable to remove an upload without a download URL:", cleanupError); }
+    throw error;
+  }
 
   return {
     url,

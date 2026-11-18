@@ -65,6 +65,13 @@
     color: var(--color-text-light);
 }
 
+.brandMark {
+    width: 2.4rem;
+    height: 2.4rem;
+    object-fit: contain;
+    flex: none;
+}
+
 /* Buttons (Scoped variants) */
 .btn {
     display: inline-block;
