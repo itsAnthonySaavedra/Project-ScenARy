@@ -14,10 +14,7 @@ const Landing = () => {
     >
       <nav className={styles.mainNav}>
         <div className={styles.navLogo}>
-          <i
-            className="fa-solid fa-landmark"
-            style={{ color: "var(--color-accent-gold)", marginRight: "0.5rem" }}
-          ></i>{" "}
+          <img className={styles.brandMark} src="/assets/images/scenary-mark.png" alt="" />
           ScenARy
         </div>
         <div className="nav-links">
@@ -57,10 +54,7 @@ const Landing = () => {
                 gap: "0.5rem",
               }}
             >
-              <i
-                className="fa-solid fa-landmark"
-                style={{ color: "var(--color-accent-gold)" }}
-              ></i>{" "}
+              <img className={styles.brandMark} src="/assets/images/scenary-mark.png" alt="" />
               ScenARy
             </div>
             <p

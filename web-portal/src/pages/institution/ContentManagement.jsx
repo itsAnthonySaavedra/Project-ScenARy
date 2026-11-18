@@ -38,6 +38,7 @@ import {
 } from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
+import { approveTourForInstitution, isTourPackage } from "../../lib/tourPackageStore.js";
 
 const InstituteContentManagement = () => {
   const [contents, setContents] = useState([]);
@@ -201,6 +202,7 @@ const InstituteContentManagement = () => {
   };
 
   const handleEditClick = (item) => {
+    if (isTourPackage(item)) return;
     setIsEditMode(true);
     setEditDocId(item.id);
     setFormError("");
@@ -229,6 +231,7 @@ const InstituteContentManagement = () => {
   };
 
   const handleDuplicateClick = (item) => {
+    if (isTourPackage(item)) return;
     const data = item.data || {};
     handleOpenCreateModal();
     setFormTitle(`${item.title || "Untitled content"} (copy)`);
@@ -522,7 +525,9 @@ const InstituteContentManagement = () => {
     setApprovalError("");
     setApprovingContentId(item.id);
     try {
-      await updateDoc(doc(db, "content", item.id), {
+      if (isTourPackage(item)) {
+        await approveTourForInstitution(item, getAuth().currentUser?.uid || null);
+      } else await updateDoc(doc(db, "content", item.id), {
         institutionApproved: true,
         institutionApprovedAt: serverTimestamp(),
         institutionApprovedBy: getAuth().currentUser?.uid || null,
@@ -549,7 +554,7 @@ const InstituteContentManagement = () => {
     } catch (error) {
       console.error("Unable to approve the VR model:", error);
       setApprovalError(
-        getFirebaseErrorMessage(error, "Unable to approve the VR model. Please try again."),
+        getFirebaseErrorMessage(error, isTourPackage(item) ? error.message : "Unable to approve the VR model. Please try again."),
       );
     } finally {
       setApprovingContentId("");
@@ -743,7 +748,7 @@ const InstituteContentManagement = () => {
                       </button>
 
                       {/* 🌟 INPLACE CONTENT EDIT TRIGGER ACTION BUTTON 🌟 */}
-                      <button
+                      {!isTourPackage(item) && <button
                         className={tableStyles.btnAction}
                         onClick={() => handleEditClick(item)}
                         title="Modify Content Node Inplace"
@@ -753,12 +758,13 @@ const InstituteContentManagement = () => {
                         }}
                       >
                         <i className="fa-solid fa-edit"></i>
-                      </button>
-                      <button className={tableStyles.btnAction} onClick={() => handleDuplicateClick(item)} title="Duplicate content">
+                      </button>}
+                      {!isTourPackage(item) && <button className={tableStyles.btnAction} onClick={() => handleDuplicateClick(item)} title="Duplicate content">
                         <i className="fa-solid fa-copy"></i>
-                      </button>
+                      </button>}
                       {item.type === MODEL_CONTENT_TYPE &&
                         item.status !== "Published" &&
+                        (!isTourPackage(item) || item.status === "Awaiting Content") &&
                         !item.institutionApproved && (
                           <button
                             type="button"

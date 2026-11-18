@@ -79,6 +79,14 @@ const ContentPreview = ({ content }) => {
                 The model could not be rendered. Open the model URL directly to check Storage access, then check the browser console for the model-loading error.
               </p>
             )}
+            {data.tourPackageVersion === 2 && Array.isArray(data.exhibits) && (
+              <details style={previewPanelStyle}>
+                <summary>{data.exhibits.length} VR trigger links</summary>
+                <ul>
+                  {data.exhibits.map(({ anchor, poiId }) => <li key={anchor}>{anchor} → {poiId}</li>)}
+                </ul>
+              </details>
+            )}
           </div>
         ) : (
           <div style={previewPanelStyle}>No model URL provided.</div>

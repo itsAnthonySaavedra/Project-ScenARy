@@ -6,6 +6,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   doc,
   serverTimestamp,
 } from "firebase/firestore";
@@ -17,6 +18,7 @@ import { writeAuditLog } from "../../lib/auditLog";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
+import TourPackageUpload from "../../components/common/TourPackageUpload";
 import ContentPreview from "../../components/common/ContentPreview";
 import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
 import QuizEditor from "../../components/common/QuizEditor";
@@ -27,13 +29,15 @@ import {
   MODEL_CONTENT_TYPE,
   normalizeContentType,
 } from "../../lib/contentTypes";
-import { createDefaultQuizQuestion, normalizeFunFacts, normalizeQuizQuestions } from "../../lib/contentData";
+import { buildModelEditPatch, createDefaultQuizQuestion, normalizeFunFacts, normalizeQuizQuestions } from "../../lib/contentData";
 import {
   getContentQualityIssues,
   hasPublishedInstitutionARContent,
   isContentReady,
 } from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
+import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage.js";
+import { editTourMetadata, isTourPackage, publishTourDraft } from "../../lib/tourPackageStore.js";
 
 const ContentManagement = () => {
   const { currentUser, currentRole } = useAuth();
@@ -84,6 +88,8 @@ const ContentManagement = () => {
   const [loading, setLoading] = useState(false);
   const [approvalError, setApprovalError] = useState("");
   const [approvingContentId, setApprovingContentId] = useState("");
+  const [isTourUploadOpen, setIsTourUploadOpen] = useState(false);
+  const [tourUploadNotice, setTourUploadNotice] = useState("");
 
   useEffect(() => {
     let markers = [];
@@ -131,6 +137,20 @@ const ContentManagement = () => {
     ];
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
+
+  const handleTourUploaded = (item) => {
+    setIsTourUploadOpen(false);
+    setTourUploadNotice("Tour uploaded. It’s ready for the institution to preview and approve.");
+    setFilter("Awaiting Content");
+    setScopeFilter("All");
+    setInstitutionFilter("All");
+    setSearchTerm("");
+    void writeAuditLog({
+      actorId: currentUser?.uid, actorRole: currentRole, action: "content.tour-zip-uploaded",
+      entityType: "content", entityId: item.id,
+      metadata: { institutionId: item.institutionId, landmarkId: item.landmarkId, fileName: item.fileName },
+    });
+  };
 
   // --- QUIZ FIELDS MANAGEMENT ---
   // --- OPEN MODAL CLEANING FUNCTION ---
@@ -198,10 +218,16 @@ const ContentManagement = () => {
     try {
       const contentToDelete = contents.find((item) => item.id === deleteDocId);
       const storagePath = contentToDelete?.data?.modelStoragePath;
-      if (storagePath) {
-        await deleteStorageFile(storagePath);
+      if (isTourPackage(contentToDelete)) {
+        await deleteDoc(doc(db, "content", deleteDocId));
+        try { await deleteStorageFile(storagePath); }
+        catch (error) { console.warn("Tour record deleted, but model cleanup failed:", error); }
+      } else {
+        if (storagePath) {
+          await deleteStorageFile(storagePath);
+        }
+        await deleteDoc(doc(db, "content", deleteDocId));
       }
-      await deleteDoc(doc(db, "content", deleteDocId));
       await writeAuditLog({ actorId: currentUser?.uid, actorRole: currentRole, action: "content.deleted", entityType: "content", entityId: deleteDocId });
       setIsDeleteModalOpen(false);
       setDeleteDocId(null);
@@ -227,6 +253,12 @@ const ContentManagement = () => {
       !institutionChanged &&
       (editedContent?.institutionApproved === true ||
         editedContent?.status === "Published");
+    if (isTourPackage(editedContent) && (institutionChanged || formScope !== "Landmark" ||
+      formModelUrl.trim() !== editedContent.data.modelUrl || modelFile ||
+      (formStatus !== editedContent.status && !["Rejected", "Archived"].includes(formStatus)))) {
+      alert("Use Upload interactive tour to replace the model and Approve & publish to publish a reviewed ZIP.");
+      return;
+    }
     if (isModelContent && formStatus === "Published" && !institutionApproved) {
       alert("The institution must approve this VR model before an admin can publish it.");
       return;
@@ -296,7 +328,11 @@ const ContentManagement = () => {
 
       if (isEditMode && editDocId) {
         const docRef = doc(db, "content", editDocId);
-        await updateDoc(docRef, {
+        const retainModelMetadata = isModelContent && !institutionChanged &&
+          normalizeContentType(editedContent?.type) === MODEL_CONTENT_TYPE;
+        if (isTourPackage(editedContent)) {
+          await editTourMetadata(editedContent, formTitle, contentData, formStatus);
+        } else await updateDoc(docRef, {
           title: formTitle,
           scope: formScope,
           institutionId: formInstitutionId.trim(),
@@ -304,7 +340,9 @@ const ContentManagement = () => {
             isModelContent && institutionChanged
               ? "Awaiting Content"
               : formStatus,
-          data: contentData,
+          ...(retainModelMetadata
+            ? buildModelEditPatch(contentData, editedContent.data ?? {}, deleteField())
+            : { data: contentData }),
           ...(isModelContent && institutionChanged
             ? {
                 institutionApproved: false,
@@ -364,7 +402,7 @@ const ContentManagement = () => {
       setShuffleAnswers(false);
     } catch (error) {
       console.error("Save Error:", error);
-      alert("Error saving content. Check console.");
+      alert(getFirebaseErrorMessage(error, isTourPackage(editedContent) ? error.message : "Error saving content. Check console."));
     } finally {
       setLoading(false);
     }
@@ -393,7 +431,9 @@ const ContentManagement = () => {
     setApprovalError("");
     setApprovingContentId(item.id);
     try {
-      await updateDoc(doc(db, "content", item.id), {
+      if (isTourPackage(item)) {
+        await publishTourDraft(item, currentUser?.uid || null);
+      } else await updateDoc(doc(db, "content", item.id), {
         adminApproved: true,
         adminApprovedAt: serverTimestamp(),
         adminApprovedBy: currentUser?.uid || null,
@@ -416,7 +456,7 @@ const ContentManagement = () => {
       }
     } catch (error) {
       console.error("Unable to publish the VR model:", error);
-      setApprovalError("Unable to publish the VR model. Please try again.");
+      setApprovalError(getFirebaseErrorMessage(error, isTourPackage(item) ? error.message : "Unable to publish the VR model. Please try again."));
     } finally {
       setApprovingContentId("");
     }
@@ -428,6 +468,7 @@ const ContentManagement = () => {
   };
 
   const editedContent = contents.find((item) => item.id === editDocId);
+  const editingTourPackage = isTourPackage(editedContent);
   const filteredContents = contents
     .filter((c) => filter === "All" || (filter === "Needs attention" ? !isContentReady(c) : c.status === filter))
     .filter((c) => scopeFilter === "All" || getContentScope(c) === scopeFilter)
@@ -438,6 +479,7 @@ const ContentManagement = () => {
     <div style={{ width: "100%", padding: "20px" }}>
       {dataLoadError && <p role="alert" style={{ color: "#f87171" }}>{dataLoadError}</p>}
       {approvalError && <p role="alert" style={{ color: "#f87171" }}>{approvalError}</p>}
+      {tourUploadNotice && <p role="status">{tourUploadNotice}</p>}
       {/* 1. CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
@@ -502,8 +544,16 @@ const ContentManagement = () => {
             type="text"
             className={tableStyles.searchBar}
             placeholder="Search content..."
+            value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+          <button
+            className={tableStyles.btnAdd}
+            type="button"
+            onClick={() => { setTourUploadNotice(""); setIsTourUploadOpen(true); }}
+          >
+            Upload interactive tour
+          </button>
           <button
             className={tableStyles.btnAdd}
             onClick={handleOpenCreateModal}
@@ -608,7 +658,8 @@ const ContentManagement = () => {
                         <i className="fa-solid fa-trash"></i>
                       </button>
                       {normalizeContentType(item.type) === MODEL_CONTENT_TYPE &&
-                        item.status !== "Published" && (
+                        item.status !== "Published" &&
+                        (!isTourPackage(item) || item.status === "Awaiting Admin Approval" || item.status === "Awaiting Content") && (
                           <button
                             type="button"
                             className={commonStyles.btnPrimary}
@@ -666,6 +717,10 @@ const ContentManagement = () => {
         </table>
       </div>
 
+      {isTourUploadOpen && (
+        <TourPackageUpload institutions={institutions} onClose={() => setIsTourUploadOpen(false)} onSaved={handleTourUploaded} />
+      )}
+
       {/* MODAL: CREATE / EDIT CONTENT */}
       <Modal
         isOpen={isAddModalOpen}
@@ -702,6 +757,7 @@ const ContentManagement = () => {
               className={commonStyles.formControl}
               value={formInstitutionId}
               onChange={(e) => setFormInstitutionId(e.target.value)}
+              disabled={editingTourPackage}
               required
             >
               <option value="">Select Institution</option>
@@ -749,6 +805,7 @@ const ContentManagement = () => {
               className={commonStyles.formControl}
               value={formScope}
               onChange={(e) => setFormScope(e.target.value)}
+              disabled={editingTourPackage}
               required
             >
               <option value="">Select Content Area</option>
@@ -766,16 +823,17 @@ const ContentManagement = () => {
               value={formStatus}
               onChange={(e) => setFormStatus(e.target.value)}
             >
-              <option value="Awaiting Content">Awaiting Content</option>
-              <option value="Awaiting Admin Approval">Awaiting Admin Approval</option>
+              <option value="Awaiting Content" disabled={editingTourPackage && editedContent.status !== "Awaiting Content"}>Awaiting Content</option>
+              <option value="Awaiting Admin Approval" disabled={editingTourPackage && editedContent.status !== "Awaiting Admin Approval"}>Awaiting Admin Approval</option>
               <option
                 value="Published"
                 disabled={
-                  normalizeContentType(selectedType) === MODEL_CONTENT_TYPE &&
+                  (editingTourPackage && editedContent.status !== "Published") ||
+                  (normalizeContentType(selectedType) === MODEL_CONTENT_TYPE &&
                   !(
                     editedContent?.institutionApproved === true ||
                     editedContent?.status === "Published"
-                  )
+                  ))
                 }
               >
                 Published
@@ -813,6 +871,7 @@ const ContentManagement = () => {
 
               {selectedType === MODEL_CONTENT_TYPE && (
                 <div className={commonStyles.formGroup}>
+                  {editingTourPackage ? <p>{editedContent.data.exhibits?.length || 0} trigger links · Upload a new ZIP to replace this tour.</p> : <>
                   <label>Upload VR Model (.glb)</label>
                   <input
                     type="file"
@@ -861,6 +920,7 @@ const ContentManagement = () => {
                     onChange={(e) => setFormModelUrl(e.target.value)}
                     required
                   />
+                  </>}
                   <ModelSpawnPointEditor enabled={modelSpawnPointEnabled} onEnabledChange={setModelSpawnPointEnabled} value={formModelSpawnPoint} onChange={setFormModelSpawnPoint} modelUrl={formModelUrl} />
                 </div>
               )}

@@ -8,6 +8,7 @@ import { getContentScope } from "../../lib/contentScope";
 import { getContentAssignmentLimitError, normalizeContentType } from "../../lib/contentTypes";
 import { writeAuditLog } from "../../lib/auditLog";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
+import { createPoiCatalog, downloadPoiCatalog } from "../../lib/poiCatalog";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 
 const POIManagement = ({ adminMode = false }) => {
@@ -15,10 +16,14 @@ const POIManagement = ({ adminMode = false }) => {
   const [institutions, setInstitutions] = useState([]);
   const [landmarks, setLandmarks] = useState([]);
   const [pois, setPois] = useState([]);
-  const [availableContent, setAvailableContent] = useState([]);
+  const [contents, setContents] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
   const [selectedPoiId, setSelectedPoiId] = useState(null);
   const [form, setForm] = useState({ institutionId: "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "", markerImageUrl: "", markerStoragePath: "", markerFileName: "", markerWidthMeters: "" });
+  const availableContent = contents.filter((item) =>
+    getContentScope(item) === "POI" &&
+    (adminMode || ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type))),
+  );
   const [imageFile, setImageFile] = useState(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [removeImage, setRemoveImage] = useState(false);
@@ -28,6 +33,9 @@ const POIManagement = ({ adminMode = false }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [poiLoadError, setPoiLoadError] = useState("");
+  const [poiExportError, setPoiExportError] = useState("");
+  const poiLoadVersion = useRef(0);
   const qrCanvasRef = useRef(null);
   const imageInputRef = useRef(null);
   const markerImageInputRef = useRef(null);
@@ -51,11 +59,14 @@ const POIManagement = ({ adminMode = false }) => {
   }, [markerImageFile]);
 
   const loadData = useCallback(async (id) => {
+    const version = ++poiLoadVersion.current;
+    setPoiLoadError("");
+    setPoiExportError("");
     setLoading(true);
     if (!id) {
       setLandmarks([]);
       setPois([]);
-      setAvailableContent([]);
+      setContents([]);
       setLoading(false);
       return;
     }
@@ -65,37 +76,49 @@ const POIManagement = ({ adminMode = false }) => {
         getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
         getDocs(query(collection(db, "content"), where("institutionId", "==", id))),
       ]);
-      setLandmarks(landmarkSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
-      setPois(poiSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
-      setAvailableContent(
-        contentSnap.docs
-          .map((item) => ({ id: item.id, ...item.data() }))
-          .filter((item) =>
-            getContentScope(item) === "POI" &&
-            (adminMode || ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type))),
-          ),
-      );
+      if (version !== poiLoadVersion.current) return;
+      setLandmarks(landmarkSnap.docs.map((item) => ({ ...item.data(), id: item.id })));
+      setPois(poiSnap.docs.map((item) => ({ ...item.data(), id: item.id })));
+      setContents(contentSnap.docs.map((item) => ({ ...item.data(), id: item.id })));
       setFormError("");
     } catch (error) {
+      if (version !== poiLoadVersion.current) return;
       console.error("Unable to load POI management data:", error);
-      setFormError(
+      setPoiLoadError(
         getFirebaseErrorMessage(error, "Unable to load POI data. Check your connection and try again."),
       );
     } finally {
-      setLoading(false);
+      if (version === poiLoadVersion.current) setLoading(false);
     }
-  }, [adminMode]);
+  }, []);
+
+  const exportPoiList = (catalog) => {
+    if (poiLoadError || !catalog?.pois.length) return;
+    setPoiExportError("");
+    try {
+      downloadPoiCatalog(catalog);
+    } catch (error) {
+      console.error("Unable to start POI export:", error);
+      setPoiExportError("Couldn't start the POI download. Check browser downloads and try Export POIs for Unity again.");
+    }
+  };
 
   useEffect(() => onAuthStateChanged(getAuth(), async (user) => {
-    if (!user) { setLoading(false); return; }
+    if (!user) {
+      setInstitutionId(null);
+      await loadData(null);
+      return;
+    }
     try {
       if (adminMode) {
         const institutionSnap = await getDocs(collection(db, "institutions"));
+        if (getAuth().currentUser?.uid !== user.uid) return;
         setInstitutions(institutionSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
         setLoading(false);
         return;
       }
       const profile = await getDoc(doc(db, "users", user.uid));
+      if (getAuth().currentUser?.uid !== user.uid) return;
       if (profile.exists() && profile.data().institutionId) {
         const id = profile.data().institutionId;
         setInstitutionId(id);
@@ -146,11 +169,8 @@ const POIManagement = ({ adminMode = false }) => {
     setFormError("");
     setLandmarks([]);
     setPois([]);
-    setAvailableContent([]);
-    if (id) {
-      setLoading(true);
-      await loadData(id);
-    }
+    setContents([]);
+    await loadData(id);
   };
 
   const generateLandmarkPoiQr = async (landmarkId = form.landmarkId) => {
@@ -439,6 +459,11 @@ const POIManagement = ({ adminMode = false }) => {
   return <div style={{ padding: 20, color: "#ccc" }}>
     <h2 style={{ color: "#d4af37" }}>{adminMode ? "POI Administration" : "Points of Interest"}</h2>
     {formError && <div role="alert" style={{ color: "#fbbf24", margin: "0 0 16px" }}>{formError}</div>}
+    {poiLoadError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
+      {poiLoadError}{" "}
+      <button type="button" className={commonStyles.btnOutline} onClick={() => loadData(institutionId)}>Retry loading POIs</button>
+    </div>}
+    {poiExportError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>{poiExportError}</div>}
     <p>POIs are child objects identified by their own QR codes. Landmark QR codes are managed from the landmark pin.</p>
     {adminMode && <div style={{ maxWidth: 420, marginBottom: 20 }}>
       <label htmlFor="poi-institution-select" style={{ display: "block", color: "#fff", marginBottom: 8 }}>Select institution</label>
@@ -447,7 +472,7 @@ const POIManagement = ({ adminMode = false }) => {
         {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name || institution.id}</option>)}
       </select>
     </div>}
-    {adminMode && !institutionId ? <div style={{ color: "#888" }}>Choose an institution to view and manage its POIs.</div> : landmarks.length === 0 ? <div style={{ color: "#fbbf24" }}>Create a landmark before adding a POI.</div> : <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 420px) 1fr", gap: 20 }}>
+    {adminMode && !institutionId ? <div style={{ color: "#888" }}>Choose an institution to view and manage its POIs.</div> : landmarks.length === 0 ? (!poiLoadError && <div style={{ color: "#fbbf24" }}>Create a landmark before adding a POI.</div>) : <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 420px) 1fr", gap: 20 }}>
       <form onSubmit={savePoi} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 10, padding: 20 }}>
         <h3 style={{ color: "#fff" }}>{selectedPoiId ? "Edit POI" : "Add POI"}</h3>
         <select className={commonStyles.formControl} value={form.landmarkId} onChange={(e) => {
@@ -585,6 +610,7 @@ const POIManagement = ({ adminMode = false }) => {
       </form>
       <div>{landmarks.filter((landmark) => !adminMode || landmark.institutionId === form.institutionId || !form.institutionId).map((landmark) => {
         const landmarkPois = pois.filter((poi) => poi.landmarkId === landmark.id);
+        const catalog = createPoiCatalog(institutionId, landmark, landmarkPois, contents);
         const sharedQr = landmark.poiQrCode || landmarkPois[0]?.qrCode || "";
         return <div key={landmark.id} style={{ padding: 16, border: "1px solid #333", borderRadius: 10, marginBottom: 16, background: "#111827" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>
@@ -602,12 +628,21 @@ const POIManagement = ({ adminMode = false }) => {
           ) : (
             <button type="button" className={commonStyles.btnOutline} onClick={() => generateLandmarkPoiQr(landmark.id)} style={{ marginBottom: 12 }}>Generate Shared Landmark POI QR</button>
           )}
+          <div style={{ marginBottom: 12 }}>
+            <button type="button" className={commonStyles.btnOutline} disabled={!!poiLoadError || !catalog?.pois.length}
+              onClick={() => exportPoiList(catalog)}>
+              Export POIs for Unity
+            </button>
+            {!poiLoadError && !catalog?.pois.length && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>
+              Link a POI to published Information, Fun Fact, or Quiz content to export it.
+            </div>}
+          </div>
           {landmarkPois.length === 0 ? (
             <div style={{ color: "#888", paddingTop: 8 }}>No POIs added under this landmark yet.</div>
           ) : (
             <div>
               {landmarkPois.map((poi, index) => {
-                const poiContent = (poi.contentIds || [])
+                const poiContent = (Array.isArray(poi.contentIds) ? poi.contentIds : [])
                   .map((contentId) => availableContent.find((content) => content.id === contentId))
                   .filter(Boolean);
                 return <div key={poi.id} style={{ paddingTop: index === 0 ? 0 : 12, marginTop: index === 0 ? 0 : 12, borderTop: index === 0 ? "none" : "1px solid #333" }}>
