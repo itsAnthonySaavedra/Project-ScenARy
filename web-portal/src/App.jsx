@@ -19,11 +19,10 @@ import Login from "./pages/auth/Login";
 import PasswordChange from "./pages/auth/PasswordChange";
 
 /* Admin Pages */
-import AdminDashboard from "./pages/admin/Dashboard";
+import AdminDashboard from "./pages/admin/AdminHome";
 import UserManagement from "./pages/admin/UserManagement";
-import ContentManagement from "./pages/admin/ContentManagement";
 import ActivityLogs from "./pages/admin/ActivityLogs";
-import AdminAnalytics from "./pages/admin/Analytics";
+import AdminContentView from "./pages/admin/ContentView";
 import Settings from "./pages/CommonSettings";
 import MapSystem from "./pages/admin/MapSystem";
 import FloorPlan from "./pages/institution/FloorPlan";
@@ -34,6 +33,7 @@ import InstituteAnalytics from "./pages/institution/Analytics";
 import LandmarkManagement from "./pages/institution/LandmarkManagement";
 import POIManagement from "./pages/institution/POIManagement";
 import InstituteContentManagement from "./pages/institution/ContentManagement";
+import DeveloperWorkspace from "./pages/developer/Workspace";
 
 function ProtectedRoute({ role, children }) {
   const { currentUser, currentRole, mustChangePassword } = useAuth();
@@ -46,10 +46,9 @@ function ProtectedRoute({ role, children }) {
     return <Navigate to="/change-password" replace />;
   }
 
-  const hasExpectedRole =
-    role === "admin"
-      ? currentRole === "admin" || currentRole === "superadmin"
-      : currentRole === "institution";
+  const hasExpectedRole = role === "admin"
+    ? currentRole === "admin" || currentRole === "superadmin"
+    : currentRole === role;
 
   if (!hasExpectedRole) {
     return (
@@ -57,7 +56,9 @@ function ProtectedRoute({ role, children }) {
         to={
           currentRole === "admin" || currentRole === "superadmin"
             ? "/admin/dashboard"
-            : "/institution/dashboard"
+            : currentRole === "developer"
+              ? "/developer"
+              : "/institution/dashboard"
         }
         replace
       />
@@ -93,11 +94,21 @@ function AppRoutes() {
         <Route path="floor-plan" element={<FloorPlan adminMode />} />
         <Route path="pois" element={<POIManagement adminMode />} />
         <Route path="users" element={<UserManagement />} />
-        <Route path="content" element={<ContentManagement />} />
+        <Route path="content" element={<AdminContentView />} />
         <Route path="tours" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="activity-logs" element={<ActivityLogs />} />
-        <Route path="analytics" element={<AdminAnalytics />} />
         <Route path="settings" element={<Settings adminMode />} />
+      </Route>
+
+      <Route
+        path="/developer"
+        element={
+          <ProtectedRoute role="developer">
+            <Layout role="developer" />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<DeveloperWorkspace />} />
       </Route>
 
       {/* Institute Routes */}

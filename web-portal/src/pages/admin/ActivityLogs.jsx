@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import tableStyles from "../../components/common/Tables.module.css";
+import PageHeader from "../../components/common/PageHeader";
 import { downloadCsv } from "../../lib/exportCsv";
 
 const formatDate = (value) => {
@@ -69,12 +70,11 @@ const ActivityLogs = () => {
 
   return (
     <div className={tableStyles.pageWrapper}>
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ color: "#fff", marginBottom: "0.5rem" }}>Activity Logs</h2>
-        <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
-          Review important actions recorded by the web portal.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Administration"
+        title="Activity Logs"
+        description="Review important actions recorded by the web portal."
+      />
 
       <div className={tableStyles.controls} style={{ justifyContent: "flex-start", gap: "0.75rem", flexWrap: "wrap" }}>
         <input

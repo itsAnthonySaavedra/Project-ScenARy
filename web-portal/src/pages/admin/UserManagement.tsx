@@ -3,6 +3,7 @@ import React, { useState, useEffect, FormEvent } from "react";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
+import PageHeader from "../../components/common/PageHeader";
 import { auth, db } from "../../lib/firebase";
 import {
   collection,
@@ -18,7 +19,12 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  deleteUser,
+  sendPasswordResetEmail,
+} from "firebase/auth";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
 import { isInstitutionActive, setInstitutionActive } from "../../lib/institutionStatus";
@@ -30,7 +36,7 @@ interface UserType {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "superadmin" | "institution" | "user";
+  role: "admin" | "superadmin" | "institution" | "curator" | "developer" | "user";
   additionalRoles?: "maintenance"[];
   status: "Active" | "Deactivated" | "Inactive" | "Banned";
   institutionId?: string | null;
@@ -139,8 +145,9 @@ const UserManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
-  const [selectedRole, setSelectedRole] = useState<UserAssignmentRole>("institution");
+  const [selectedRole, setSelectedRole] = useState<UserAssignmentRole>("curator");
   const [detailsUser, setDetailsUser] = useState<UserType | null>(null);
+  const [resendingSetupLinkFor, setResendingSetupLinkFor] = useState("");
   const [loading, setLoading] = useState(false);
   const [userFormError, setUserFormError] = useState("");
   const [activeTab, setActiveTab] = useState<"users" | "institutions">("users");
@@ -351,6 +358,19 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const handleResendSetupLink = async (user: UserType) => {
+    setResendingSetupLinkFor(user.id);
+    try {
+      await sendPasswordResetEmail(auth, user.email);
+      alert(`A password setup link was sent to ${user.email}.`);
+    } catch (error) {
+      console.error("Unable to send account setup email:", error);
+      alert(getFirebaseErrorMessage(error, "Unable to send the setup email. Please try again."));
+    } finally {
+      setResendingSetupLinkFor("");
+    }
+  };
+
   const handleToggleInstitutionActive = async (institution: Institution) => {
     const isActive = !isInstitutionActive(institution);
     const action = isActive ? "reactivate" : "deactivate";
@@ -492,9 +512,11 @@ const UserManagement: React.FC = () => {
     setUserFormError("");
     setCurrentUser(user);
     setSelectedRole(
-      user.role === "institution" && user.additionalRoles?.includes("maintenance")
-        ? "maintenance"
-        : user.role,
+      user.role === "institution"
+        ? user.additionalRoles?.includes("maintenance") ? "maintenance" : "curator"
+        : user.role === "curator" && user.additionalRoles?.includes("maintenance")
+          ? "maintenance"
+          : user.role,
     );
     setIsModalOpen(true);
   };
@@ -502,14 +524,14 @@ const UserManagement: React.FC = () => {
   const handleAdd = () => {
     setUserFormError("");
     setCurrentUser(null);
-    setSelectedRole("institution");
+    setSelectedRole("curator");
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setCurrentUser(null);
-    setSelectedRole("institution");
+    setSelectedRole("curator");
     setUserFormError("");
   };
 
@@ -529,17 +551,22 @@ const UserManagement: React.FC = () => {
     const name = form.name.value.trim();
     const email = form.email.value.trim();
     const assignedRole = form.role.value as UserAssignmentRole;
-    const role = assignedRole === "maintenance" ? "institution" : assignedRole;
+    const role = ["maintenance", "institution"].includes(assignedRole)
+      ? "curator"
+      : assignedRole;
     const additionalRoles: "maintenance"[] =
       assignedRole === "maintenance" ? ["maintenance"] : [];
-    const institutionId = role === "institution"
+    const institutionId = role === "institution" || role === "curator" || role === "developer"
       ? form.institutionId?.value || null
       : null;
 
     const isSuperAdmin = currentRole === "superadmin";
     if (
       role === "user" ||
-      (!isSuperAdmin && (currentUser ? role !== currentUser.role : role !== "institution"))
+      (role === "admin" && !isSuperAdmin) ||
+      (!["admin", "superadmin"].includes(currentRole || "") &&
+        currentUser &&
+        role !== currentUser.role)
     ) {
       setUserFormError("Only a super admin can create or change an account to the admin role.");
       return;
@@ -548,7 +575,7 @@ const UserManagement: React.FC = () => {
       setUserFormError("Only a super admin can edit a super-admin account.");
       return;
     }
-    if (role === "institution" && !institutionId) {
+    if (["institution", "curator", "developer"].includes(role) && !institutionId) {
       setUserFormError("Select an institution for this account.");
       return;
     }
@@ -604,7 +631,7 @@ const UserManagement: React.FC = () => {
             additionalRoles,
             institutionId,
             status: "Active",
-            mustChangePassword: true,
+            mustChangePassword: false,
             createdAt: serverTimestamp(),
           });
         } catch (profileError) {
@@ -633,7 +660,7 @@ const UserManagement: React.FC = () => {
             additionalRoles,
             institutionId,
             status: "Active",
-            mustChangePassword: true,
+            mustChangePassword: false,
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -659,14 +686,18 @@ const UserManagement: React.FC = () => {
           console.error("User was created, but its audit record could not be saved:", auditError);
           warnings.push("The user was created, but its activity record could not be saved.");
         }
+        let setupEmailSent = true;
+        try {
+          await sendPasswordResetEmail(auth, email);
+        } catch (setupEmailError) {
+          console.error("User was created, but the password setup email could not be sent:", setupEmailError);
+          setupEmailSent = false;
+          warnings.push("The account was created, but its setup email could not be sent. Use the resend setup link action.");
+        }
 
         handleCloseModal();
         alert(
-          `User created successfully!\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease share these credentials with the new user. ${
-            assignedRole === "maintenance"
-              ? "They must change this password before first use. The phone app must support password changes."
-              : "They must change this password before accessing the portal."
-          }${warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : ""}`,
+          `User created successfully.${setupEmailSent ? ` A password setup link was sent to ${email}.` : ""}${warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : ""}`,
         );
       }
     } catch (err: any) {
@@ -808,18 +839,26 @@ const UserManagement: React.FC = () => {
     currentRole === "superadmin"
       ? currentUser?.role === "superadmin"
         ? ["superadmin"]
-        : ["admin", "institution", "maintenance"]
+        : ["admin", "curator", "maintenance", "developer"]
       : currentUser
-        ? currentUser.role === "institution"
-          ? ["institution", "maintenance"]
-          : [currentUser.role]
-        : ["institution", "maintenance"];
+        ? ["institution", "curator"].includes(currentUser.role)
+          ? ["curator", "maintenance"]
+          : ["admin", "superadmin"].includes(currentUser.role)
+            ? ["curator", "maintenance", "developer"]
+            : [currentUser.role]
+        : ["curator", "maintenance", "developer"];
 
   /* =====================
      UI
   ===================== */
   return (
-    <div className={tableStyles.tableContainer}>
+    <>
+      <PageHeader
+        eyebrow="Administration"
+        title="User Management"
+        description="Manage user accounts, role assignments, and institution access."
+      />
+      <div className={tableStyles.tableContainer}>
       {pageLoadError && (
         <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
           {pageLoadError}
@@ -933,13 +972,17 @@ const UserManagement: React.FC = () => {
                   <tr key={user.id}>
                     <td style={{ fontWeight: 500, color: "#fff" }}>{user.name}</td>
                     <td>
-                      {user.role === "institution" &&
+                      {["institution", "curator"].includes(user.role) &&
                       user.additionalRoles?.includes("maintenance")
-                        ? "institution + maintenance"
-                        : user.role}
+                        ? "Curator + Maintenance"
+                        : ["institution", "curator"].includes(user.role)
+                          ? "Curator"
+                          : user.role === "developer"
+                            ? "Developer / 3D modeller"
+                            : user.role}
                     </td>
                     <td>
-                      {user.role === "institution"
+                      {["institution", "curator", "developer"].includes(user.role)
                         ? institutions.find((i) => i.id === user.institutionId)?.name || "—"
                         : "—"}
                     </td>
@@ -1041,6 +1084,15 @@ const UserManagement: React.FC = () => {
                       </button>
                       <button
                         className={tableStyles.btnAction}
+                        title="Resend password setup link"
+                        aria-label={`Resend password setup link to ${user.email}`}
+                        disabled={resendingSetupLinkFor === user.id}
+                        onClick={() => handleResendSetupLink(user)}
+                      >
+                        <i className={`fa-solid ${resendingSetupLinkFor === user.id ? "fa-spinner fa-spin" : "fa-envelope"}`}></i>
+                      </button>
+                      <button
+                        className={tableStyles.btnAction}
                         title="Edit"
                         disabled={user.role === "superadmin" && currentRole !== "superadmin"}
                         onClick={() => handleEdit(user)}
@@ -1082,10 +1134,14 @@ const UserManagement: React.FC = () => {
                   <div>
                     <small style={{ color: "#999" }}>Role</small>
                     <p>
-                      {detailsUser.role === "institution" &&
+                      {["institution", "curator"].includes(detailsUser.role) &&
                       detailsUser.additionalRoles?.includes("maintenance")
-                        ? "institution + maintenance"
-                        : detailsUser.role || "-"}
+                        ? "Curator + Maintenance"
+                        : ["institution", "curator"].includes(detailsUser.role)
+                          ? "Curator"
+                          : detailsUser.role === "developer"
+                            ? "Developer / 3D modeller"
+                            : detailsUser.role || "-"}
                     </p>
                   </div>
                   <div><small style={{ color: "#999" }}>Status</small><p>{getUserStatusLabel(detailsUser.status)}</p></div>
@@ -1138,14 +1194,21 @@ const UserManagement: React.FC = () => {
                   {availableRoles.map((r) => (
                     <option key={r} value={r}>
                       {r === "maintenance"
-                        ? "institution + maintenance (phone preview access)"
-                        : r}
+                        ? "Curator + Maintenance"
+                        : r === "institution" || r === "curator"
+                          ? "Curator"
+                          : r === "developer"
+                            ? "Developer / 3D modeller"
+                            : r}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {(selectedRole === "institution" || selectedRole === "maintenance") && (
+              {(selectedRole === "institution" ||
+                selectedRole === "curator" ||
+                selectedRole === "developer" ||
+                selectedRole === "maintenance") && (
                 <div className={commonStyles.formGroup}>
                   <label>Institution</label>
                   <select name="institutionId" className={commonStyles.formControl} defaultValue={currentUser?.institutionId || ""}>
@@ -1306,7 +1369,8 @@ const UserManagement: React.FC = () => {
           </Modal>
         </>
       )}
-    </div>
+      </div>
+    </>
   );
 };
 

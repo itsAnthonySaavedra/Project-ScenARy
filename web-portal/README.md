@@ -1,6 +1,6 @@
 # ScenARy Web Portal
 
-The React portal lets administrators and institutions manage landmarks, POIs, AR markers, visitor content, and virtual tour models. The separate **ScenARy Mobile** app consumes published content from Firebase.
+The React portal provides read-only content browsing for administrators, AR curation for Curators, and assigned-institution VR model uploads and review for Developers / 3D modellers. Published AR and VR content is released as a pair. The separate **ScenARy Mobile** app consumes published content from Firebase.
 
 ## Run locally
 
@@ -12,15 +12,15 @@ npm ci
 npm run dev
 ```
 
-Sign in with a Firebase account assigned to the appropriate administrator or institution role. The shared Firebase client configuration is in [src/lib/firebase.js](src/lib/firebase.js). Run `npm run build` from `web-portal` to build into `dist/`, or run `npm run preview` to serve that build locally.
+Sign in with an Admin, Curator, or Developer account. New accounts receive a password setup email; Developer accounts must be assigned to an institution. The shared Firebase client configuration is in [src/lib/firebase.js](src/lib/firebase.js). Run `npm run build` from `web-portal` to build into `dist/`, or run `npm run preview` to serve that build locally.
 
 ## Export, upload, and publish an interactive tour
 
-1. Set up the landmark and its POIs, then assign the published content each stop should show.
-2. Open **POIs** as the institution, or **POI Management** as an administrator and select the institution. Choose **Export POIs for Unity** on the landmark's card. The JSON contains landmark and POI IDs, names, and published content types.
+1. Set up the landmark and its POIs, create complete AR content, and assign that content to its landmark or stops.
+2. Open **POIs** as the Curator and choose **Export POIs for Unity** on the landmark's card. The JSON contains landmark and POI IDs, names, and available content types.
 3. Send the JSON and GLB to the Unity developer. They can import the catalog or load the landmark's POIs directly from Firebase in the [Unity project](https://github.com/kirksamutya/ScenARy). They link model objects to existing POIs and export a ZIP with `model.glb` and `tour.json`.
-4. In the app admin portal, open **Content Management → Upload interactive tour** and choose the ZIP. Review the landmark and its trigger links, then click **Upload for review**. The portal saves the GLB to Firebase Storage and the trigger links with the draft in Firestore.
-5. The institution previews and approves the draft. In the admin portal, choose **Approve & publish**. If a tour is already published for that landmark, visitors can keep opening it until the replacement is approved. A mobile build that supports POI triggers picks up new published tours on its next online open.
+4. In the Developer **Model Workspace**, choose **Upload interactive tour ZIP**. The portal saves the GLB to Firebase Storage and the trigger links with the draft in Firestore.
+5. The Developer's submission records technical approval. The Curator previews and verifies the model; approval publishes the ready AR content and VR model together. The same workspace also supports direct GLB uploads for landmark models.
 
 The portal stores the GLB in Firebase Storage and the object-to-POI links in Firestore. The app draws the distance indicators from those links and opens the POI's published Information, Fun Facts, and Quiz content. Older GLB-only app builds need one update for interactive stops.
 
@@ -55,7 +55,7 @@ The separate ScenARy Mobile Unity project uses these fields in its AR plaque sca
 
 ## Institution content limits
 
-Institutions can create one Information item, one Quiz, and one VR Model per institution. A quiz can contain multiple true/false or multiple-choice questions and can save shuffle settings for question order and choices. Fun Fact content can contain multiple entries. The POI catalog uses assigned and published Information, Fun Fact, and Quiz content. VR models belong to landmarks. Existing legacy model type names are normalized to **VR Model** in the portal.
+Curators create AR Information, Quiz, and Fun Fact content and assign it to landmarks or POIs. Developers can preview drafts and upload a VR model for an assigned landmark after complete AR content is available there. Developer submission and Curator verification are both recorded; Curator approval atomically publishes the landmark's ready AR drafts with its VR model. A quiz can contain multiple true/false or multiple-choice questions and save shuffle settings. VR models belong to landmarks. Existing legacy model type names are normalized to **VR Model** in the portal.
 
 ## Testing temporary site access
 
@@ -63,7 +63,7 @@ Site-access passes can be granted for a one-minute test or 24 hours. One-minute 
 
 Each institution can store its 24-hour pass price as `dayPassPriceCentavos` on `institutions/{institutionId}`. The value is an integer number of PHP centavos (for example, ₱50.00 is `5000`). A day pass cannot be granted until a price is configured.
 
-Admin-granted day passes add a record to `siteAccess/{institutionId}/transactions/{transactionId}` with `amountCentavos`, `currency`, `durationMs`, `type`, `source`, `userId`, and creation metadata. User Management shows the selected site's revenue; admin analytics shows platform total and per-institution totals. These entries represent admin-granted pass value as requested; they are not verified payment receipts. Phone purchases are not included until a trusted payment integration writes verified transactions using the same ledger.
+Admin-granted day passes add a record to `siteAccess/{institutionId}/transactions/{transactionId}` with `amountCentavos`, `currency`, `durationMs`, `type`, `source`, `userId`, and creation metadata. User Management shows the selected site's revenue. These entries represent admin-granted pass value; they are not verified payment receipts. Phone purchases are not included until a trusted payment integration writes verified transactions using the same ledger.
 
 The institution dashboard and analytics page read the transaction subcollection for the signed-in user's `institutionId`. Deployed Firestore rules must independently restrict each institution to its own transaction subcollection; filtering the path in the client is not an authorization boundary.
 
@@ -100,8 +100,13 @@ Audit records are stored in `auditLogs` with `actorId`, `actorRole`, `action`, `
 - `auth.login`, `auth.logout`
 - `user.created`, `user.updated`, `user.banned`, `user.unbanned`
 - `institution.created`, `institution.updated`, `institution.deleted`
-- `content.created`, `content.updated`, `content.deleted`
+- `content.created`, `content.updated`, `content.model-uploaded`, `content.developer-approved`, `content.curator-approved`
+- `collaboration.message.created`
 - `feedback.deleted`
 - `analytics.viewed`
 
-The same pattern can cover `landmark.created`, `landmark.updated`, `landmark.deleted`, `poi.created`, `poi.updated`, `poi.deleted`, `tour.created`, `tour.updated`, `tour.deleted`, `quiz.completed`, and `session.started` / `session.ended` when those events are written by the institution portal, mobile app, or trusted backend.
+The portal also records Developer model uploads and approvals, Curator verification, and landmark discussion messages with attachment names. A complete audit trail still requires every write path, including mobile clients and trusted backend jobs, to write corresponding records.
+
+## Collaboration and access control
+
+Each landmark has a Developer / Curator discussion thread for reference images, notes, and PDF contracts. Attachments are stored under `collaboration-files/{institutionId}/{landmarkId}/`. The project has a Storage rules file, but no checked-in Firestore rules file; configure and deploy Firestore rules in Firebase before production so users can only read or write records for their assigned institution. Client-side route checks are not an authorization boundary.

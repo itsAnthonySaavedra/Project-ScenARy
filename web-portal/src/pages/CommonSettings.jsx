@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import styles from "../components/common/Common.module.css";
+import PageHeader from "../components/common/PageHeader";
 import { useAuth } from "../context/AuthContext";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -180,6 +181,11 @@ const Settings = ({ adminMode = false }) => {
 
   return (
     <div className={styles.settingsContainer}>
+      <PageHeader
+        eyebrow={adminMode ? "Administration" : "Account"}
+        title={adminMode ? "Settings" : "Profile"}
+        description={adminMode ? "Manage account preferences and platform policies." : "Review your profile and account security settings."}
+      />
       <div
         className={`${styles.settingsCard} ${styles.profileCard}`}
         style={{

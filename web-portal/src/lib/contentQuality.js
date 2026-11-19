@@ -80,6 +80,32 @@ export const hasPublishedInstitutionARContent = (items = []) =>
       isContentReady(item),
   );
 
+export const hasPublishedLandmarkARContent = (landmark, items = []) => {
+  const contentIds = new Set(
+    Array.isArray(landmark?.contentIds) ? landmark.contentIds : [],
+  );
+  return items.some(
+    (item) =>
+      contentIds.has(item.id) &&
+      item.status === "Published" &&
+      ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type)) &&
+      isContentReady(item),
+  );
+};
+
+export const hasReadyLandmarkARContent = (landmark, items = []) => {
+  const contentIds = new Set(
+    Array.isArray(landmark?.contentIds) ? landmark.contentIds : [],
+  );
+  return items.some(
+    (item) =>
+      contentIds.has(item.id) &&
+      ["Awaiting Content", "Published"].includes(item.status) &&
+      ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type)) &&
+      isContentReady(item),
+  );
+};
+
 export const getInstitutionContentReadiness = (items = []) => {
   const publishedReadyItems = items.filter(
     (item) => item.status === "Published" && isContentReady(item),

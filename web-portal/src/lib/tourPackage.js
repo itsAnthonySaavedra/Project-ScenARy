@@ -1,4 +1,7 @@
 import { createPoiCatalog } from "./poiCatalog.js";
+import { isContentReady } from "./contentQuality.js";
+
+const arContentTypes = ["Information", "Fun Fact", "Quiz"];
 
 const MAX_TOUR_MODEL_BYTES = 1024 ** 3;
 const MAX_MANIFEST_BYTES = 64 * 1024;
@@ -113,7 +116,8 @@ async function openZipEntry(file, name, entry, directoryOffset) {
 }
 
 export const isTourDocumentId = (value) => typeof value === "string" && value.length > 0 && value === value.trim() &&
-  !/[\u0000-\u001f/]/u.test(value) && value !== "." && value !== ".." && new TextEncoder().encode(value).length <= 1500;
+  !value.split("").some((character) => character === "/" || character.charCodeAt(0) <= 0x1f) &&
+  value !== "." && value !== ".." && new TextEncoder().encode(value).length <= 1500;
 
 export function readTourManifest(raw) {
   const landmarkId = raw?.landmarkId ?? "";
@@ -142,20 +146,41 @@ export function resolveTourLandmarkId(manifest, pois) {
   return landmarkId;
 }
 
-export function validateTourRecords(manifest, landmark, pois, contents) {
+export function validateTourRecords(manifest, landmark, pois, contents, options) {
   const landmarkId = resolveTourLandmarkId(manifest, pois);
   const institutionId = landmark?.institutionId;
   if (landmark?.id !== landmarkId || !isTourDocumentId(institutionId)) {
     throw new Error("The landmark in this ZIP no longer exists or has no institution.");
   }
-  const catalog = createPoiCatalog(institutionId, landmark, pois, contents);
+  const catalog = createPoiCatalog(institutionId, landmark, pois, contents, options);
   const available = new Map(catalog.pois.map((poi) => [poi.id, poi]));
   const stops = manifest.exhibits.map(({ anchor, poiId }) => {
     const poi = available.get(poiId);
     if (!poi) throw new Error(`The POI for “${anchor}” is unavailable. It must belong to this landmark and have published content.`);
     return { anchor, ...poi };
   });
-  return { landmark, institutionId, stops, manifest: { ...manifest, landmarkId } };
+  const linkedContentIds = new Set([
+    ...(Array.isArray(landmark.contentIds)
+      ? landmark.contentIds
+      : []),
+    ...pois.flatMap((poi) => Array.isArray(poi.contentIds) ? poi.contentIds : []),
+  ]);
+  const pairedARContentIds = contents
+    .filter((item) =>
+      linkedContentIds.has(item.id) &&
+      item.institutionId === institutionId &&
+      item.status === "Awaiting Content" &&
+      arContentTypes.includes(item.type) &&
+      isContentReady(item),
+    )
+    .map((item) => item.id);
+  return {
+    landmark,
+    institutionId,
+    stops,
+    pairedARContentIds,
+    manifest: { ...manifest, landmarkId },
+  };
 }
 
 async function validateModelAnchors(model, exhibits) {

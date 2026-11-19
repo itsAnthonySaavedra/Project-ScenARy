@@ -1,12 +1,17 @@
+import { isContentReady } from "./contentQuality.js";
+
 const exhibitContentTypes = ["Information", "Fun Fact", "Quiz"];
 const text = (value) => typeof value === "string" ? value.trim() : "";
 
-export function createPoiCatalog(institutionId, landmark, pois, contents) {
+export function createPoiCatalog(institutionId, landmark, pois, contents, { includeDrafts = false } = {}) {
   if (!institutionId || landmark?.institutionId !== institutionId) return null;
 
   const publishedTypes = new Map();
   for (const item of contents) {
-    if (item.institutionId !== institutionId || text(item.status).toLowerCase() !== "published") continue;
+    const status = text(item.status).toLowerCase();
+    const allowedStatus = status === "published" ||
+      (includeDrafts && status === "awaiting content" && isContentReady(item));
+    if (item.institutionId !== institutionId || !allowedStatus) continue;
     const type = exhibitContentTypes.find((allowed) => allowed.toLowerCase() === text(item.type).toLowerCase());
     if (type) publishedTypes.set(item.id, type);
   }

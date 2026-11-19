@@ -15,17 +15,26 @@ const serverRead = (ref) => getDocFromServer(ref);
 export const isTourPackage = (item) => item?.data?.tourPackageVersion === 2;
 const modelLandmarkId = (item) => item.data?.landmarkId || item.data?.customData?.landmarkId;
 
-async function readTourReferences(manifest, read) {
+async function readTourReferences(manifest, read, { includeDrafts = false } = {}) {
   const poiIds = [...new Set(manifest.exhibits.map(({ poiId }) => poiId))];
   const pois = (await Promise.all(poiIds.map((id) => read(doc(db, "pois", id))))).map(record).filter(Boolean);
   const landmarkId = resolveTourLandmarkId(manifest, pois);
-  const contentIds = [...new Set(pois.flatMap((poi) =>
-    Array.isArray(poi.contentIds) ? poi.contentIds.filter(isTourDocumentId) : []))];
-  const [landmarkSnap, ...contentSnaps] = await Promise.all([
-    read(doc(db, "landmarks", landmarkId)),
-    ...contentIds.map((id) => read(doc(db, "content", id))),
-  ]);
-  return validateTourRecords(manifest, record(landmarkSnap), pois, contentSnaps.map(record).filter(Boolean));
+  const landmarkSnapshot = await read(doc(db, "landmarks", landmarkId));
+  const landmark = record(landmarkSnapshot);
+  const contentIds = [...new Set([
+    ...(Array.isArray(landmark?.contentIds)
+      ? landmark.contentIds.filter(isTourDocumentId)
+      : []),
+    ...pois.flatMap((poi) =>
+      Array.isArray(poi.contentIds) ? poi.contentIds.filter(isTourDocumentId) : []),
+  ])];
+  const contentItems = (await Promise.all(
+    contentIds.map((id) => read(doc(db, "content", id))),
+  )).map(record).filter(Boolean);
+  return {
+    ...validateTourRecords(manifest, landmark, pois, contentItems, { includeDrafts }),
+    contentItems,
+  };
 }
 
 async function assertDraftSlot(landmark, read) {
@@ -38,16 +47,25 @@ async function assertDraftSlot(landmark, read) {
   return draft?.status === "Rejected" && isTourPackage(draft) && modelLandmarkId(draft) === landmark.id ? draft.id : null;
 }
 
-export async function inspectTourTarget(manifest) {
-  const target = await readTourReferences(manifest, serverRead);
+export async function inspectTourTarget(manifest, options) {
+  const target = await readTourReferences(manifest, serverRead, options);
   await assertDraftSlot(target.landmark, serverRead);
   return target;
 }
 
-export async function saveTourDraft(tour, expected, title, onProgress) {
-  const target = await inspectTourTarget(tour.manifest);
+export async function saveTourDraft(
+  tour,
+  expected,
+  title,
+  onProgress,
+  { developerUid = null, allowedInstitutionId = null } = {},
+) {
+  const target = await inspectTourTarget(tour.manifest, { includeDrafts: true });
   if (target.landmark.id !== expected.landmark.id || target.institutionId !== expected.institutionId) {
     throw new Error("The ZIP destination changed. Select the file again to review its landmark.");
+  }
+  if (allowedInstitutionId && target.institutionId !== allowedInstitutionId) {
+    throw new Error("This Developer account can only upload tours for its assigned institution.");
   }
 
   const contentRef = doc(collection(db, "content"));
@@ -60,7 +78,7 @@ export async function saveTourDraft(tour, expected, title, onProgress) {
     uploaded = await uploadStorageFile(file, `content-models/${target.institutionId}`, onProgress);
     await runTransaction(db, async (transaction) => {
       const read = (ref) => transaction.get(ref);
-      const current = await readTourReferences(target.manifest, read);
+      const current = await readTourReferences(target.manifest, read, { includeDrafts: true });
       if (current.institutionId !== target.institutionId) throw new Error("The landmark changed institution during upload.");
       const rejected = await assertDraftSlot(current.landmark, read);
       transaction.set(contentRef, {
@@ -68,7 +86,13 @@ export async function saveTourDraft(tour, expected, title, onProgress) {
         type: MODEL_CONTENT_TYPE,
         scope: "Landmark",
         institutionId: target.institutionId,
-        status: "Awaiting Content",
+        targetId: current.landmark.id,
+        targetName: current.landmark.landmarkName || current.landmark.institutionName || "",
+        status: "Awaiting Curator Approval",
+        developerApproved: true,
+        developerApprovedAt: serverTimestamp(),
+        developerApprovedBy: developerUid,
+        curatorApproved: false,
         institutionApproved: false,
         adminApproved: false,
         needsAttention: false,
@@ -125,21 +149,48 @@ export async function approveTourForInstitution(item, uid) {
   await runTransaction(db, async (transaction) => {
     const read = (ref) => transaction.get(ref);
     const draft = record(await read(draftRef));
-    if (!isTourPackage(draft) || draft.status !== "Awaiting Content" || draft.institutionId !== item.institutionId) {
+    if (!isTourPackage(draft) || draft.status !== "Awaiting Curator Approval" ||
+      draft.developerApproved !== true || draft.institutionId !== item.institutionId) {
       throw new Error("This tour changed while you were reviewing it. Refresh Content Management and try again.");
     }
     const manifest = readTourManifest({ version: 2, landmarkId: draft.data.landmarkId, exhibits: draft.data.exhibits });
-    const target = await readTourReferences(manifest, read);
+    const target = await readTourReferences(manifest, read, { includeDrafts: true });
     if (target.institutionId !== draft.institutionId || target.landmark.vrDraftContentId !== draft.id) {
       throw new Error("This draft no longer matches the landmark awaiting review.");
     }
+    const previousId = target.landmark.vrPublishedContentId;
+    const previousSnapshot = isTourDocumentId(previousId) && previousId !== draft.id
+      ? await read(doc(db, "content", previousId))
+      : null;
+    const previous = record(previousSnapshot);
+    if (previous && isTourPackage(previous) && previous.status === "Published" &&
+      previous.institutionId === target.institutionId &&
+      modelLandmarkId(previous) === target.landmark.id) {
+      transaction.update(doc(db, "content", previous.id), {
+        status: "Archived",
+        updatedAt: serverTimestamp(),
+      });
+    }
+    target.pairedARContentIds.forEach((contentId) => {
+      transaction.update(doc(db, "content", contentId), {
+        status: "Published",
+        releasedWithModelId: draft.id,
+        updatedAt: serverTimestamp(),
+      });
+    });
     transaction.update(draftRef, {
+      curatorApproved: true,
+      curatorApprovedAt: serverTimestamp(),
+      curatorApprovedBy: uid,
       institutionApproved: true,
       institutionApprovedAt: serverTimestamp(),
       institutionApprovedBy: uid,
-      adminApproved: false,
-      status: "Awaiting Admin Approval",
+      status: "Published",
       updatedAt: serverTimestamp(),
+    });
+    transaction.update(doc(db, "landmarks", target.landmark.id), {
+      vrPublishedContentId: draft.id,
+      vrDraftContentId: deleteField(),
     });
   });
 }

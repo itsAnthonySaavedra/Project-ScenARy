@@ -19,7 +19,10 @@ const Landing = () => {
         </div>
         <div className="nav-links">
           <Link to="/login?type=institution" className={styles.btnOutline}>
-            Institution Login
+            Curator Login
+          </Link>
+          <Link to="/login?type=developer" className={styles.btnOutline}>
+            Developer Login
           </Link>
         </div>
       </nav>

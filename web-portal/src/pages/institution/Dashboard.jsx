@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from "chart.js";
 import { Doughnut, Bar } from "react-chartjs-2";
 import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
+import PageHeader from "../../components/common/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import { db } from "../../lib/firebase";
 import { cleanFeedbackComment, getRatingStats, loadFeedback } from "../../lib/userAnalytics";
@@ -197,17 +198,17 @@ const InstituteDashboard = () => {
 
     return (
         <div className={dashboardStyles.institutionDashboard}>
-            <section className={dashboardStyles.dashboardIntro}>
-                <div>
-                    <p className={dashboardStyles.eyebrow}>Institution overview</p>
-                    <h1>{institutionName}</h1>
-                    <p className={dashboardStyles.introMeta}>{dashboard.institution?.location || "Institution workspace"}</p>
-                </div>
-                <div className={dashboardStyles.institutionMeta}>
+            <PageHeader
+                eyebrow="Institution overview"
+                title="Dashboard"
+                description={`${institutionName} · ${dashboard.institution?.location || "Institution workspace"}`}
+                actions={
+                    <div className={dashboardStyles.institutionMeta}>
                     <span><i className="fa-solid fa-user-tie"></i> Curated by</span>
                     <strong>{dashboard.institution?.curator || "Institution team"}</strong>
-                </div>
-            </section>
+                    </div>
+                }
+            />
             {warning && <p role="status" style={{ color: "#fbbf24" }}>{warning}</p>}
 
             <section className={dashboardStyles.statsGrid}>

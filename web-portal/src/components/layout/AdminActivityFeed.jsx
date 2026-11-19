@@ -17,6 +17,10 @@ const activityLabels = {
   "poi.created": "Added a point of interest",
   "poi.updated": "Updated a point of interest",
   "poi.deleted": "Removed a point of interest",
+  "content.model-uploaded": "Uploaded a VR model",
+  "content.developer-approved": "Approved a VR model technically",
+  "content.curator-approved": "Verified and published a VR model",
+  "collaboration.message.created": "Added a landmark discussion message",
 };
 
 const relevantActions = new Set(Object.keys(activityLabels));
@@ -33,24 +37,29 @@ const AdminActivityFeed = () => {
   const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const [clearedAt, setClearedAt] = useState(0);
   const storageKey = currentUser?.uid ? `scenary-admin-activity-cleared:${currentUser.uid}` : null;
-
-  useEffect(() => {
-    if (!storageKey) return;
-    try {
-      setClearedAt(Number(localStorage.getItem(storageKey)) || 0);
-    } catch {
-      setClearedAt(0);
-    }
-  }, [storageKey]);
 
   useEffect(() => {
     const recentLogs = query(collection(db, "auditLogs"), orderBy("createdAt", "desc"), limit(100));
     const unsubscribeActivities = onSnapshot(recentLogs, (snapshot) => {
+      let clearedAt = 0;
+      if (storageKey) {
+        try {
+          clearedAt = Number(localStorage.getItem(storageKey)) || 0;
+        } catch (error) {
+          console.error("Unable to read cleared activity state:", error);
+        }
+      }
       const institutionActivities = snapshot.docs
         .map((item) => ({ id: item.id, ...item.data({ serverTimestamps: "estimate" }) }))
-        .filter((item) => item.actorRole === "institution" && relevantActions.has(item.action));
+        .filter((item) => {
+          const timestamp = item.createdAt?.toMillis?.() || 0;
+          return (
+            timestamp > clearedAt &&
+            ["institution", "curator", "developer"].includes(item.actorRole) &&
+            relevantActions.has(item.action)
+          );
+        });
       setActivities(institutionActivities);
       setLoading(false);
       setHasError(false);
@@ -70,22 +79,20 @@ const AdminActivityFeed = () => {
       unsubscribeActivities();
       unsubscribeContent();
     };
-  }, []);
+  }, [storageKey]);
 
-  const visibleActivities = activities.filter((activity) => {
-    const timestamp = activity.createdAt?.toMillis?.() || 0;
-    return timestamp > clearedAt;
-  }).slice(0, 5);
+  const visibleActivities = activities.slice(0, 5);
 
   const clearNotifications = () => {
     const timestamp = Date.now();
-    setClearedAt(timestamp);
-    if (!storageKey) return;
-    try {
-      localStorage.setItem(storageKey, String(timestamp));
-    } catch (error) {
-      console.error("Unable to save cleared notification state:", error);
+    if (storageKey) {
+      try {
+        localStorage.setItem(storageKey, String(timestamp));
+      } catch (error) {
+        console.error("Unable to save cleared notification state:", error);
+      }
     }
+    setActivities([]);
   };
 
   return (
@@ -94,7 +101,7 @@ const AdminActivityFeed = () => {
         <div className={styles.titleGroup}>
           <span className={styles.icon} aria-hidden="true"><i className="fa-solid fa-bell" /></span>
           <div>
-            <h3>Institution activity</h3>
+            <h3>Team activity</h3>
             <small><span className={styles.liveDot} /> Live updates</small>
           </div>
           <span className={styles.count}>{visibleActivities.length}</span>
@@ -118,7 +125,7 @@ const AdminActivityFeed = () => {
         ) : hasError ? (
           <p className={styles.empty}>Activity updates are unavailable.</p>
         ) : visibleActivities.length === 0 ? (
-          <p className={styles.empty}>No recent institution updates.</p>
+          <p className={styles.empty}>No recent team updates.</p>
         ) : visibleActivities.map((activity) => {
           const metadata = activity.metadata || {};
           const subject = metadata.fileName || metadata.modelFileName || metadata.imageFileName || metadata.title || metadata.name;

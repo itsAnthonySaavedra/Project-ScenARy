@@ -19,6 +19,7 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import PageHeader from "../../components/common/PageHeader";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
@@ -265,20 +266,45 @@ const MapSystem = () => {
   }
 
   return (
-    <div
-      className="chart-card full-width"
-      style={{ position: "relative", height: "750px", overflow: "hidden" }}
-    >
+    <div>
+      <PageHeader
+        eyebrow="Administration"
+        title="Map System"
+        description="Add and maintain landmark map pins, then inspect published experiences."
+      />
+      <div
+        className="chart-card full-width"
+        style={{ position: "relative", height: "750px", overflow: "hidden" }}
+      >
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
           padding: "1rem",
         }}
       >
-        <h3 style={{ color: "#d4af37", margin: 0 }}>Cebu Pin Management</h3>
-        <small style={{ color: "#855e2e" }}>Locked to Cebu Province</small>
+        <div>
+          <h3 style={{ color: "#d4af37", margin: 0 }}>Cebu Landmark Pins</h3>
+          <small style={{ color: "#855e2e" }}>Locked to Cebu Province</small>
+        </div>
       </div>
+      <p
+        role="note"
+        style={{
+          margin: "0 1rem 1rem",
+          padding: "12px 14px",
+          border: "1px solid rgba(212,175,55,.25)",
+          borderRadius: 8,
+          background: "rgba(212,175,55,.06)",
+          color: "#cfc8b8",
+          lineHeight: 1.5,
+        }}
+      >
+        To add a landmark, click its location on the map, enter a name and optional details or image, then select the responsible institution to save the pin. Click an existing pin to review its experiences; you can also rename or remove it there.
+      </p>
       {Object.entries(mapLoadErrors).filter(([, error]) => error).map(([source, error]) => (
         <div key={source} role="alert" style={{ color: "#fca5a5", padding: "0 1rem 1rem" }}>
           {error}
@@ -385,7 +411,9 @@ const MapSystem = () => {
                       >
                         <span>📍 {experience.title}</span>
                         <span style={{ color: "#C19A4B" }}>
-                          {experience.poiCount} POIs · {experience.contentItems.length} items
+                          {experience.isReleased
+                            ? `${experience.poiCount} POIs · ${experience.contentItems.length} items`
+                            : "AR / VR pair pending"}
                         </span>
                       </div>
                     ))
@@ -599,6 +627,7 @@ const MapSystem = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

@@ -6,12 +6,12 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 
 interface SidebarProps {
-  role?: "admin" | "superadmin" | "institution";
+  role?: "admin" | "superadmin" | "institution" | "developer";
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
   const { currentUser, logout } = useAuth();
-  const [role, setRole] = useState<"admin" | "superadmin" | "institution">(
+  const [role, setRole] = useState<"admin" | "superadmin" | "institution" | "developer">(
     initialRole || "admin",
   );
   const [displayName, setDisplayName] = useState("Loading...");
@@ -33,7 +33,9 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
               ? "superadmin"
               : userRole === "admin"
                 ? "admin"
-                : "institution",
+                : userRole === "developer"
+                  ? "developer"
+                  : "institution",
           );
 
           setDisplayName(data.name || "User");
@@ -53,9 +55,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
     { path: "/admin/floor-plan", icon: "fa-map", label: "Floor Plan" },
     { path: "/admin/pois", icon: "fa-location-dot", label: "POI Management" },
     { path: "/admin/users", icon: "fa-users", label: "User Management" },
-    { path: "/admin/content", icon: "fa-layer-group", label: "Content" },
+    { path: "/admin/content", icon: "fa-layer-group", label: "View Content" },
     { path: "/admin/activity-logs", icon: "fa-list-check", label: "Activity Logs" },
-    { path: "/admin/analytics", icon: "fa-chart-pie", label: "Analytics" },
     { path: "/admin/settings", icon: "fa-cog", label: "Settings" },
   ];
 
@@ -77,7 +78,12 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
     { path: "/institution/profile", icon: "fa-user", label: "Profile" },
   ];
 
-  const links = role !== "institution" ? adminLinks : institutionLinks;
+  const developerLinks = [
+    { path: "/developer", icon: "fa-cube", label: "Model Workspace" },
+  ];
+  const links = role === "developer"
+    ? developerLinks
+    : role !== "institution" ? adminLinks : institutionLinks;
 
   return (
     <aside className={styles.sidebar}>
@@ -94,7 +100,9 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
               ? "Super Admin"
               : role === "admin"
                 ? "Admin"
-                : "Institution"}
+                : role === "developer"
+                  ? "Developer / 3D modeller"
+                  : "Curator"}
           </span>
         </div>
         <button className={styles.btnLogout} title="Logout" onClick={logout}>

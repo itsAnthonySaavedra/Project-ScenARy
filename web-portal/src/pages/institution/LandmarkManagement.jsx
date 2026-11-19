@@ -10,6 +10,7 @@ import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import commonStyles from "../../components/common/Common.module.css";
+import PageHeader from "../../components/common/PageHeader";
 import { getContentScope } from "../../lib/contentScope";
 import { getContentAssignmentLimitError } from "../../lib/contentTypes";
 import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
@@ -220,13 +221,17 @@ const LandmarkManagement = () => {
 
   if (loading) return <div style={{ padding: 20, color: "#fff" }}>Loading landmarks...</div>;
 
-  return <div style={{ padding: 20, color: "#ccc" }}>
-    <h2 style={{ color: "#d4af37" }}>Landmarks</h2>
+  return <div style={{ maxWidth: 1320, margin: "0 auto", padding: "24px 20px", color: "#ccc" }}>
+    <PageHeader
+      eyebrow="Experience design"
+      title="Landmarks"
+      description="Curate landmark details, imagery, and AR content for each mapped location."
+    />
     {pageError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>{pageError}</div>}
-    <p>Admin-created map pins are the landmarks and are associated with your institution. Give each pin its own landmark name; POIs such as artworks are added separately and linked to that pin.</p>
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 420px) 1fr", gap: "20px" }}>
-      <form onSubmit={saveLandmark} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "20px" }}>
-        <h3 style={{ color: "#fff" }}>Configure Landmark</h3>
+    <p style={{ color: "#999", margin: "0 0 18px" }}>Admin-created map pins are associated with your institution. Give each pin its own landmark name; POIs such as artworks are added separately and linked to that pin.</p>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,360px),1fr))", gap: 20, alignItems: "start" }}>
+      <form onSubmit={saveLandmark} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "22px", borderRadius: 14, border: "1px solid #39352c" }}>
+        <h2 style={{ color: "#f3d16f", fontSize: 19, margin: 0 }}>Configure landmark</h2>
         <select className={commonStyles.formControl} value={selectedLandmarkId} onChange={(e) => {
           const landmark = landmarks.find((item) => item.id === e.target.value);
           if (landmark) selectLandmark(landmark);
@@ -316,7 +321,7 @@ const LandmarkManagement = () => {
 
         <button className={commonStyles.btnPrimary} disabled={saving || !selectedLandmarkId}>{saving ? "Saving..." : "Save Landmark Details"}</button>
       </form>
-      <div>
+      <div className={commonStyles.contentCard} style={{ padding: 16, borderRadius: 14, border: "1px solid #39352c" }}>
         <MapContainer center={[10.3157, 123.8854]} zoom={15} style={{ height: 420, width: "100%" }}>
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
           {landmarks.map((landmark) => (
@@ -341,8 +346,8 @@ const LandmarkManagement = () => {
             </Marker>
           ))}
         </MapContainer>
-        <div style={{ marginTop: 12 }}>
-          <h3 style={{ color: "#fff" }}>Generated experience preview</h3>
+        <div style={{ marginTop: 18 }}>
+          <h2 style={{ color: "#f3d16f", fontSize: 19 }}>Experience preview</h2>
           {generatedExperiences.map((experience) => (
             <div key={experience.id} style={{ padding: 10, borderBottom: "1px solid #333" }}>
               <strong>{experience.title}</strong>
@@ -351,7 +356,7 @@ const LandmarkManagement = () => {
                 <ul style={{ margin: "8px 0 0", paddingLeft: 20, color: "#aaa" }}>
                   {experience.contentItems.map((item) => <li key={item.id}>{item.title}</li>)}
                 </ul>
-              ) : <div style={{ color: "#888", marginTop: 6 }}>No published content is linked yet.</div>}
+              ) : <div style={{ color: "#888", marginTop: 6 }}>The AR and VR items will appear together after both are ready and approved.</div>}
             </div>
           ))}
         </div>

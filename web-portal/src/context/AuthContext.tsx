@@ -23,7 +23,7 @@ import { useNavigate } from "react-router-dom";
 import { writeAuditLog } from "../lib/auditLog";
 import { getFirebaseErrorMessage } from "../lib/firebaseErrorMessage";
 
-export type UserRole = "admin" | "superadmin" | "institution";
+export type UserRole = "admin" | "superadmin" | "institution" | "developer";
 
 interface AuthContextType {
   currentUser: User | null;
@@ -32,7 +32,7 @@ interface AuthContextType {
   login: (
     email: string,
     password: string,
-    expectedRole: "admin" | "institution",
+    expectedRole: "admin" | "institution" | "developer",
   ) => Promise<{
     success: boolean;
     role?: UserRole;
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = async (
     email: string,
     password: string,
-    expectedRole: "admin" | "institution",
+    expectedRole: "admin" | "institution" | "developer",
   ): Promise<{
     success: boolean;
     role?: UserRole;
@@ -107,7 +107,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const storedRole = String(profile.role || "").toLowerCase();
-      if (storedRole === "institute" || storedRole === "institution") {
+      if (
+        expectedRole !== "admin" &&
+        ["institute", "institution", "curator", "developer"].includes(storedRole)
+      ) {
         const institutionId = profile.institutionId;
         const institutionSnapshot = institutionId
           ? await getDoc(doc(db, "institutions", institutionId))
@@ -125,14 +128,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ? "admin"
           : storedRole === "superadmin"
             ? "superadmin"
-            : storedRole === "institute" || storedRole === "institution"
+            : storedRole === "developer"
+              ? "developer"
+              : ["institute", "institution", "curator"].includes(storedRole)
               ? "institution"
               : null;
 
       const roleMatchesPortal =
         expectedRole === "admin"
           ? role === "admin" || role === "superadmin"
-          : role === "institution";
+          : role === expectedRole || (expectedRole === "institution" && role === "institution");
       if (!role || !roleMatchesPortal) {
         await signOut(auth);
         return {
@@ -250,9 +255,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         action: "auth.logout",
         entityType: "user",
         entityId: userId,
-        metadata: {
-          portal: role === "institution" ? "institution" : "admin",
-        },
+        metadata: { portal: role || "unknown" },
         throwOnFailure: true,
       });
     } catch (error) {
@@ -276,7 +279,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setCurrentUser(null);
     setCurrentRole(null);
     setMustChangePassword(false);
-    navigate(role === "institution" ? "/login?type=institution" : "/login?type=admin");
+    navigate(
+      role === "developer"
+        ? "/login?type=developer"
+        : role === "institution"
+          ? "/login?type=institution"
+          : "/login?type=admin",
+    );
 
     if (auditFailed) {
       window.alert("You are signed out, but the activity record could not be saved.");
@@ -289,6 +298,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const expectedRole = sessionStorage.getItem("scenaryExpectedRole") as
         | "admin"
         | "institution"
+        | "developer"
         | null;
       const expectedUserId = sessionStorage.getItem("scenaryUserId");
 
@@ -332,7 +342,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return;
         }
         const storedRole = String(userProfile.role || "").toLowerCase();
-        if (expectedRole === "institution") {
+        if (expectedRole !== "admin") {
           const institutionId = userProfile.institutionId;
           const institutionSnapshot = institutionId
             ? await getDoc(doc(db, "institutions", institutionId))
@@ -351,13 +361,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const role: UserRole | null =
           storedRole === "admin" || storedRole === "superadmin"
             ? storedRole
-            : storedRole === "institute" || storedRole === "institution"
+            : storedRole === "developer"
+              ? "developer"
+              : ["institute", "institution", "curator"].includes(storedRole)
               ? "institution"
               : null;
         const roleMatchesPortal =
           expectedRole === "admin"
             ? role === "admin" || role === "superadmin"
-            : role === "institution";
+            : role === expectedRole || (expectedRole === "institution" && role === "institution");
         if (!role || !roleMatchesPortal) {
           sessionStorage.removeItem("scenaryExpectedRole");
           sessionStorage.removeItem("scenaryUserId");
@@ -437,14 +449,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setCurrentUser(null);
         setCurrentRole(null);
         setMustChangePassword(false);
-        navigate(`/login?type=${currentRole === "institution" ? "institution" : "admin"}`);
+        navigate(
+          `/login?type=${
+            currentRole === "developer"
+              ? "developer"
+              : currentRole === "institution"
+                ? "institution"
+                : "admin"
+          }`,
+        );
       },
       (error) => console.error("Unable to monitor user status:", error),
     );
   }, [currentRole, currentUser, navigate]);
 
   useEffect(() => {
-    if (currentRole !== "institution" || !currentUser) return undefined;
+    if (!["institution", "developer"].includes(currentRole || "") || !currentUser) return undefined;
 
     let disposed = false;
     let unsubscribeInstitution = () => {};
@@ -464,7 +484,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setCurrentUser(null);
             setCurrentRole(null);
             setMustChangePassword(false);
-            navigate("/login?type=institution");
+            navigate(`/login?type=${currentRole === "developer" ? "developer" : "institution"}`);
           },
           (error) => console.error("Unable to monitor institution status:", error),
         );

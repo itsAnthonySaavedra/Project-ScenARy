@@ -5,7 +5,13 @@ import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage.js";
 import { readTourPackage } from "../../lib/tourPackage.js";
 import { inspectTourTarget, saveTourDraft } from "../../lib/tourPackageStore.js";
 
-export default function TourPackageUpload({ institutions, onClose, onSaved }) {
+export default function TourPackageUpload({
+  institutions,
+  onClose,
+  onSaved,
+  allowedInstitutionId = null,
+  developerUid = null,
+}) {
   const fileId = useId();
   const titleId = useId();
   const [tour, setTour] = useState(null);
@@ -26,7 +32,10 @@ export default function TourPackageUpload({ institutions, onClose, onSaved }) {
     setTarget(null);
     try {
       const parsed = await readTourPackage(file);
-      const destination = await inspectTourTarget(parsed.manifest);
+      const destination = await inspectTourTarget(parsed.manifest, { includeDrafts: true });
+      if (allowedInstitutionId && destination.institutionId !== allowedInstitutionId) {
+        throw new Error("This Developer account can only upload tours for its assigned institution.");
+      }
       setTour(parsed);
       setTarget(destination);
       setTitle(`${destination.landmark.landmarkName || destination.landmark.institutionName || "Landmark"} virtual tour`);
@@ -44,7 +53,10 @@ export default function TourPackageUpload({ institutions, onClose, onSaved }) {
     setError("");
     setProgress(0);
     try {
-      const saved = await saveTourDraft(tour, target, title, setProgress);
+      const saved = await saveTourDraft(tour, target, title, setProgress, {
+        developerUid,
+        allowedInstitutionId,
+      });
       onSaved(saved);
     } catch (failure) {
       setError(getFirebaseErrorMessage(failure, failure.message || "Unable to save the tour. Check Firebase access and retry."));
@@ -77,7 +89,7 @@ export default function TourPackageUpload({ institutions, onClose, onSaved }) {
             <ul>
               {target.stops.map((stop) => <li key={stop.anchor}>{stop.anchor} → {stop.name}</li>)}
             </ul>
-            <p>The institution can preview and approve this draft before you publish it.</p>
+            <p>The Developer technical approval is recorded on submission. The Curator verifies and publishes the AR/VR pair.</p>
           </>
         )}
         {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}

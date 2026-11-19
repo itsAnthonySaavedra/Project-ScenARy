@@ -10,6 +10,7 @@ import {
   getDoc,
   serverTimestamp,
   arrayUnion,
+  writeBatch,
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
@@ -19,6 +20,7 @@ import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
 import Modal from "../../components/common/Modal";
 import ContentPreview from "../../components/common/ContentPreview";
+import PageHeader from "../../components/common/PageHeader";
 import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
 import QuizEditor from "../../components/common/QuizEditor";
 import FunFactsEditor from "../../components/common/FunFactsEditor";
@@ -34,13 +36,17 @@ import {
   getContentQualityIssues,
   getInstitutionContentReadiness,
   hasPublishedInstitutionARContent,
+  hasReadyLandmarkARContent,
   isContentReady,
 } from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import { approveTourForInstitution, isTourPackage } from "../../lib/tourPackageStore.js";
+import { useAuth } from "../../context/AuthContext";
+import LandmarkDiscussion from "../../components/common/LandmarkDiscussion";
 
 const InstituteContentManagement = () => {
+  const { currentRole } = useAuth();
   const [contents, setContents] = useState([]);
   const [assignmentTargets, setAssignmentTargets] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
@@ -142,7 +148,7 @@ const InstituteContentManagement = () => {
     const updateAssignmentTargets = (landmarks, pois) => {
       setAssignmentTargets([
         ...landmarks.map((item) => ({ id: item.id, targetKey: `landmarks:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "landmarks", scope: "Landmark", contentIds: item.data().contentIds || [] })),
-        ...pois.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI", contentIds: item.data().contentIds || [] })),
+        ...pois.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI", landmarkId: item.data().landmarkId, contentIds: item.data().contentIds || [] })),
       ]);
     };
     let landmarks = [];
@@ -202,7 +208,7 @@ const InstituteContentManagement = () => {
   };
 
   const handleEditClick = (item) => {
-    if (isTourPackage(item)) return;
+    if (isTourPackage(item) || normalizeContentType(item.type) === MODEL_CONTENT_TYPE) return;
     setIsEditMode(true);
     setEditDocId(item.id);
     setFormError("");
@@ -231,7 +237,7 @@ const InstituteContentManagement = () => {
   };
 
   const handleDuplicateClick = (item) => {
-    if (isTourPackage(item)) return;
+    if (isTourPackage(item) || normalizeContentType(item.type) === MODEL_CONTENT_TYPE) return;
     const data = item.data || {};
     handleOpenCreateModal();
     setFormTitle(`${item.title || "Untitled content"} (copy)`);
@@ -336,6 +342,13 @@ const InstituteContentManagement = () => {
       !contentReadyCheckLoaded
     ) {
       setFormError("Wait for institution content to finish loading before adding this item.");
+      return;
+    }
+    if (
+      normalizeContentType(selectedType) === MODEL_CONTENT_TYPE &&
+      currentRole !== "developer"
+    ) {
+      setFormError("Only a Developer / 3D modeller can upload a VR model.");
       return;
     }
     if (
@@ -510,10 +523,15 @@ const InstituteContentManagement = () => {
   };
 
   const handleInstitutionApproveModel = async (item) => {
-    if (item.type !== MODEL_CONTENT_TYPE) return;
-    if (!hasPublishedInstitutionARContent(contents)) {
+    if (normalizeContentType(item.type) !== MODEL_CONTENT_TYPE) return;
+    if (item.developerApproved !== true) {
+      setApprovalError("The Developer must review and approve the model before Curator verification.");
+      return;
+    }
+    const hasARForModel = hasReadyARForModel(item);
+    if (!hasARForModel) {
       setApprovalError(
-        "A complete, published Information, Fun Fact, or Quiz item is required before approving a VR model.",
+        "Complete AR content must be assigned to this landmark before approving its VR model.",
       );
       return;
     }
@@ -522,29 +540,72 @@ const InstituteContentManagement = () => {
       return;
     }
 
+    const modelLandmark = item.targetId
+      ? assignmentTargets.find(
+          (target) => target.id === item.targetId && target.collectionName === "landmarks",
+        )
+      : null;
+    const relatedContentIds = new Set([
+      ...(Array.isArray(modelLandmark?.contentIds) ? modelLandmark.contentIds : []),
+      ...assignmentTargets
+        .filter((target) => target.collectionName === "pois" && target.landmarkId === item.targetId)
+        .flatMap((target) => Array.isArray(target.contentIds) ? target.contentIds : []),
+    ]);
+    const pairedARContent = modelLandmark
+      ? contents.filter(
+          (content) =>
+            relatedContentIds.has(content.id) &&
+            ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(content.type)) &&
+            content.status === "Awaiting Content" &&
+            isContentReady(content),
+        )
+      : [];
+    if (pairedARContent.length >= 500) {
+      setApprovalError("This landmark has too many AR items to release atomically with its VR model. Reduce the number of assigned items and retry.");
+      return;
+    }
+
     setApprovalError("");
     setApprovingContentId(item.id);
     try {
       if (isTourPackage(item)) {
         await approveTourForInstitution(item, getAuth().currentUser?.uid || null);
-      } else await updateDoc(doc(db, "content", item.id), {
-        institutionApproved: true,
-        institutionApprovedAt: serverTimestamp(),
-        institutionApprovedBy: getAuth().currentUser?.uid || null,
-        adminApproved: false,
-        adminApprovedAt: null,
-        adminApprovedBy: null,
-        status: "Awaiting Admin Approval",
-        updatedAt: serverTimestamp(),
-      });
+      } else {
+        const now = serverTimestamp();
+        const curatorId = getAuth().currentUser?.uid || null;
+        const releaseBatch = writeBatch(db);
+        releaseBatch.update(doc(db, "content", item.id), {
+          curatorApproved: true,
+          curatorApprovedAt: now,
+          curatorApprovedBy: curatorId,
+          institutionApproved: true,
+          institutionApprovedAt: now,
+          institutionApprovedBy: curatorId,
+          status: "Published",
+          updatedAt: now,
+        });
+        pairedARContent.forEach((content) => {
+          releaseBatch.update(doc(db, "content", content.id), {
+            status: "Published",
+            releasedWithModelId: item.id,
+            updatedAt: now,
+          });
+        });
+        await releaseBatch.commit();
+      }
       try {
         await writeAuditLog({
           actorId: getAuth().currentUser?.uid,
           actorRole: "institution",
-          action: "content.institution-approved",
+          action: "content.curator-approved",
           entityType: "content",
           entityId: item.id,
-          metadata: { institutionId: userInstitutionId, title: item.title },
+          metadata: {
+            institutionId: userInstitutionId,
+            title: item.title,
+            developerApproved: true,
+            pairedARContentIds: pairedARContent.map((content) => content.id),
+          },
           throwOnFailure: true,
         });
       } catch (auditError) {
@@ -559,6 +620,24 @@ const InstituteContentManagement = () => {
     } finally {
       setApprovingContentId("");
     }
+  };
+
+  const hasReadyARForModel = (item) => {
+    if (!item.targetId) return false;
+    const modelLandmark = assignmentTargets.find(
+      (target) => target.id === item.targetId && target.collectionName === "landmarks",
+    );
+    if (!modelLandmark) return false;
+    const relatedContentIds = new Set([
+      ...(Array.isArray(modelLandmark.contentIds) ? modelLandmark.contentIds : []),
+      ...assignmentTargets
+        .filter((target) => target.collectionName === "pois" && target.landmarkId === item.targetId)
+        .flatMap((target) => Array.isArray(target.contentIds) ? target.contentIds : []),
+    ]);
+    return hasReadyLandmarkARContent(
+      { ...modelLandmark, contentIds: [...relatedContentIds] },
+      contents,
+    );
   };
 
   const handleView = (item) => {
@@ -586,6 +665,11 @@ const InstituteContentManagement = () => {
 
   return (
     <div style={{ width: "100%", padding: "20px" }}>
+      <PageHeader
+        eyebrow="Curator workspace"
+        title="Content Management"
+        description="Create and assign AR content, then review Developer-submitted VR models for paired publication."
+      />
       <div
         role="status"
         style={{
@@ -600,7 +684,7 @@ const InstituteContentManagement = () => {
         {contentReadyCheckLoaded
           ? siteReadiness.isReady
             ? "Site setup is ready: it has published Information and AR/VR content."
-            : `Site setup is incomplete. Add ${siteReadiness.missing.join(" and ")}. Items must pass content checks and be Published by an administrator.`
+            : `Site setup is incomplete. Add ${siteReadiness.missing.join(" and ")}. Items must pass content checks and be published together after Curator verification.`
           : "Checking site setup readiness..."}
       </div>
       {contentLoadError && (
@@ -621,7 +705,7 @@ const InstituteContentManagement = () => {
       {/* CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
         <div style={{ display: "flex", gap: "1rem" }}>
-          {["All", "Awaiting Content", "Awaiting Admin Approval", "Published", "Rejected", "Needs attention"].map((status) => (
+          {["All", "Awaiting Content", "Awaiting Curator Approval", "Awaiting Admin Approval", "Published", "Rejected", "Needs attention"].map((status) => (
             <button key={status} className={`${tableStyles.tabBtn} ${filter === status ? tableStyles.tabBtnAdminActive : ""}`} onClick={() => setFilter(status)}>
               {status === "All" ? "All Content" : status}
             </button>
@@ -748,7 +832,7 @@ const InstituteContentManagement = () => {
                       </button>
 
                       {/* 🌟 INPLACE CONTENT EDIT TRIGGER ACTION BUTTON 🌟 */}
-                      {!isTourPackage(item) && <button
+                      {!isTourPackage(item) && normalizeContentType(item.type) !== MODEL_CONTENT_TYPE && <button
                         className={tableStyles.btnAction}
                         onClick={() => handleEditClick(item)}
                         title="Modify Content Node Inplace"
@@ -759,38 +843,37 @@ const InstituteContentManagement = () => {
                       >
                         <i className="fa-solid fa-edit"></i>
                       </button>}
-                      {!isTourPackage(item) && <button className={tableStyles.btnAction} onClick={() => handleDuplicateClick(item)} title="Duplicate content">
+                      {!isTourPackage(item) && normalizeContentType(item.type) !== MODEL_CONTENT_TYPE && <button className={tableStyles.btnAction} onClick={() => handleDuplicateClick(item)} title="Duplicate content">
                         <i className="fa-solid fa-copy"></i>
                       </button>}
                       {item.type === MODEL_CONTENT_TYPE &&
-                        item.status !== "Published" &&
-                        (!isTourPackage(item) || item.status === "Awaiting Content") &&
-                        !item.institutionApproved && (
+                        item.status === "Awaiting Curator Approval" &&
+                        !item.curatorApproved && (
                           <button
                             type="button"
                             className={commonStyles.btnPrimary}
                             onClick={() => handleInstitutionApproveModel(item)}
                             disabled={
                               approvingContentId === item.id ||
-                              !hasPublishedInstitutionARContent(contents) ||
+                              !hasReadyARForModel(item) ||
                               !isContentReady(item)
                             }
                             title={
-                              !hasPublishedInstitutionARContent(contents)
-                                ? "Publish complete AR content before approving this model"
+                              !hasReadyARForModel(item)
+                                ? "Add complete AR content for this landmark before approving its model"
                                 : !isContentReady(item)
                                   ? "Complete the model details before approval"
-                                  : "Approve this model and send it to the administrator"
+                                  : "Verify and approve this model"
                             }
                           >
                             {approvingContentId === item.id
                               ? "Approving..."
-                              : "Approve for admin review"}
+                              : "Verify and approve"}
                           </button>
                         )}
                       {item.type === MODEL_CONTENT_TYPE &&
-                        item.status === "Awaiting Admin Approval" && (
-                          <span style={{ color: "#fbbf24" }}>Awaiting admin approval</span>
+                        item.status === "Awaiting Curator Approval" && (
+                          <span style={{ color: "#fbbf24" }}>Awaiting Curator verification</span>
                         )}
                     </div>
                   </td>
@@ -878,9 +961,10 @@ const InstituteContentManagement = () => {
               <option value="">Select Type</option>
               {CONTENT_TYPES
                 .filter((type) =>
-                  formScope !== "POI" ||
-                  isEditMode ||
-                  ["Information", "Fun Fact", "Quiz"].includes(type),
+                  (currentRole === "developer" || type !== MODEL_CONTENT_TYPE) &&
+                  (formScope !== "POI" ||
+                    isEditMode ||
+                    ["Information", "Fun Fact", "Quiz"].includes(type)),
                 )
                 .map((type) => (
                 <option
@@ -1095,7 +1179,15 @@ const InstituteContentManagement = () => {
         }
       >
         {currentContent && (
-          <ContentPreview content={currentContent} />
+          <>
+            <ContentPreview content={currentContent} />
+            {currentContent.targetId && (
+              <LandmarkDiscussion
+                institutionId={userInstitutionId}
+                landmarkId={currentContent.targetId}
+              />
+            )}
+          </>
         )}
       </Modal>
     </div>

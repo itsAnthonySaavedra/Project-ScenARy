@@ -14,6 +14,7 @@ import { Bar } from "react-chartjs-2";
 import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../../lib/firebase";
+import PageHeader from "../../components/common/PageHeader";
 import {
   findNumericValue,
   formatAnalyticsDate,
@@ -251,6 +252,11 @@ const InstituteAnalytics = () => {
 
   return (
     <div>
+      <PageHeader
+        eyebrow="Institution reports"
+        title="Analytics"
+        description="Review visitor interactions, content performance, and recorded access revenue."
+      />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" }}>
         <p style={{ color: "#aaa", margin: 0 }}>Interaction totals and user summaries are all-time. Feedback below follows the selected period.</p>
         <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "#ddd" }} htmlFor="feedback-period">Feedback period

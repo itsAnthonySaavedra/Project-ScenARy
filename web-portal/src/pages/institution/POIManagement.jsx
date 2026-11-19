@@ -3,6 +3,7 @@ import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, getDoc
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
+import PageHeader from "../../components/common/PageHeader";
 import { db } from "../../lib/firebase";
 import { getContentScope } from "../../lib/contentScope";
 import { getContentAssignmentLimitError, normalizeContentType } from "../../lib/contentTypes";
@@ -456,15 +457,19 @@ const POIManagement = ({ adminMode = false }) => {
 
   if (loading) return <div style={{ padding: 20, color: "#fff" }}>Loading POIs...</div>;
 
-  return <div style={{ padding: 20, color: "#ccc" }}>
-    <h2 style={{ color: "#d4af37" }}>{adminMode ? "POI Administration" : "Points of Interest"}</h2>
+  return <div style={{ maxWidth: 1320, margin: "0 auto", padding: "24px 20px", color: "#ccc" }}>
+    <PageHeader
+      eyebrow="Experience design"
+      title="POI Management"
+      description="Organize visitor destinations, QR markers, and AR tracking images under their parent landmarks."
+    />
     {formError && <div role="alert" style={{ color: "#fbbf24", margin: "0 0 16px" }}>{formError}</div>}
     {poiLoadError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
       {poiLoadError}{" "}
       <button type="button" className={commonStyles.btnOutline} onClick={() => loadData(institutionId)}>Retry loading POIs</button>
     </div>}
     {poiExportError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>{poiExportError}</div>}
-    <p>POIs are child objects identified by their own QR codes. Landmark QR codes are managed from the landmark pin.</p>
+    <p style={{ color: "#999", margin: "0 0 18px" }}>POIs are child objects identified by their own QR codes. Landmark QR codes are managed from the landmark pin.</p>
     {adminMode && <div style={{ maxWidth: 420, marginBottom: 20 }}>
       <label htmlFor="poi-institution-select" style={{ display: "block", color: "#fff", marginBottom: 8 }}>Select institution</label>
       <select id="poi-institution-select" className={commonStyles.formControl} value={institutionId || ""} onChange={(event) => selectInstitution(event.target.value)}>
@@ -472,9 +477,9 @@ const POIManagement = ({ adminMode = false }) => {
         {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name || institution.id}</option>)}
       </select>
     </div>}
-    {adminMode && !institutionId ? <div style={{ color: "#888" }}>Choose an institution to view and manage its POIs.</div> : landmarks.length === 0 ? (!poiLoadError && <div style={{ color: "#fbbf24" }}>Create a landmark before adding a POI.</div>) : <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 420px) 1fr", gap: 20 }}>
-      <form onSubmit={savePoi} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 10, padding: 20 }}>
-        <h3 style={{ color: "#fff" }}>{selectedPoiId ? "Edit POI" : "Add POI"}</h3>
+    {adminMode && !institutionId ? <div style={{ color: "#888" }}>Choose an institution to view and manage its POIs.</div> : landmarks.length === 0 ? (!poiLoadError && <div style={{ color: "#fbbf24" }}>Create a landmark before adding a POI.</div>) : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,360px),1fr))", gap: 20, alignItems: "start" }}>
+      <form onSubmit={savePoi} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 12, padding: 22, border: "1px solid #39352c", borderRadius: 14 }}>
+        <h2 style={{ color: "#f3d16f", fontSize: 19, margin: 0 }}>{selectedPoiId ? "Edit POI" : "Add POI"}</h2>
         <select className={commonStyles.formControl} value={form.landmarkId} onChange={(e) => {
           const selectedLandmark = landmarks.find((landmark) => landmark.id === e.target.value);
           updateField("landmarkId", e.target.value);

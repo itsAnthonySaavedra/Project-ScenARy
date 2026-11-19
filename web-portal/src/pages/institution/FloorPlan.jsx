@@ -4,6 +4,7 @@ import { collection, doc, getDocs, getDoc, query, serverTimestamp, setDoc, updat
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
+import PageHeader from "../../components/common/PageHeader";
 import { db, storage } from "../../lib/firebase";
 import { writeAuditLog } from "../../lib/auditLog";
 import { isInstitutionActive } from "../../lib/institutionStatus";
@@ -410,9 +411,12 @@ const FloorPlan = ({ adminMode = false }) => {
     const orphanPois = pois.filter((poi) => !knownPoiIds.has(poi.id));
     return (
       <div style={{ padding: 20, color: "#ccc" }}>
+        <PageHeader
+          eyebrow="Administration"
+          title="Floor Plan"
+          description="Select an institution to inspect its floor plan and POIs. This admin view is read-only."
+        />
         <div style={{ marginBottom: 20 }}>
-          <h2 style={{ color: "#d4af37", marginBottom: 6 }}>Floor Plans &amp; POIs</h2>
-          <p style={{ margin: "0 0 12px", color: "#999" }}>Select an institution to inspect its floor plan and POIs. This admin view is read-only.</p>
           <label htmlFor="admin-floor-plan-institution" style={{ color: "#ddd" }}>
             Institution
             <select
@@ -597,10 +601,11 @@ const FloorPlan = ({ adminMode = false }) => {
 
   return (
     <div style={{ padding: 20, color: "#ccc" }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ color: "#d4af37", marginBottom: 6 }}>Interactive Floor Plan</h2>
-        <p style={{ margin: 0, color: "#999" }}>Upload a floor plan, then place your existing POIs on it for visitors to tap.</p>
-      </div>
+      <PageHeader
+        eyebrow="Experience design"
+        title="Floor Plan"
+        description="Upload a floor plan, then place your existing POIs on it for visitors to tap."
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 360px) 1fr", gap: 20, alignItems: "start" }}>
         <form onSubmit={uploadFloorPlan} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 12, padding: 20 }}>

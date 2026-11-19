@@ -29,7 +29,13 @@ const PasswordChange: React.FC = () => {
   if (!mustChangePassword) {
     return (
       <Navigate
-        to={currentRole === "institution" ? "/institution/dashboard" : "/admin/dashboard"}
+        to={
+          currentRole === "developer"
+            ? "/developer"
+            : currentRole === "institution"
+              ? "/institution/dashboard"
+              : "/admin/dashboard"
+        }
         replace
       />
     );
@@ -52,7 +58,13 @@ const PasswordChange: React.FC = () => {
     try {
       const result = await changePassword(currentPassword, newPassword);
       if (result.warning) window.alert(result.warning);
-      navigate(currentRole === "institution" ? "/institution/dashboard" : "/admin/dashboard");
+      navigate(
+        currentRole === "developer"
+          ? "/developer"
+          : currentRole === "institution"
+            ? "/institution/dashboard"
+            : "/admin/dashboard",
+      );
     } catch (changeError) {
       console.error("Password change failed:", changeError);
       setError(

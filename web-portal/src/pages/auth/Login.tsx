@@ -11,8 +11,14 @@ const Login: React.FC = () => {
 
   // Determine portal type from URL query
   const requestedType = (searchParams.get("type") || "institution").toLowerCase();
-  const loginType = requestedType === "admin" ? "admin" : "institution";
+  const loginType =
+    requestedType === "admin" || requestedType === "developer"
+      ? requestedType
+      : "institution";
   const isAdmin = loginType === "admin";
+  const portalLabel = isAdmin
+    ? "Admin"
+    : loginType === "developer" ? "Developer / 3D modeller" : "Curator";
 
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
@@ -42,7 +48,7 @@ const Login: React.FC = () => {
       const roleMatchesPortal =
         loginType === "admin"
           ? role === "admin" || role === "superadmin"
-          : role === "institution";
+          : role === loginType;
       if (!roleMatchesPortal) {
         setError("Access denied: wrong portal for this account.");
         setLoading(false);
@@ -52,7 +58,13 @@ const Login: React.FC = () => {
       if (result.mustChangePassword) {
         navigate("/change-password");
       } else {
-        navigate(role === "institution" ? "/institution/dashboard" : "/admin/dashboard");
+        navigate(
+          role === "developer"
+            ? "/developer"
+            : role === "institution"
+              ? "/institution/dashboard"
+              : "/admin/dashboard",
+        );
       }
       if (result.warning) window.alert(result.warning);
       setLoading(false);
@@ -74,7 +86,7 @@ const Login: React.FC = () => {
           <div className={styles.logoArea}>
             <img className={styles.brandMark} src="/assets/images/scenary-mark.png" alt="" />
             <h3>ScenARy V2</h3>
-            <p>{isAdmin ? "Administrator Portal" : "Institution Portal"}</p>
+            <p>{portalLabel} Portal</p>
           </div>
 
           {error && (
@@ -145,7 +157,7 @@ const Login: React.FC = () => {
             >
               {loading
                 ? "Logging in..."
-                : `Login as ${isAdmin ? "Admin" : "Institution"}`}
+                : `Login as ${portalLabel}`}
             </button>
           </form>
 
@@ -153,7 +165,9 @@ const Login: React.FC = () => {
             <p style={{ fontSize: "0.8rem" }}>
               {isAdmin
                 ? "Restricted area for ScenARy administrators only."
-                : "Not a partner yet? Contact our sales team."}
+                : loginType === "developer"
+                  ? "Sign in to your assigned model workspace."
+                  : "Not a partner yet? Contact our sales team."}
             </p>
           </div>
         </div>
