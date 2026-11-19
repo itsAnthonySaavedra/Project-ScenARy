@@ -12,7 +12,7 @@ npm ci
 npm run dev
 ```
 
-Sign in with an Admin, Curator, or Developer account. New accounts receive a password setup email; Developer accounts must be assigned to an institution. The shared Firebase client configuration is in [src/lib/firebase.js](src/lib/firebase.js). Run `npm run build` from `web-portal` to build into `dist/`, or run `npm run preview` to serve that build locally.
+Sign in with an Admin, Curator, or Developer account. New accounts receive a password setup email; Curator and Developer accounts must be assigned to an institution and are granted `canPreviewUnpublishedSite` for that institution when created or saved. Their web workspaces can preview drafts. The Unity app source is not included in this repository, so mobile preview access still needs to be enforced by the mobile client and Firestore rules. The shared Firebase client configuration is in [src/lib/firebase.js](src/lib/firebase.js). Run `npm run build` from `web-portal` to build into `dist/`, or run `npm run preview` to serve that build locally.
 
 ## Export, upload, and publish an interactive tour
 

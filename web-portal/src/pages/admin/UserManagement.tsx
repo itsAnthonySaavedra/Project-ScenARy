@@ -37,14 +37,14 @@ interface UserType {
   name: string;
   email: string;
   role: "admin" | "superadmin" | "institution" | "curator" | "developer" | "user";
-  additionalRoles?: "maintenance"[];
   status: "Active" | "Deactivated" | "Inactive" | "Banned";
   institutionId?: string | null;
+  canPreviewUnpublishedSite?: boolean;
   createdAt?: unknown;
   mustChangePassword?: boolean;
 }
 
-type UserAssignmentRole = UserType["role"] | "maintenance";
+type UserAssignmentRole = "admin" | "superadmin" | "curator" | "developer";
 
 interface Institution {
   id: string;
@@ -120,6 +120,12 @@ const formatUserDate = (value: unknown) => {
 
 const getUserStatusLabel = (status: UserType["status"]) =>
   status === "Active" ? "Active" : "Deactivated";
+
+const hasUnpublishedSitePreview = (user: UserType) =>
+  user.canPreviewUnpublishedSite === true ||
+  (user.canPreviewUnpublishedSite === undefined &&
+    ["institution", "curator", "developer"].includes(user.role) &&
+    Boolean(user.institutionId));
 
 // Secondary Firebase app for user creation (won't affect your current session)
 const secondaryApp = initializeApp(
@@ -505,19 +511,16 @@ const UserManagement: React.FC = () => {
   };
 
   const handleEdit = (user: UserType) => {
+    if (user.role === "user") {
+      return;
+    }
     if (user.role === "superadmin" && currentRole !== "superadmin") {
       alert("Only a super admin can edit a super-admin account.");
       return;
     }
     setUserFormError("");
     setCurrentUser(user);
-    setSelectedRole(
-      user.role === "institution"
-        ? user.additionalRoles?.includes("maintenance") ? "maintenance" : "curator"
-        : user.role === "curator" && user.additionalRoles?.includes("maintenance")
-          ? "maintenance"
-          : user.role,
-    );
+    setSelectedRole(user.role === "institution" ? "curator" : user.role as UserAssignmentRole);
     setIsModalOpen(true);
   };
 
@@ -551,18 +554,14 @@ const UserManagement: React.FC = () => {
     const name = form.name.value.trim();
     const email = form.email.value.trim();
     const assignedRole = form.role.value as UserAssignmentRole;
-    const role = ["maintenance", "institution"].includes(assignedRole)
-      ? "curator"
-      : assignedRole;
-    const additionalRoles: "maintenance"[] =
-      assignedRole === "maintenance" ? ["maintenance"] : [];
-    const institutionId = role === "institution" || role === "curator" || role === "developer"
+    const role = assignedRole;
+    const canPreviewUnpublishedSite = role === "curator" || role === "developer";
+    const institutionId = role === "curator" || role === "developer"
       ? form.institutionId?.value || null
       : null;
 
     const isSuperAdmin = currentRole === "superadmin";
     if (
-      role === "user" ||
       (role === "admin" && !isSuperAdmin) ||
       (!["admin", "superadmin"].includes(currentRole || "") &&
         currentUser &&
@@ -587,14 +586,15 @@ const UserManagement: React.FC = () => {
           name,
           email,
           role,
-          additionalRoles,
           institutionId,
+          canPreviewUnpublishedSite,
+          additionalRoles: deleteField(),
         });
 
         setUsers((prev) =>
           prev.map((u) =>
             u.id === currentUser.id
-              ? { ...u, name, email, role, additionalRoles, institutionId }
+              ? { ...u, name, email, role, institutionId, canPreviewUnpublishedSite }
               : u,
           ),
         );
@@ -606,7 +606,7 @@ const UserManagement: React.FC = () => {
             action: "user.updated",
             entityType: "user",
             entityId: currentUser.id,
-            metadata: { email, role, additionalRoles, institutionId },
+            metadata: { email, role, institutionId, canPreviewUnpublishedSite },
             throwOnFailure: true,
           });
         } catch (auditError) {
@@ -628,8 +628,8 @@ const UserManagement: React.FC = () => {
             name,
             email,
             role,
-            additionalRoles,
             institutionId,
+            canPreviewUnpublishedSite,
             status: "Active",
             mustChangePassword: false,
             createdAt: serverTimestamp(),
@@ -657,8 +657,8 @@ const UserManagement: React.FC = () => {
             name,
             email,
             role,
-            additionalRoles,
             institutionId,
+            canPreviewUnpublishedSite,
             status: "Active",
             mustChangePassword: false,
             createdAt: new Date().toISOString(),
@@ -679,7 +679,7 @@ const UserManagement: React.FC = () => {
             action: "user.created",
             entityType: "user",
             entityId: cred.user.uid,
-            metadata: { email, role, additionalRoles, institutionId },
+            metadata: { email, role, institutionId, canPreviewUnpublishedSite },
             throwOnFailure: true,
           });
         } catch (auditError) {
@@ -839,14 +839,12 @@ const UserManagement: React.FC = () => {
     currentRole === "superadmin"
       ? currentUser?.role === "superadmin"
         ? ["superadmin"]
-        : ["admin", "curator", "maintenance", "developer"]
-      : currentUser
-        ? ["institution", "curator"].includes(currentUser.role)
-          ? ["curator", "maintenance"]
-          : ["admin", "superadmin"].includes(currentUser.role)
-            ? ["curator", "maintenance", "developer"]
-            : [currentUser.role]
-        : ["curator", "maintenance", "developer"];
+        : ["admin", "curator", "developer"]
+      : currentUser?.role === "superadmin"
+        ? ["superadmin"]
+        : currentUser?.role === "admin"
+          ? ["curator", "developer"]
+          : ["curator", "developer"];
 
   /* =====================
      UI
@@ -960,6 +958,7 @@ const UserManagement: React.FC = () => {
                 <th>Name</th>
                 <th>Role</th>
                 <th>Institution</th>
+                <th>Unpublished Preview</th>
                 <th>Email</th>
                 <th>Status</th>
                 <th>Site Access</th>
@@ -972,20 +971,18 @@ const UserManagement: React.FC = () => {
                   <tr key={user.id}>
                     <td style={{ fontWeight: 500, color: "#fff" }}>{user.name}</td>
                     <td>
-                      {["institution", "curator"].includes(user.role) &&
-                      user.additionalRoles?.includes("maintenance")
-                        ? "Curator + Maintenance"
-                        : ["institution", "curator"].includes(user.role)
-                          ? "Curator"
-                          : user.role === "developer"
-                            ? "Developer / 3D modeller"
-                            : user.role}
+                      {["institution", "curator"].includes(user.role)
+                        ? "Curator"
+                        : user.role === "developer"
+                          ? "Developer / 3D modeller"
+                          : user.role}
                     </td>
                     <td>
                       {["institution", "curator", "developer"].includes(user.role)
                         ? institutions.find((i) => i.id === user.institutionId)?.name || "—"
                         : "—"}
                     </td>
+                    <td>{hasUnpublishedSitePreview(user) ? "Enabled for assigned site" : "—"}</td>
                     <td>{user.email}</td>
                     <td>
                       <span
@@ -1093,8 +1090,8 @@ const UserManagement: React.FC = () => {
                       </button>
                       <button
                         className={tableStyles.btnAction}
-                        title="Edit"
-                        disabled={user.role === "superadmin" && currentRole !== "superadmin"}
+                        title={user.role === "user" ? "App user accounts cannot be edited here" : "Edit"}
+                        disabled={user.role === "user" || (user.role === "superadmin" && currentRole !== "superadmin")}
                         onClick={() => handleEdit(user)}
                       >
                         <i className="fa-solid fa-pen"></i>
@@ -1113,7 +1110,7 @@ const UserManagement: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }}>
+                  <td colSpan={8} style={{ textAlign: "center", padding: "2rem" }}>
                     No users found
                   </td>
                 </tr>
@@ -1134,15 +1131,16 @@ const UserManagement: React.FC = () => {
                   <div>
                     <small style={{ color: "#999" }}>Role</small>
                     <p>
-                      {["institution", "curator"].includes(detailsUser.role) &&
-                      detailsUser.additionalRoles?.includes("maintenance")
-                        ? "Curator + Maintenance"
-                        : ["institution", "curator"].includes(detailsUser.role)
-                          ? "Curator"
-                          : detailsUser.role === "developer"
-                            ? "Developer / 3D modeller"
-                            : detailsUser.role || "-"}
+                      {["institution", "curator"].includes(detailsUser.role)
+                        ? "Curator"
+                        : detailsUser.role === "developer"
+                          ? "Developer / 3D modeller"
+                          : detailsUser.role || "-"}
                     </p>
+                  </div>
+                  <div>
+                    <small style={{ color: "#999" }}>Unpublished site preview</small>
+                    <p>{hasUnpublishedSitePreview(detailsUser) ? "Enabled for assigned site" : "Not enabled"}</p>
                   </div>
                   <div><small style={{ color: "#999" }}>Status</small><p>{getUserStatusLabel(detailsUser.status)}</p></div>
                   <div><small style={{ color: "#999" }}>Institution</small><p>{institutions.find((item) => item.id === detailsUser.institutionId)?.name || "-"}</p></div>
@@ -1173,10 +1171,11 @@ const UserManagement: React.FC = () => {
                   {userFormError}
                 </div>
               )}
-              <div className={commonStyles.formGroup}>
-                <label>Full Name</label>
+                            <div className={commonStyles.formGroup}>
+                <label>Name</label>
                 <input type="text" name="name" className={commonStyles.formControl} defaultValue={currentUser?.name} required />
               </div>
+
 
               <div className={commonStyles.formGroup}>
                 <label>Email Address</label>
@@ -1193,22 +1192,17 @@ const UserManagement: React.FC = () => {
                 >
                   {availableRoles.map((r) => (
                     <option key={r} value={r}>
-                      {r === "maintenance"
-                        ? "Curator + Maintenance"
-                        : r === "institution" || r === "curator"
-                          ? "Curator"
-                          : r === "developer"
-                            ? "Developer / 3D modeller"
-                            : r}
+                      {r === "curator"
+                        ? "Curator"
+                        : r === "developer"
+                          ? "Developer / 3D modeller"
+                          : r}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {(selectedRole === "institution" ||
-                selectedRole === "curator" ||
-                selectedRole === "developer" ||
-                selectedRole === "maintenance") && (
+              {(selectedRole === "curator" || selectedRole === "developer") && (
                 <div className={commonStyles.formGroup}>
                   <label>Institution</label>
                   <select name="institutionId" className={commonStyles.formControl} defaultValue={currentUser?.institutionId || ""}>
