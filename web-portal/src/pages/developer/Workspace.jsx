@@ -32,7 +32,7 @@ const hasReadyARForLandmark = (landmark, pois, contentItems) => {
     ...(Array.isArray(landmark.contentIds) ? landmark.contentIds : []),
     ...pois
       .filter((poi) => poi.landmarkId === landmark.id)
-      .flatMap((poi) => Array.isArray(poi.contentIds) ? poi.contentIds : []),
+      .flatMap((poi) => (Array.isArray(poi.contentIds) ? poi.contentIds : [])),
   ]);
   return hasReadyLandmarkARContent(
     { ...landmark, contentIds: [...contentIds] },
@@ -40,10 +40,19 @@ const hasReadyARForLandmark = (landmark, pois, contentItems) => {
   );
 };
 
+const getAssignedInstitutionIds = (profileData) => {
+  if (!profileData) return [];
+  const list = Array.isArray(profileData.institutionIds)
+    ? profileData.institutionIds.map((id) => String(id).trim()).filter(Boolean)
+    : [];
+  const single = profileData.institutionId ? [String(profileData.institutionId).trim()] : [];
+  return [...new Set([...list, ...single])];
+};
+
 const DeveloperWorkspace = () => {
   const { currentUser } = useAuth();
+  const [assignedInstitutions, setAssignedInstitutions] = useState([]);
   const [institutionId, setInstitutionId] = useState("");
-  const [institutionName, setInstitutionName] = useState("");
   const [contents, setContents] = useState([]);
   const [landmarks, setLandmarks] = useState([]);
   const [pois, setPois] = useState([]);
@@ -62,80 +71,121 @@ const DeveloperWorkspace = () => {
   const [approvingModelId, setApprovingModelId] = useState("");
   const [isTourUploadOpen, setIsTourUploadOpen] = useState(false);
 
+  // Load assigned institutions for the developer
   useEffect(() => {
     if (!currentUser) {
       setLoading(false);
       return undefined;
     }
-    let stopContents = () => {};
-    let stopLandmarks = () => {};
-    let stopPois = () => {};
     let disposed = false;
+
     const loadProfile = async () => {
+      setLoading(true);
+      setError("");
       try {
         const profile = await getDoc(doc(db, "users", currentUser.uid));
-        const assignedInstitutionId = profile.data()?.institutionId;
-        if (!profile.exists() || !assignedInstitutionId) {
-          setError("Your Developer account must be assigned to an institution.");
+        if (disposed) return;
+        const ids = getAssignedInstitutionIds(profile.data());
+        if (!profile.exists() || ids.length === 0) {
+          setError("Your Developer account must be assigned to at least one institution.");
+          setAssignedInstitutions([]);
+          setInstitutionId("");
           setLoading(false);
           return;
         }
-        const id = String(assignedInstitutionId);
-        const institution = await getDoc(doc(db, "institutions", id));
+
+        const institutionDocs = await Promise.all(
+          ids.map(async (id) => {
+            const snap = await getDoc(doc(db, "institutions", id));
+            return {
+              id,
+              name: snap.exists() ? snap.data()?.name || "Assigned institution" : "Assigned institution",
+            };
+          }),
+        );
         if (disposed) return;
-        setInstitutionId(id);
-        setInstitutionName(institution.exists() ? institution.data().name || "Assigned institution" : "Assigned institution");
-        stopContents = onSnapshot(
-          query(collection(db, "content"), where("institutionId", "==", id)),
-          (snapshot) => {
-            setContents(snapshot.docs.map((item) => ({
-              id: item.id,
-              ...item.data(),
-              type: normalizeContentType(item.data().type),
-            })));
-            setError("");
-            setLoading(false);
-          },
-          (snapshotError) => {
-            console.error("Unable to load Developer content:", snapshotError);
-            setError(getFirebaseErrorMessage(snapshotError, "Unable to load content for this institution."));
-            setLoading(false);
-          },
-        );
-        stopLandmarks = onSnapshot(
-          query(collection(db, "landmarks"), where("institutionId", "==", id)),
-          (snapshot) => {
-            const rows = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-            setLandmarks(rows);
-            setSelectedLandmarkId((selected) => selected || rows[0]?.id || "");
-          },
-          (snapshotError) => {
-            console.error("Unable to load Developer landmarks:", snapshotError);
-            setError(getFirebaseErrorMessage(snapshotError, "Unable to load landmarks."));
-          },
-        );
-        stopPois = onSnapshot(
-          query(collection(db, "pois"), where("institutionId", "==", id)),
-          (snapshot) => setPois(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
-          (snapshotError) => {
-            console.error("Unable to load Developer POIs:", snapshotError);
-            setError(getFirebaseErrorMessage(snapshotError, "Unable to load POIs."));
-          },
-        );
+
+        setAssignedInstitutions(institutionDocs);
+        setInstitutionId((prev) => (ids.includes(prev) ? prev : ids[0]));
+        setLoading(false);
       } catch (profileError) {
+        if (disposed) return;
         console.error("Unable to load Developer workspace profile:", profileError);
         setError(getFirebaseErrorMessage(profileError, "Unable to load your Developer workspace."));
         setLoading(false);
       }
     };
+
     loadProfile();
     return () => {
       disposed = true;
+    };
+  }, [currentUser]);
+
+  // Subscribe to selected institution's data
+  useEffect(() => {
+    if (!institutionId) {
+      setContents([]);
+      setLandmarks([]);
+      setPois([]);
+      setSelectedLandmarkId("");
+      return undefined;
+    }
+
+    setSelectedLandmarkId("");
+    setError("");
+
+    const stopContents = onSnapshot(
+      query(collection(db, "content"), where("institutionId", "==", institutionId)),
+      (snapshot) => {
+        setContents(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+            type: normalizeContentType(item.data().type),
+          })),
+        );
+        setError("");
+      },
+      (snapshotError) => {
+        console.error("Unable to load Developer content:", snapshotError);
+        setError(getFirebaseErrorMessage(snapshotError, "Unable to load content for this institution."));
+      },
+    );
+
+    const stopLandmarks = onSnapshot(
+      query(collection(db, "landmarks"), where("institutionId", "==", institutionId)),
+      (snapshot) => {
+        const rows = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+        setLandmarks(rows);
+        setSelectedLandmarkId((selected) =>
+          rows.some((r) => r.id === selected) ? selected : rows[0]?.id || "",
+        );
+      },
+      (snapshotError) => {
+        console.error("Unable to load Developer landmarks:", snapshotError);
+        setError(getFirebaseErrorMessage(snapshotError, "Unable to load landmarks."));
+      },
+    );
+
+    const stopPois = onSnapshot(
+      query(collection(db, "pois"), where("institutionId", "==", institutionId)),
+      (snapshot) => setPois(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
+      (snapshotError) => {
+        console.error("Unable to load Developer POIs:", snapshotError);
+        setError(getFirebaseErrorMessage(snapshotError, "Unable to load POIs."));
+      },
+    );
+
+    return () => {
       stopContents();
       stopLandmarks();
       stopPois();
     };
-  }, [currentUser]);
+  }, [institutionId]);
+
+  const activeInstitutionName =
+    assignedInstitutions.find((inst) => inst.id === institutionId)?.name || "Assigned institution";
 
   const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId);
   const arContent = useMemo(
@@ -148,11 +198,12 @@ const DeveloperWorkspace = () => {
   const vrModels = contents.filter(
     (item) => normalizeContentType(item.type) === MODEL_CONTENT_TYPE,
   );
-  const selectedLandmarkHasModel = contents.some(
-    (item) =>
-      linkedContent.includes(item.id) &&
-      normalizeContentType(item.type) === MODEL_CONTENT_TYPE,
-  ) || Boolean(selectedLandmark?.vrDraftContentId || selectedLandmark?.vrPublishedContentId);
+  const selectedLandmarkHasModel =
+    contents.some(
+      (item) =>
+        linkedContent.includes(item.id) &&
+        normalizeContentType(item.type) === MODEL_CONTENT_TYPE,
+    ) || Boolean(selectedLandmark?.vrDraftContentId || selectedLandmark?.vrPublishedContentId);
   const hasAR = hasReadyARForLandmark(selectedLandmark, pois, contents);
 
   const handleUpload = async (event) => {
@@ -160,7 +211,7 @@ const DeveloperWorkspace = () => {
     setError("");
     setNotice("");
     if (!institutionId || !currentUser || !selectedLandmark) {
-      setError("Choose a landmark before uploading a model.");
+      setError("Choose an institution and landmark before uploading a model.");
       return;
     }
     if (!hasAR) {
@@ -198,7 +249,9 @@ const DeveloperWorkspace = () => {
       const landmarkRef = doc(db, "landmarks", selectedLandmark.id);
       const batch = writeBatch(db);
       batch.set(contentRef, {
-        title: title.trim() || `${selectedLandmark.landmarkName || selectedLandmark.institutionName || "Landmark"} VR model`,
+        title:
+          title.trim() ||
+          `${selectedLandmark.landmarkName || selectedLandmark.institutionName || "Landmark"} VR model`,
         type: MODEL_CONTENT_TYPE,
         scope: "Landmark",
         institutionId,
@@ -329,8 +382,31 @@ const DeveloperWorkspace = () => {
       <PageHeader
         eyebrow="Developer / 3D modeller"
         title="Model Workspace"
-        description={`Assigned institution: ${institutionName}. Review AR drafts, upload the landmark VR model, and coordinate with the Curator.`}
+        description={`Active institution: ${activeInstitutionName}. Switch institutions to review AR drafts, upload VR models, and coordinate with Curators.`}
       />
+
+      {assignedInstitutions.length > 0 && (
+        <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <label htmlFor="developer-institution-select" style={{ color: "#f3d16f", fontWeight: 600 }}>
+            Institution ({assignedInstitutions.length} assigned):
+          </label>
+          <select
+            id="developer-institution-select"
+            value={institutionId}
+            onChange={(event) => {
+              setInstitutionId(event.target.value);
+              setNotice("");
+            }}
+            style={{ padding: "8px 12px", borderRadius: 8, background: "#151515", color: "#eee", border: "1px solid #45413a" }}
+          >
+            {assignedInstitutions.map((inst) => (
+              <option key={inst.id} value={inst.id}>
+                {inst.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {error && <div role="alert" style={{ marginTop: 16, color: "#fecaca" }}>{error}</div>}
       {notice && <div role="status" style={{ marginTop: 16, color: "#86efac" }}>{notice}</div>}
@@ -347,32 +423,82 @@ const DeveloperWorkspace = () => {
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>
           <h2 style={{ marginTop: 0, color: "#f3d16f" }}>Upload VR model</h2>
           <p style={{ color: "#aaa", fontSize: 14 }}>
-            {hasAR ? "Complete AR references are available for this landmark." : "Add a complete AR item to this landmark before creating the paired VR model."}
+            {hasAR
+              ? "Complete AR references are available for this landmark."
+              : "Add a complete AR item to this landmark before creating the paired VR model."}
           </p>
           <form onSubmit={handleUpload} style={{ display: "grid", gap: 12 }}>
             <label>
               Landmark
-              <select value={selectedLandmarkId} onChange={(event) => setSelectedLandmarkId(event.target.value)} required style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }}>
+              <select
+                value={selectedLandmarkId}
+                onChange={(event) => setSelectedLandmarkId(event.target.value)}
+                required
+                style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }}
+              >
                 <option value="">Select landmark</option>
-                {landmarks.map((landmark) => <option key={landmark.id} value={landmark.id}>{landmark.landmarkName || landmark.institutionName || landmark.id}</option>)}
+                {landmarks.map((landmark) => (
+                  <option key={landmark.id} value={landmark.id}>
+                    {landmark.landmarkName || landmark.institutionName || landmark.id}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
               Model title (optional)
-              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Landmark VR model" style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }} />
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Landmark VR model"
+                style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }}
+              />
             </label>
             <label>
               Upload GLB
-              <input type="file" accept=".glb,model/gltf-binary" onChange={(event) => setFile(event.target.files?.[0] || null)} style={{ display: "block", marginTop: 6 }} />
+              <input
+                type="file"
+                accept=".glb,model/gltf-binary"
+                onChange={(event) => setFile(event.target.files?.[0] || null)}
+                style={{ display: "block", marginTop: 6 }}
+              />
             </label>
             <label>
               Or use an existing model URL
-              <input value={modelUrl} onChange={(event) => setModelUrl(event.target.value)} placeholder="https://.../model.glb" style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }} />
+              <input
+                value={modelUrl}
+                onChange={(event) => setModelUrl(event.target.value)}
+                placeholder="https://.../model.glb"
+                style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }}
+              />
             </label>
-            <ModelSpawnPointEditor enabled={spawnPointEnabled} onEnabledChange={setSpawnPointEnabled} value={spawnPoint} onChange={setSpawnPoint} modelUrl={modelUrl} />
-            {saving && <progress max="100" value={uploadProgress} aria-label="Model upload progress" style={{ width: "100%" }} />}
-            <button type="submit" disabled={saving || !hasAR || selectedLandmarkHasModel} style={{ border: 0, borderRadius: 8, padding: "11px 16px", background: "#d4af37", color: "#16130b", fontWeight: 700, cursor: "pointer" }}>
-              {saving ? "Uploading..." : selectedLandmarkHasModel ? "Model already assigned" : "Submit for Curator verification"}
+            <ModelSpawnPointEditor
+              enabled={spawnPointEnabled}
+              onEnabledChange={setSpawnPointEnabled}
+              value={spawnPoint}
+              onChange={setSpawnPoint}
+              modelUrl={modelUrl}
+            />
+            {saving && (
+              <progress max="100" value={uploadProgress} aria-label="Model upload progress" style={{ width: "100%" }} />
+            )}
+            <button
+              type="submit"
+              disabled={saving || !hasAR || selectedLandmarkHasModel}
+              style={{
+                border: 0,
+                borderRadius: 8,
+                padding: "11px 16px",
+                background: "#d4af37",
+                color: "#16130b",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {saving
+                ? "Uploading..."
+                : selectedLandmarkHasModel
+                  ? "Model already assigned"
+                  : "Submit for Curator verification"}
             </button>
           </form>
         </section>
@@ -380,15 +506,42 @@ const DeveloperWorkspace = () => {
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>
           <h2 style={{ marginTop: 0, color: "#f3d16f" }}>AR references and drafts</h2>
           <p style={{ color: "#aaa", fontSize: 14 }}>Draft content is visible here so you can use it as modelling reference.</p>
-          {arContent.length === 0 ? <p style={{ color: "#888" }}>No AR content is available yet.</p> : (
+          {arContent.length === 0 ? (
+            <p style={{ color: "#888" }}>No AR content is available yet.</p>
+          ) : (
             <div style={{ display: "grid", gap: 10 }}>
               {arContent.map((item) => (
-                <article key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: 12, borderRadius: 9, background: "#1d1d1d" }}>
+                <article
+                  key={item.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: 12,
+                    borderRadius: 9,
+                    background: "#1d1d1d",
+                  }}
+                >
                   <div>
                     <strong style={{ color: "#eee" }}>{item.title || "Untitled AR content"}</strong>
-                    <div style={{ color: "#999", fontSize: 12 }}>{item.type} · {item.status || "Draft"}</div>
+                    <div style={{ color: "#999", fontSize: 12 }}>
+                      {item.type} · {item.status || "Draft"}
+                    </div>
                   </div>
-                  <button type="button" onClick={() => setPreviewContent(item)} style={{ border: "1px solid #645326", background: "transparent", color: "#f3d16f", borderRadius: 7, padding: "8px 12px" }}>Preview</button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewContent(item)}
+                    style={{
+                      border: "1px solid #645326",
+                      background: "transparent",
+                      color: "#f3d16f",
+                      borderRadius: 7,
+                      padding: "8px 12px",
+                    }}
+                  >
+                    Preview
+                  </button>
                 </article>
               ))}
             </div>
@@ -401,15 +554,52 @@ const DeveloperWorkspace = () => {
           <h2 style={{ marginTop: 0, color: "#f3d16f" }}>VR model review</h2>
           <div style={{ display: "grid", gap: 10 }}>
             {vrModels.map((item) => (
-              <article key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: 12, borderRadius: 9, background: "#1d1d1d" }}>
+              <article
+                key={item.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: 12,
+                  borderRadius: 9,
+                  background: "#1d1d1d",
+                }}
+              >
                 <div>
                   <strong style={{ color: "#eee" }}>{item.title || "Untitled VR model"}</strong>
-                  <div style={{ color: "#999", fontSize: 12 }}>{item.status || "Draft"} · {item.developerApproved ? "Developer approved" : "Developer review required"}</div>
+                  <div style={{ color: "#999", fontSize: 12 }}>
+                    {item.status || "Draft"} · {item.developerApproved ? "Developer approved" : "Developer review required"}
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" onClick={() => setPreviewContent(item)} style={{ border: "1px solid #645326", background: "transparent", color: "#f3d16f", borderRadius: 7, padding: "8px 12px" }}>Preview</button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewContent(item)}
+                    style={{
+                      border: "1px solid #645326",
+                      background: "transparent",
+                      color: "#f3d16f",
+                      borderRadius: 7,
+                      padding: "8px 12px",
+                    }}
+                  >
+                    Preview
+                  </button>
                   {!item.developerApproved && item.status !== "Published" && (
-                    <button type="button" onClick={() => handleApproveExistingModel(item)} disabled={approvingModelId === item.id} style={{ border: 0, background: "#d4af37", color: "#16130b", borderRadius: 7, padding: "8px 12px", fontWeight: 700 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleApproveExistingModel(item)}
+                      disabled={approvingModelId === item.id}
+                      style={{
+                        border: 0,
+                        background: "#d4af37",
+                        color: "#16130b",
+                        borderRadius: 7,
+                        padding: "8px 12px",
+                        fontWeight: 700,
+                      }}
+                    >
                       {approvingModelId === item.id ? "Saving..." : "Approve technical review"}
                     </button>
                   )}
@@ -421,15 +611,12 @@ const DeveloperWorkspace = () => {
       )}
 
       {selectedLandmark && (
-        <LandmarkDiscussion
-          institutionId={institutionId}
-          landmarkId={selectedLandmark.id}
-        />
+        <LandmarkDiscussion institutionId={institutionId} landmarkId={selectedLandmark.id} />
       )}
 
       {isTourUploadOpen && (
         <TourPackageUpload
-          institutions={[{ id: institutionId, name: institutionName }]}
+          institutions={assignedInstitutions}
           allowedInstitutionId={institutionId}
           developerUid={currentUser?.uid || null}
           onClose={() => setIsTourUploadOpen(false)}
@@ -459,16 +646,20 @@ const DeveloperWorkspace = () => {
         />
       )}
 
-      <Modal isOpen={Boolean(previewContent)} onClose={() => setPreviewContent(null)} title={previewContent?.title || "AR content preview"} size="wide">
+      <Modal
+        isOpen={Boolean(previewContent)}
+        onClose={() => setPreviewContent(null)}
+        title={previewContent?.title || "AR content preview"}
+        size="wide"
+      >
         {previewContent && (
           <>
-            <p style={{ color: "#aaa" }}>{previewContent.status || "Draft"} · {isContentReady(previewContent) ? "Ready" : "Needs attention"}</p>
+            <p style={{ color: "#aaa" }}>
+              {previewContent.status || "Draft"} · {isContentReady(previewContent) ? "Ready" : "Needs attention"}
+            </p>
             <ContentPreview content={previewContent} />
             {previewContent.targetId && (
-              <LandmarkDiscussion
-                institutionId={institutionId}
-                landmarkId={previewContent.targetId}
-              />
+              <LandmarkDiscussion institutionId={institutionId} landmarkId={previewContent.targetId} />
             )}
           </>
         )}

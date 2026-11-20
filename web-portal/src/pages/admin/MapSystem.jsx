@@ -46,6 +46,12 @@ const cebuBounds = [
   [11.35, 124.1],
 ];
 
+const hasValidCoords = (item) =>
+  typeof item?.lat === "number" &&
+  Number.isFinite(item.lat) &&
+  typeof item?.lng === "number" &&
+  Number.isFinite(item.lng);
+
 const MapSystem = () => {
   const [markers, setMarkers] = useState([]);
   const [institutions, setInstitutions] = useState([]);
@@ -66,7 +72,9 @@ const MapSystem = () => {
   const activeInstitutionIds = new Set(
     institutions.filter(isInstitutionActive).map((institution) => institution.id),
   );
-  const activeMarkers = markers.filter((marker) => activeInstitutionIds.has(marker.institutionId));
+  const activeMarkers = markers.filter(
+    (marker) => activeInstitutionIds.has(marker.institutionId) && hasValidCoords(marker),
+  );
 
   useEffect(() => {
     if (!markerImage) {
@@ -181,7 +189,14 @@ const MapSystem = () => {
         landmarkName: trimmedLandmarkName,
         description: trimmedDescription,
         info: { description: trimmedDescription },
-        ...(uploadedImage ? { imageUrl: uploadedImage.url, imageStoragePath: uploadedImage.storagePath, imageFileName: uploadedImage.fileName, imageFileType: uploadedImage.fileType } : {}),
+        ...(uploadedImage
+          ? {
+              imageUrl: uploadedImage.url,
+              imageStoragePath: uploadedImage.storagePath,
+              imageFileName: uploadedImage.fileName,
+              imageFileType: uploadedImage.fileType,
+            }
+          : {}),
       });
       landmarkSaved = true;
       try {
@@ -270,363 +285,405 @@ const MapSystem = () => {
       <PageHeader
         eyebrow="Administration"
         title="Map System"
-        description="Add and maintain landmark map pins, then inspect published experiences."
+        description="Place and maintain landmark map pins, then inspect published experiences."
       />
       <div
         className="chart-card full-width"
         style={{ position: "relative", height: "750px", overflow: "hidden" }}
       >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 12,
-          padding: "1rem",
-        }}
-      >
-        <div>
-          <h3 style={{ color: "#d4af37", margin: 0 }}>Cebu Landmark Pins</h3>
-          <small style={{ color: "#855e2e" }}>Locked to Cebu Province</small>
-        </div>
-      </div>
-      <p
-        role="note"
-        style={{
-          margin: "0 1rem 1rem",
-          padding: "12px 14px",
-          border: "1px solid rgba(212,175,55,.25)",
-          borderRadius: 8,
-          background: "rgba(212,175,55,.06)",
-          color: "#cfc8b8",
-          lineHeight: 1.5,
-        }}
-      >
-        To add a landmark, click its location on the map, enter a name and optional details or image, then select the responsible institution to save the pin. Click an existing pin to review its experiences; you can also rename or remove it there.
-      </p>
-      {Object.entries(mapLoadErrors).filter(([, error]) => error).map(([source, error]) => (
-        <div key={source} role="alert" style={{ color: "#fca5a5", padding: "0 1rem 1rem" }}>
-          {error}
-        </div>
-      ))}
-
-      <MapContainer
-        center={[10.3157, 123.8854]}
-        zoom={12}
-        minZoom={9}
-        maxBounds={cebuBounds}
-        maxBoundsViscosity={1.0}
-        style={{ height: "600px", width: "100%" }}
-      >
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="&copy; OpenStreetMap"
-        />
-        <MapEvents />
-
-        {activeMarkers.map((marker) => (
-          <Marker
-            key={marker.id}
-            position={[marker.lat, marker.lng]}
-            icon={mapPinIcon}
-            eventHandlers={{
-              click: () => handleMarkerClick(marker.institutionId),
-            }} // NEW EVENT HANDLER
-          >
-            <Popup>
-              <div
-                style={{
-                  color: "#000",
-                  textAlign: "center",
-                  minWidth: "180px",
-                }}
-              >
-                <strong style={{ fontSize: "1.05rem" }}>
-                  {marker.landmarkName || marker.institutionName}
-                </strong>
-                <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
-                  <input
-                    aria-label="Landmark name"
-                    value={landmarkNameDrafts[marker.id] ?? marker.landmarkName ?? marker.institutionName ?? ""}
-                    onChange={(event) => setLandmarkNameDrafts((current) => ({ ...current, [marker.id]: event.target.value }))}
-                    style={{ minWidth: 0, flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    disabled={!(landmarkNameDrafts[marker.id] ?? marker.landmarkName ?? marker.institutionName ?? "").trim()}
-                    onClick={() => updateLandmarkName(marker.id, landmarkNameDrafts[marker.id] ?? marker.landmarkName ?? marker.institutionName ?? "")}
-                  >
-                    Save
-                  </button>
-                </div>
-                {marker.description && (
-                  <p
-                    style={{
-                      margin: "8px 0",
-                      color: "#4b5563",
-                      fontSize: "0.9rem",
-                      fontStyle: "italic",
-                    }}
-                  >
-                    "{marker.description}"
-                  </p>
-                )}
-                {marker.imageUrl && (
-                  <img src={marker.imageUrl} alt={marker.landmarkName || "Marker"} style={{ width: "100%", maxHeight: "140px", objectFit: "cover", borderRadius: "4px" }} />
-                )}
-
-                <hr
-                  style={{ border: "0.5px solid #e5e7eb", margin: "8px 0" }}
-                />
-
-                {/* NEW: Display available tours inside the pin popup */}
-                <div style={{ textAlign: "left", marginBottom: "10px" }}>
-                  <span
-                    style={{
-                      fontSize: "0.8rem",
-                      fontWeight: "bold",
-                      color: "#855e2e",
-                    }}
-                  >
-                    Available Experiences:
-                  </span>
-                  {loadingExperiences[marker.institutionId] ? (
-                    <div style={{ fontSize: "0.8rem" }}>Loading experiences...</div>
-                  ) : experienceErrors[marker.institutionId] ? (
-                    <div role="alert" style={{ fontSize: "0.8rem", color: "#b91c1c" }}>
-                      {experienceErrors[marker.institutionId]}
-                    </div>
-                  ) : activeExperiences[marker.institutionId]?.length > 0 ? (
-                    activeExperiences[marker.institutionId].map((experience) => (
-                      <div
-                        key={experience.id}
-                        style={{
-                          fontSize: "0.85rem",
-                          padding: "4px 0",
-                          borderBottom: "1px dashed #eee",
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <span>📍 {experience.title}</span>
-                        <span style={{ color: "#C19A4B" }}>
-                          {experience.isReleased
-                            ? `${experience.poiCount} POIs · ${experience.contentItems.length} items`
-                            : "AR / VR pair pending"}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ fontSize: "0.8rem", color: "#888" }}>
-                      No landmarks configured yet.
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => removeMarker(marker.id)}
-                  style={{
-                    cursor: "pointer",
-                    backgroundColor: "#ef4444",
-                    color: "white",
-                    border: "none",
-                    padding: "4px 8px",
-                    borderRadius: "4px",
-                    width: "100%",
-                  }}
-                >
-                  Delete Pin
-                </button>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
-
-      {/* INSTITUTION SELECTION MODAL */}
-      {isModalOpen && (
         <div
           style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.8)",
-            zIndex: 1000,
             display: "flex",
-            justifyContent: "center",
+            justifyContent: "space-between",
             alignItems: "center",
+            flexWrap: "wrap",
+            gap: 12,
+            padding: "1rem",
           }}
         >
+          <div>
+            <h3 style={{ color: "#d4af37", margin: 0 }}>Cebu Landmark Pins</h3>
+            <small style={{ color: "#855e2e" }}>Locked to Cebu Province · Placed pin coordinates are locked for admins</small>
+          </div>
+        </div>
+        <p
+          role="note"
+          style={{
+            margin: "0 1rem 1rem",
+            padding: "12px 14px",
+            border: "1px solid rgba(212,175,55,.25)",
+            borderRadius: 8,
+            background: "rgba(212,175,55,.06)",
+            color: "#cfc8b8",
+            lineHeight: 1.5,
+          }}
+        >
+          Click the map to place a new landmark pin. Once placed, marker coordinates are locked for administrators—assigned institutions can adjust pin positions freely in Landmark Management. Click an existing pin to inspect experiences, rename it, or remove it.
+        </p>
+        {Object.entries(mapLoadErrors)
+          .filter(([, error]) => error)
+          .map(([source, error]) => (
+            <div key={source} role="alert" style={{ color: "#fca5a5", padding: "0 1rem 1rem" }}>
+              {error}
+            </div>
+          ))}
+
+        <MapContainer
+          center={[10.3157, 123.8854]}
+          zoom={12}
+          minZoom={9}
+          maxBounds={cebuBounds}
+          maxBoundsViscosity={1.0}
+          style={{ height: "600px", width: "100%" }}
+        >
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="&copy; OpenStreetMap"
+          />
+          <MapEvents />
+
+          {activeMarkers.map((marker) => (
+            <Marker
+              key={marker.id}
+              position={[marker.lat, marker.lng]}
+              icon={mapPinIcon}
+              draggable={false}
+              eventHandlers={{
+                click: () => handleMarkerClick(marker.institutionId),
+              }}
+            >
+              <Popup>
+                <div
+                  style={{
+                    color: "#000",
+                    textAlign: "center",
+                    minWidth: "180px",
+                  }}
+                >
+                  <strong style={{ fontSize: "1.05rem" }}>
+                    {marker.landmarkName || marker.institutionName}
+                  </strong>
+                  <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 4 }}>
+                    Pin: {marker.lat.toFixed(5)}, {marker.lng.toFixed(5)} (locked)
+                  </div>
+                  <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+                    <input
+                      aria-label="Landmark name"
+                      value={landmarkNameDrafts[marker.id] ?? marker.landmarkName ?? marker.institutionName ?? ""}
+                      onChange={(event) =>
+                        setLandmarkNameDrafts((current) => ({ ...current, [marker.id]: event.target.value }))
+                      }
+                      style={{ minWidth: 0, flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      disabled={
+                        !(
+                          landmarkNameDrafts[marker.id] ??
+                          marker.landmarkName ??
+                          marker.institutionName ??
+                          ""
+                        ).trim()
+                      }
+                      onClick={() =>
+                        updateLandmarkName(
+                          marker.id,
+                          landmarkNameDrafts[marker.id] ??
+                            marker.landmarkName ??
+                            marker.institutionName ??
+                            "",
+                        )
+                      }
+                    >
+                      Save
+                    </button>
+                  </div>
+                  {marker.description && (
+                    <p
+                      style={{
+                        margin: "8px 0",
+                        color: "#4b5563",
+                        fontSize: "0.9rem",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      "{marker.description}"
+                    </p>
+                  )}
+                  {marker.imageUrl && (
+                    <img
+                      src={marker.imageUrl}
+                      alt={marker.landmarkName || "Marker"}
+                      style={{ width: "100%", maxHeight: "140px", objectFit: "cover", borderRadius: "4px" }}
+                    />
+                  )}
+
+                  <hr style={{ border: "0.5px solid #e5e7eb", margin: "8px 0" }} />
+
+                  <div style={{ textAlign: "left", marginBottom: "10px" }}>
+                    <span
+                      style={{
+                        fontSize: "0.8rem",
+                        fontWeight: "bold",
+                        color: "#855e2e",
+                      }}
+                    >
+                      Available Experiences:
+                    </span>
+                    {loadingExperiences[marker.institutionId] ? (
+                      <div style={{ fontSize: "0.8rem" }}>Loading experiences...</div>
+                    ) : experienceErrors[marker.institutionId] ? (
+                      <div role="alert" style={{ fontSize: "0.8rem", color: "#b91c1c" }}>
+                        {experienceErrors[marker.institutionId]}
+                      </div>
+                    ) : activeExperiences[marker.institutionId]?.length > 0 ? (
+                      activeExperiences[marker.institutionId].map((experience) => (
+                        <div
+                          key={experience.id}
+                          style={{
+                            fontSize: "0.85rem",
+                            padding: "4px 0",
+                            borderBottom: "1px dashed #eee",
+                            display: "flex",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <span>📍 {experience.title}</span>
+                          <span style={{ color: "#C19A4B" }}>
+                            {experience.isReleased
+                              ? `${experience.poiCount} POIs · ${experience.contentItems.length} items`
+                              : "AR / VR pair pending"}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ fontSize: "0.8rem", color: "#888" }}>
+                        No landmarks configured yet.
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeMarker(marker.id)}
+                    style={{
+                      cursor: "pointer",
+                      backgroundColor: "#ef4444",
+                      color: "white",
+                      border: "none",
+                      padding: "4px 8px",
+                      borderRadius: "4px",
+                      width: "100%",
+                    }}
+                  >
+                    Delete Pin
+                  </button>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+
+        {/* INSTITUTION SELECTION MODAL */}
+        {isModalOpen && (
           <div
             style={{
-              backgroundColor: "#1a1a1a",
-              padding: "2rem",
-              borderRadius: "8px",
-              border: "1px solid #d4af37",
-              width: "320px",
-              textAlign: "center",
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.8)",
+              zIndex: 1000,
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
             }}
           >
-            <h4 style={{ color: "#d4af37", marginTop: 0 }}>
-              Create Landmark
-            </h4>
-            {markerFormError && (
-              <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
-                {markerFormError}
-              </div>
-            )}
-            <p
-              style={{
-                fontSize: "0.85rem",
-                color: "#a8a29e",
-                marginBottom: "1rem",
-              }}
-            >
-              Select the organization and add a description for this location.
-            </p>
-
-            <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
-              <label style={{ color: "#d4af37", fontSize: "0.8rem", display: "block", marginBottom: "4px" }}>
-                Landmark name:
-              </label>
-              <input
-                value={landmarkName}
-                onChange={(e) => setLandmarkName(e.target.value)}
-                placeholder="e.g. Main Gallery"
-                required
-                style={{
-                  width: "100%",
-                  padding: "8px",
-                  backgroundColor: "#262626",
-                  color: "white",
-                  border: "1px solid #404040",
-                  borderRadius: "4px",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
-              <label
-                style={{
-                  color: "#d4af37",
-                  fontSize: "0.8rem",
-                  display: "block",
-                  marginBottom: "4px",
-                }}
-              >
-                Description (Optional):
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Type details about this marker..."
-                rows={3}
-                style={{
-                  width: "100%",
-                  padding: "8px",
-                  backgroundColor: "#262626",
-                  color: "white",
-                  border: "1px solid #404040",
-                  borderRadius: "4px",
-                  resize: "none",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
-              <label style={{ color: "#d4af37", fontSize: "0.8rem", display: "block", marginBottom: "4px" }}>
-                Marker picture (optional):
-              </label>
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(e) => {
-                  const selected = e.target.files?.[0] || null;
-                  if (selected && !["image/png", "image/jpeg", "image/webp"].includes(selected.type)) {
-                    setMarkerFormError("Choose a PNG, JPG, or WEBP landmark picture.");
-                    e.target.value = "";
-                    return;
-                  }
-                  if (selected && selected.size > 10 * 1024 * 1024) {
-                    setMarkerFormError("Landmark pictures must be 10 MB or smaller.");
-                    e.target.value = "";
-                    return;
-                  }
-                  setMarkerImage(selected);
-                  setMarkerFormError("");
-                }}
-                style={{ color: "#ccc", width: "100%" }}
-              />
-              <small style={{ color: "#888" }}>PNG, JPG, or WEBP, maximum 10 MB.</small>
-              {markerImage && (
-                <div>
-                  <small style={{ color: "#4ade80", display: "block", marginTop: 6 }}>Selected: {markerImage.name}</small>
-                  <img
-                    src={markerImagePreview}
-                    alt="Marker picture preview"
-                    style={{ display: "block", width: "100%", maxHeight: 180, objectFit: "contain", marginTop: 8, borderRadius: 4, background: "#111" }}
-                  />
-                </div>
-              )}
-            </div>
-
             <div
               style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.6rem",
-                maxHeight: "200px",
-                overflowY: "auto",
-                paddingRight: "5px",
+                backgroundColor: "#1a1a1a",
+                padding: "2rem",
+                borderRadius: "8px",
+                border: "1px solid #d4af37",
+                width: "320px",
+                textAlign: "center",
               }}
             >
-              {institutions.filter(isInstitutionActive).map((inst) => (
-                <button
-                  key={inst.id}
-                  disabled={savingMarker || !landmarkName.trim()}
-                  onClick={() => confirmAddMarker(inst.id, inst.name)}
+              <h4 style={{ color: "#d4af37", marginTop: 0 }}>Create Landmark</h4>
+              {markerFormError && (
+                <div role="alert" style={{ color: "#fca5a5", marginBottom: "1rem" }}>
+                  {markerFormError}
+                </div>
+              )}
+              <p
+                style={{
+                  fontSize: "0.85rem",
+                  color: "#a8a29e",
+                  marginBottom: "1rem",
+                }}
+              >
+                Select the organization and add a description for this location.
+              </p>
+
+              <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
+                <label
+                  style={{ color: "#d4af37", fontSize: "0.8rem", display: "block", marginBottom: "4px" }}
+                >
+                  Landmark name:
+                </label>
+                <input
+                  value={landmarkName}
+                  onChange={(e) => setLandmarkName(e.target.value)}
+                  placeholder="e.g. Main Gallery"
+                  required
                   style={{
-                    padding: "12px",
+                    width: "100%",
+                    padding: "8px",
                     backgroundColor: "#262626",
                     color: "white",
                     border: "1px solid #404040",
-                    cursor: "pointer",
                     borderRadius: "4px",
-                    textAlign: "left",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
+                <label
+                  style={{
+                    color: "#d4af37",
+                    fontSize: "0.8rem",
+                    display: "block",
+                    marginBottom: "4px",
                   }}
                 >
-                  {savingMarker ? "Saving marker..." : inst.name}
-                </button>
-              ))}
+                  Description (Optional):
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Type details about this marker..."
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: "8px",
+                    backgroundColor: "#262626",
+                    color: "white",
+                    border: "1px solid #404040",
+                    borderRadius: "4px",
+                    resize: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: "1.2rem", textAlign: "left" }}>
+                <label
+                  style={{ color: "#d4af37", fontSize: "0.8rem", display: "block", marginBottom: "4px" }}
+                >
+                  Marker picture (optional):
+                </label>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(e) => {
+                    const selected = e.target.files?.[0] || null;
+                    if (
+                      selected &&
+                      !["image/png", "image/jpeg", "image/webp"].includes(selected.type)
+                    ) {
+                      setMarkerFormError("Choose a PNG, JPG, or WEBP landmark picture.");
+                      e.target.value = "";
+                      return;
+                    }
+                    if (selected && selected.size > 10 * 1024 * 1024) {
+                      setMarkerFormError("Landmark pictures must be 10 MB or smaller.");
+                      e.target.value = "";
+                      return;
+                    }
+                    setMarkerImage(selected);
+                    setMarkerFormError("");
+                  }}
+                  style={{ color: "#ccc", width: "100%" }}
+                />
+                <small style={{ color: "#888" }}>PNG, JPG, or WEBP, maximum 10 MB.</small>
+                {markerImage && (
+                  <div>
+                    <small style={{ color: "#4ade80", display: "block", marginTop: 6 }}>
+                      Selected: {markerImage.name}
+                    </small>
+                    <img
+                      src={markerImagePreview}
+                      alt="Marker picture preview"
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        maxHeight: 180,
+                        objectFit: "contain",
+                        marginTop: 8,
+                        borderRadius: 4,
+                        background: "#111",
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.6rem",
+                  maxHeight: "200px",
+                  overflowY: "auto",
+                  paddingRight: "5px",
+                }}
+              >
+                {institutions.filter(isInstitutionActive).map((inst) => (
+                  <button
+                    type="button"
+                    key={inst.id}
+                    disabled={savingMarker || !landmarkName.trim()}
+                    onClick={() => confirmAddMarker(inst.id, inst.name)}
+                    style={{
+                      padding: "12px",
+                      backgroundColor: "#262626",
+                      color: "white",
+                      border: "1px solid #404040",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      textAlign: "left",
+                    }}
+                  >
+                    {savingMarker ? "Saving marker..." : inst.name}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setTempCoords(null);
+                  setLandmarkName("");
+                  setDescription("");
+                  setMarkerImage(null);
+                  setMarkerFormError("");
+                }}
+                style={{
+                  marginTop: "1.5rem",
+                  background: "none",
+                  border: "none",
+                  color: "#737373",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                }}
+              >
+                Cancel
+              </button>
             </div>
-            <button
-              onClick={() => {
-                setIsModalOpen(false);
-                setTempCoords(null);
-                setLandmarkName("");
-                setDescription("");
-                setMarkerImage(null);
-                setMarkerFormError("");
-              }}
-              style={{
-                marginTop: "1.5rem",
-                background: "none",
-                border: "none",
-                color: "#737373",
-                cursor: "pointer",
-                textDecoration: "underline",
-              }}
-            >
-              Cancel
-            </button>
           </div>
-        </div>
-      )}
+        )}
       </div>
     </div>
   );

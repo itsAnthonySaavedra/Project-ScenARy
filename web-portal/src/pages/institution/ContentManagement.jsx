@@ -4,6 +4,7 @@ import {
   onSnapshot,
   addDoc,
   updateDoc,
+  deleteDoc,
   query,
   where,
   doc,
@@ -14,7 +15,7 @@ import {
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
-import { inspectGlbTextures, MAX_GLB_FILE_SIZE_BYTES, uploadStorageFile } from "../../lib/storageUpload";
+import { deleteStorageFile, inspectGlbTextures, MAX_GLB_FILE_SIZE_BYTES, uploadStorageFile } from "../../lib/storageUpload";
 import { writeAuditLog } from "../../lib/auditLog";
 import tableStyles from "../../components/common/Tables.module.css";
 import commonStyles from "../../components/common/Common.module.css";
@@ -48,6 +49,8 @@ import LandmarkDiscussion from "../../components/common/LandmarkDiscussion";
 const InstituteContentManagement = () => {
   const { currentRole } = useAuth();
   const [contents, setContents] = useState([]);
+  const [institutionLandmarks, setInstitutionLandmarks] = useState([]);
+  const [discussionLandmarkId, setDiscussionLandmarkId] = useState("");
   const [assignmentTargets, setAssignmentTargets] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
   const [selectedTargetId, setSelectedTargetId] = useState("");
@@ -58,8 +61,11 @@ const InstituteContentManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("");
   const [formScope, setFormScope] = useState("");
+  const [formStatus, setFormStatus] = useState("Awaiting Content");
   const [isEditMode, setIsEditMode] = useState(false);
   const [editDocId, setEditDocId] = useState(null);
+  const [deleteDocId, setDeleteDocId] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [formTitle, setFormTitle] = useState("");
   const [formInfoDesc, setFormInfoDesc] = useState("");
   const [formFacts, setFormFacts] = useState([""]);
@@ -89,32 +95,36 @@ const InstituteContentManagement = () => {
 
   useEffect(() => {
     const auth = getAuth();
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        try {
-          const userDocSnap = await getDoc(doc(db, "users", user.uid));
-          if (userDocSnap.exists() && userDocSnap.data().institutionId) {
-            setUserInstitutionId(userDocSnap.data().institutionId);
-          } else {
-            setContentLoadError("Your account is not linked to an institution. Contact an administrator.");
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (user) => {
+        if (user) {
+          try {
+            const userDocSnap = await getDoc(doc(db, "users", user.uid));
+            if (userDocSnap.exists() && userDocSnap.data().institutionId) {
+              setUserInstitutionId(userDocSnap.data().institutionId);
+            } else {
+              setContentLoadError("Your account is not linked to an institution. Contact an administrator.");
+            }
+          } catch (error) {
+            console.error("Profile extraction error:", error);
+            setContentLoadError(
+              getFirebaseErrorMessage(error, "Unable to load your institution profile."),
+            );
           }
-        } catch (error) {
-          console.error("Profile extraction error:", error);
-          setContentLoadError(
-            getFirebaseErrorMessage(error, "Unable to load your institution profile."),
-          );
+        } else {
+          setUserInstitutionId(null);
         }
-      } else {
-        setUserInstitutionId(null);
-      }
-      setIsAuthChecking(false);
-    }, (error) => {
-      console.error("Unable to verify the signed-in user for content management:", error);
-      setContentLoadError(
-        getFirebaseErrorMessage(error, "Unable to verify your sign-in. Refresh and try again."),
-      );
-      setIsAuthChecking(false);
-    });
+        setIsAuthChecking(false);
+      },
+      (error) => {
+        console.error("Unable to verify the signed-in user for content management:", error);
+        setContentLoadError(
+          getFirebaseErrorMessage(error, "Unable to verify your sign-in. Refresh and try again."),
+        );
+        setIsAuthChecking(false);
+      },
+    );
     return () => unsubscribe();
   }, []);
 
@@ -122,6 +132,8 @@ const InstituteContentManagement = () => {
     if (isAuthChecking) return undefined;
     if (!userInstitutionId) {
       setContents([]);
+      setInstitutionLandmarks([]);
+      setDiscussionLandmarkId("");
       setAssignmentTargets([]);
       return undefined;
     }
@@ -145,18 +157,44 @@ const InstituteContentManagement = () => {
         );
       },
     );
-    const updateAssignmentTargets = (landmarks, pois) => {
+
+    const updateAssignmentTargets = (landmarkDocs, poiDocs) => {
       setAssignmentTargets([
-        ...landmarks.map((item) => ({ id: item.id, targetKey: `landmarks:${item.id}`, name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark", collectionName: "landmarks", scope: "Landmark", contentIds: item.data().contentIds || [] })),
-        ...pois.map((item) => ({ id: item.id, targetKey: `pois:${item.id}`, name: item.data().name || "Unnamed POI", collectionName: "pois", scope: "POI", landmarkId: item.data().landmarkId, contentIds: item.data().contentIds || [] })),
+        ...landmarkDocs.map((item) => ({
+          id: item.id,
+          targetKey: `landmarks:${item.id}`,
+          name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark",
+          collectionName: "landmarks",
+          scope: "Landmark",
+          contentIds: item.data().contentIds || [],
+        })),
+        ...poiDocs.map((item) => ({
+          id: item.id,
+          targetKey: `pois:${item.id}`,
+          name: item.data().name || "Unnamed POI",
+          collectionName: "pois",
+          scope: "POI",
+          landmarkId: item.data().landmarkId,
+          contentIds: item.data().contentIds || [],
+        })),
       ]);
     };
+
     let landmarks = [];
     let pois = [];
+
     const unsubscribeLandmarks = onSnapshot(
       query(collection(db, "landmarks"), where("institutionId", "==", institutionId)),
       (snapshot) => {
         landmarks = snapshot.docs;
+        const parsedLandmarks = landmarks.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        }));
+        setInstitutionLandmarks(parsedLandmarks);
+        setDiscussionLandmarkId((prev) =>
+          parsedLandmarks.some((l) => l.id === prev) ? prev : parsedLandmarks[0]?.id || "",
+        );
         updateAssignmentTargets(landmarks, pois);
       },
       (error) => {
@@ -166,6 +204,7 @@ const InstituteContentManagement = () => {
         );
       },
     );
+
     const unsubscribePois = onSnapshot(
       query(collection(db, "pois"), where("institutionId", "==", institutionId)),
       (snapshot) => {
@@ -179,6 +218,7 @@ const InstituteContentManagement = () => {
         );
       },
     );
+
     return () => {
       unsubscribeContent();
       unsubscribeLandmarks();
@@ -191,6 +231,7 @@ const InstituteContentManagement = () => {
     setEditDocId(null);
     setFormTitle("");
     setFormScope("");
+    setFormStatus("Awaiting Content");
     setFormInfoDesc("");
     setFormFacts([""]);
     setFormModelUrl("");
@@ -214,11 +255,14 @@ const InstituteContentManagement = () => {
     setFormError("");
     setFormTitle(item.title || "");
     setFormScope(item.scope || item.contentScope || "");
+    setFormStatus(item.status === "Published" ? "Published" : "Awaiting Content");
     setSelectedType(normalizeContentType(item.type || ""));
     setFormFacts(normalizeFunFacts(item.data));
     setFormModelUrl(item.data?.modelUrl || item.data?.modelPath || "");
     setFormModelSpawnPoint(normalizeModelSpawnPoint(item.data));
-    setModelSpawnPointEnabled(item.data?.spawnX !== undefined || item.data?.SpawnZ !== undefined || Boolean(item.data?.spawnPoint));
+    setModelSpawnPointEnabled(
+      item.data?.spawnX !== undefined || item.data?.SpawnZ !== undefined || Boolean(item.data?.spawnPoint),
+    );
     setModelFile(null);
     setFormCustomData(
       item.data?.customData ? JSON.stringify(item.data.customData, null, 2) : "",
@@ -242,18 +286,76 @@ const InstituteContentManagement = () => {
     handleOpenCreateModal();
     setFormTitle(`${item.title || "Untitled content"} (copy)`);
     setFormScope(getContentScope(item));
+    setFormStatus("Awaiting Content");
     setSelectedType(normalizeContentType(item.type || ""));
     setFormNeedsAttention(item.needsAttention === true);
     setFormInfoDesc(data.description || "");
     setFormFacts(normalizeFunFacts(data));
     setFormModelUrl(data.modelUrl || data.modelPath || "");
     setFormModelSpawnPoint(normalizeModelSpawnPoint(data));
-    setModelSpawnPointEnabled(data.spawnX !== undefined || data.SpawnZ !== undefined || Boolean(data.spawnPoint));
+    setModelSpawnPointEnabled(
+      data.spawnX !== undefined || data.SpawnZ !== undefined || Boolean(data.spawnPoint),
+    );
     setFormCustomData(data.customData ? JSON.stringify(data.customData, null, 2) : "");
     if (item.type === "Quiz") {
       setQuizQuestions(normalizeQuizQuestions(data.quizzes));
       setShuffleQuestions(data.shuffleQuestions === true);
       setShuffleAnswers(data.shuffleAnswers === true);
+    }
+  };
+
+  const handleConfirmDeleteClick = (item) => {
+    if (!userInstitutionId || item.institutionId !== userInstitutionId.trim()) {
+      setApprovalError("You can only delete content belonging to your own institution.");
+      return;
+    }
+    setDeleteDocId(item.id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleHardDelete = async () => {
+    if (!deleteDocId || !userInstitutionId) return;
+    const itemToDelete = contents.find((item) => item.id === deleteDocId);
+    if (!itemToDelete || itemToDelete.institutionId !== userInstitutionId.trim()) {
+      setApprovalError("You can only delete content belonging to your own institution.");
+      setIsDeleteModalOpen(false);
+      setDeleteDocId(null);
+      return;
+    }
+
+    setLoading(true);
+    setApprovalError("");
+    try {
+      const storagePath = itemToDelete.data?.modelStoragePath;
+      if (storagePath) {
+        try {
+          await deleteStorageFile(storagePath);
+        } catch (storageError) {
+          console.warn("Unable to remove attached storage asset before deleting content:", storageError);
+        }
+      }
+      await deleteDoc(doc(db, "content", deleteDocId));
+      setSelectedContentIds((current) => current.filter((id) => id !== deleteDocId));
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: "institution",
+          action: "content.deleted",
+          entityType: "content",
+          entityId: deleteDocId,
+          metadata: { institutionId: userInstitutionId, title: itemToDelete.title },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("Content deleted, but audit log failed:", auditError);
+      }
+      setIsDeleteModalOpen(false);
+      setDeleteDocId(null);
+    } catch (error) {
+      console.error("Unable to delete institution content:", error);
+      setApprovalError(getFirebaseErrorMessage(error, "Unable to delete this content item."));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -315,7 +417,7 @@ const InstituteContentManagement = () => {
     }
   };
 
-  // --- SUBMIT HANDLING (INTEGRATED FOR BOTH WRITE AND UPDATE OPERATIONS) ---
+  // --- SUBMIT HANDLING ---
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (!userInstitutionId) {
@@ -399,7 +501,13 @@ const InstituteContentManagement = () => {
         contentData = {
           modelUrl: formModelUrl.trim(),
           ...(modelSpawnPointEnabled ? serializeModelSpawnPoint(formModelSpawnPoint) : {}),
-          ...(modelFile ? { modelFileName: modelFile.fileName, modelFileType: modelFile.fileType, modelStoragePath: modelFile.storagePath } : {}),
+          ...(modelFile
+            ? {
+                modelFileName: modelFile.fileName,
+                modelFileType: modelFile.fileType,
+                modelStoragePath: modelFile.storagePath,
+              }
+            : {}),
         };
       }
 
@@ -416,19 +524,29 @@ const InstituteContentManagement = () => {
       });
       if (qualityIssues.length > 0) {
         setFormError(qualityIssues.join(" | "));
+        setLoading(false);
+        return;
+      }
+
+      const chosenStatus = formStatus === "Published" ? "Published" : "Awaiting Content";
+      if (chosenStatus === "Published" && formNeedsAttention) {
+        setFormError("Uncheck 'Mark as needs attention' or save as unpublished before publishing.");
+        setLoading(false);
         return;
       }
 
       let savedContentId = editDocId;
       if (isEditMode && editDocId) {
-        // Enforce Firestore Document Patch Update
         const docRef = doc(db, "content", editDocId);
         await updateDoc(docRef, {
           title: formTitle,
           scope: formScope,
           data: contentData,
           needsAttention: formNeedsAttention,
-          status: "Awaiting Content",
+          status:
+            normalizeContentType(selectedType) === MODEL_CONTENT_TYPE
+              ? "Awaiting Content"
+              : chosenStatus,
           ...(normalizeContentType(selectedType) === MODEL_CONTENT_TYPE
             ? {
                 institutionApproved: false,
@@ -443,13 +561,15 @@ const InstituteContentManagement = () => {
         });
         contentSaved = true;
       } else {
-        // Enforce Standard Firestore Document Creation Pipeline
         const payload = {
           title: formTitle,
           type: selectedType,
           scope: formScope,
           institutionId: userInstitutionId.trim(),
-          status: "Awaiting Content",
+          status:
+            normalizeContentType(selectedType) === MODEL_CONTENT_TYPE
+              ? "Awaiting Content"
+              : chosenStatus,
           ...(normalizeContentType(selectedType) === MODEL_CONTENT_TYPE
             ? {
                 institutionApproved: false,
@@ -477,6 +597,7 @@ const InstituteContentManagement = () => {
             title: formTitle,
             type: selectedType,
             scope: formScope,
+            status: chosenStatus,
             institutionId: userInstitutionId,
             fileName: contentData.modelFileName || null,
           },
@@ -487,12 +608,12 @@ const InstituteContentManagement = () => {
         setSaveWarning("Content was saved, but its activity record could not be written.");
       }
 
-      // Clean Interface Context States
       setIsAddModalOpen(false);
       setIsEditMode(false);
       setEditDocId(null);
       setFormTitle("");
       setFormScope("");
+      setFormStatus("Awaiting Content");
       setFormInfoDesc("");
       setFormFacts([""]);
       setFormModelUrl("");
@@ -549,7 +670,7 @@ const InstituteContentManagement = () => {
       ...(Array.isArray(modelLandmark?.contentIds) ? modelLandmark.contentIds : []),
       ...assignmentTargets
         .filter((target) => target.collectionName === "pois" && target.landmarkId === item.targetId)
-        .flatMap((target) => Array.isArray(target.contentIds) ? target.contentIds : []),
+        .flatMap((target) => (Array.isArray(target.contentIds) ? target.contentIds : [])),
     ]);
     const pairedARContent = modelLandmark
       ? contents.filter(
@@ -561,7 +682,9 @@ const InstituteContentManagement = () => {
         )
       : [];
     if (pairedARContent.length >= 500) {
-      setApprovalError("This landmark has too many AR items to release atomically with its VR model. Reduce the number of assigned items and retry.");
+      setApprovalError(
+        "This landmark has too many AR items to release atomically with its VR model. Reduce the number of assigned items and retry.",
+      );
       return;
     }
 
@@ -615,7 +738,10 @@ const InstituteContentManagement = () => {
     } catch (error) {
       console.error("Unable to approve the VR model:", error);
       setApprovalError(
-        getFirebaseErrorMessage(error, isTourPackage(item) ? error.message : "Unable to approve the VR model. Please try again."),
+        getFirebaseErrorMessage(
+          error,
+          isTourPackage(item) ? error.message : "Unable to approve the VR model. Please try again.",
+        ),
       );
     } finally {
       setApprovingContentId("");
@@ -632,7 +758,7 @@ const InstituteContentManagement = () => {
       ...(Array.isArray(modelLandmark.contentIds) ? modelLandmark.contentIds : []),
       ...assignmentTargets
         .filter((target) => target.collectionName === "pois" && target.landmarkId === item.targetId)
-        .flatMap((target) => Array.isArray(target.contentIds) ? target.contentIds : []),
+        .flatMap((target) => (Array.isArray(target.contentIds) ? target.contentIds : [])),
     ]);
     return hasReadyLandmarkARContent(
       { ...modelLandmark, contentIds: [...relatedContentIds] },
@@ -650,10 +776,9 @@ const InstituteContentManagement = () => {
     .filter((c) => scopeFilter === "All" || getContentScope(c) === scopeFilter)
     .filter((c) => c.title?.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const incompleteCount = contents.filter(
-    (item) => !isContentReady(item),
-  ).length;
+  const incompleteCount = contents.filter((item) => !isContentReady(item)).length;
   const siteReadiness = getInstitutionContentReadiness(contents);
+  const activeDiscussionLandmark = institutionLandmarks.find((item) => item.id === discussionLandmarkId);
 
   if (isAuthChecking) {
     return (
@@ -668,7 +793,7 @@ const InstituteContentManagement = () => {
       <PageHeader
         eyebrow="Curator workspace"
         title="Content Management"
-        description="Create and assign AR content, then review Developer-submitted VR models for paired publication."
+        description="Create, publish or unpublish, and manage AR content for your institution, then review VR models and coordinate with your 3D modeller."
       />
       <div
         role="status"
@@ -702,16 +827,30 @@ const InstituteContentManagement = () => {
           {saveWarning}
         </div>
       )}
+
       {/* CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
-        <div style={{ display: "flex", gap: "1rem" }}>
-          {["All", "Awaiting Content", "Awaiting Curator Approval", "Awaiting Admin Approval", "Published", "Rejected", "Needs attention"].map((status) => (
-            <button key={status} className={`${tableStyles.tabBtn} ${filter === status ? tableStyles.tabBtnAdminActive : ""}`} onClick={() => setFilter(status)}>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+          {[
+            "All",
+            "Awaiting Content",
+            "Awaiting Curator Approval",
+            "Awaiting Admin Approval",
+            "Published",
+            "Rejected",
+            "Deactivated",
+            "Needs attention",
+          ].map((status) => (
+            <button
+              key={status}
+              className={`${tableStyles.tabBtn} ${filter === status ? tableStyles.tabBtnAdminActive : ""}`}
+              onClick={() => setFilter(status)}
+            >
               {status === "All" ? "All Content" : status}
             </button>
           ))}
         </div>
-        <div style={{ display: "flex", gap: "1rem" }}>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
           <select
             className={commonStyles.formControl}
             aria-label="Filter content by area"
@@ -719,7 +858,11 @@ const InstituteContentManagement = () => {
             onChange={(e) => setScopeFilter(e.target.value)}
           >
             <option value="All">All Areas</option>
-            {CONTENT_SCOPES.map((scope) => <option key={scope} value={scope}>{scope}</option>)}
+            {CONTENT_SCOPES.map((scope) => (
+              <option key={scope} value={scope}>
+                {scope}
+              </option>
+            ))}
           </select>
           <input
             type="text"
@@ -736,19 +879,53 @@ const InstituteContentManagement = () => {
           </button>
         </div>
       </div>
+
       <p style={{ color: "#888", marginBottom: "1.5rem" }}>
-        Create reusable content here, then assign it from the Landmark or POI management page.
+        Create reusable content here, choose whether it is Published or Unpublished, and assign it from Landmark or POI management. You can permanently delete your own content items; only administrators can deactivate content.
       </p>
-      {selectedContentIds.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
-        <span style={{ color: "#ddd" }}>{selectedContentIds.length} selected</span>
-        <select className={commonStyles.formControl} aria-label="Choose assignment target" value={selectedTargetId} onChange={(event) => setSelectedTargetId(event.target.value)} style={{ maxWidth: 320 }}>
-          <option value="">Assign to landmark or POI...</option>
-          {assignmentTargets.map((target) => <option key={target.targetKey} value={target.targetKey}>{target.scope}: {target.name}</option>)}
-        </select>
-        <button type="button" className={commonStyles.btnPrimary} disabled={!selectedTargetId || assigningContent} onClick={assignSelectedContent}>{assigningContent ? "Assigning..." : "Assign selected"}</button>
-        <button type="button" className={commonStyles.btnCancel} onClick={() => setSelectedContentIds([])}>Clear selection</button>
-      </div>}
-      {bulkMessage && <p role="status" style={{ color: /^(Unable|Select|Each |VR models)/.test(bulkMessage) ? "#fbbf24" : "#86efac" }}>{bulkMessage}</p>}
+
+      {selectedContentIds.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+          <span style={{ color: "#ddd" }}>{selectedContentIds.length} selected</span>
+          <select
+            className={commonStyles.formControl}
+            aria-label="Choose assignment target"
+            value={selectedTargetId}
+            onChange={(event) => setSelectedTargetId(event.target.value)}
+            style={{ maxWidth: 320 }}
+          >
+            <option value="">Assign to landmark or POI...</option>
+            {assignmentTargets.map((target) => (
+              <option key={target.targetKey} value={target.targetKey}>
+                {target.scope}: {target.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={commonStyles.btnPrimary}
+            disabled={!selectedTargetId || assigningContent}
+            onClick={assignSelectedContent}
+          >
+            {assigningContent ? "Assigning..." : "Assign selected"}
+          </button>
+          <button
+            type="button"
+            className={commonStyles.btnCancel}
+            onClick={() => setSelectedContentIds([])}
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+      {bulkMessage && (
+        <p
+          role="status"
+          style={{ color: /^(Unable|Select|Each |VR models)/.test(bulkMessage) ? "#fbbf24" : "#86efac" }}
+        >
+          {bulkMessage}
+        </p>
+      )}
       <div
         style={{
           color: incompleteCount > 0 ? "#fbbf24" : "#4ade80",
@@ -765,7 +942,9 @@ const InstituteContentManagement = () => {
         <table className={tableStyles.adminTable}>
           <thead>
             <tr>
-              <th><span className="sr-only">Select</span></th>
+              <th>
+                <span className="sr-only">Select</span>
+              </th>
               <th>Title</th>
               <th>Institution</th>
               <th>Type</th>
@@ -779,10 +958,21 @@ const InstituteContentManagement = () => {
             {filteredContents.length > 0 ? (
               filteredContents.map((item) => (
                 <tr key={item.id}>
-                  <td><input type="checkbox" aria-label={`Select ${item.title || "content"}`} checked={selectedContentIds.includes(item.id)} onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /></td>
-                  <td style={{ color: "#fff", fontWeight: "500" }}>
-                    {item.title}
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${item.title || "content"}`}
+                      checked={selectedContentIds.includes(item.id)}
+                      onChange={() =>
+                        setSelectedContentIds((current) =>
+                          current.includes(item.id)
+                            ? current.filter((id) => id !== item.id)
+                            : [...current, item.id],
+                        )
+                      }
+                    />
                   </td>
+                  <td style={{ color: "#fff", fontWeight: "500" }}>{item.title}</td>
                   <td>
                     <span style={{ color: "#4ade80", whiteSpace: "nowrap" }}>
                       <i className="fa-solid fa-link" style={{ marginRight: "0.4rem" }} />
@@ -795,8 +985,18 @@ const InstituteContentManagement = () => {
                     <span
                       style={{
                         color:
-                          item.status === "Published" ? "#4ade80" : "#fbbf24",
-                        border: `1px solid ${item.status === "Published" ? "#4ade80" : "#fbbf24"}`,
+                          item.status === "Published"
+                            ? "#4ade80"
+                            : item.status === "Deactivated"
+                              ? "#f87171"
+                              : "#fbbf24",
+                        border: `1px solid ${
+                          item.status === "Published"
+                            ? "#4ade80"
+                            : item.status === "Deactivated"
+                              ? "#f87171"
+                              : "#fbbf24"
+                        }`,
                         padding: "0.2rem 0.6rem",
                         borderRadius: "4px",
                         fontSize: "0.7rem",
@@ -810,19 +1010,14 @@ const InstituteContentManagement = () => {
                     <span
                       title={getContentQualityIssues(item).join(", ")}
                       style={{
-                        color: isContentReady(item)
-                          ? "#4ade80"
-                          : "#fbbf24",
+                        color: isContentReady(item) ? "#4ade80" : "#fbbf24",
                       }}
                     >
-                      {isContentReady(item)
-                        ? "Ready"
-                        : "Needs attention"}
+                      {isContentReady(item) ? "Ready" : "Needs attention"}
                     </span>
                   </td>
                   <td>
-                    <div style={{ display: "flex", gap: "8px" }}>
-                      {/* View Action Element Button */}
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       <button
                         className={tableStyles.btnAction}
                         onClick={() => handleView(item)}
@@ -831,21 +1026,42 @@ const InstituteContentManagement = () => {
                         <i className="fa-solid fa-file-alt"></i>
                       </button>
 
-                      {/* 🌟 INPLACE CONTENT EDIT TRIGGER ACTION BUTTON 🌟 */}
-                      {!isTourPackage(item) && normalizeContentType(item.type) !== MODEL_CONTENT_TYPE && <button
+                      {!isTourPackage(item) && normalizeContentType(item.type) !== MODEL_CONTENT_TYPE && (
+                        <button
+                          className={tableStyles.btnAction}
+                          onClick={() => handleEditClick(item)}
+                          title="Modify Content Node Inplace"
+                          style={{
+                            background: "rgba(193, 154, 75, 0.15)",
+                            color: "#C19A4B",
+                          }}
+                        >
+                          <i className="fa-solid fa-edit"></i>
+                        </button>
+                      )}
+                      {!isTourPackage(item) && normalizeContentType(item.type) !== MODEL_CONTENT_TYPE && (
+                        <button
+                          className={tableStyles.btnAction}
+                          onClick={() => handleDuplicateClick(item)}
+                          title="Duplicate content"
+                        >
+                          <i className="fa-solid fa-copy"></i>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
                         className={tableStyles.btnAction}
-                        onClick={() => handleEditClick(item)}
-                        title="Modify Content Node Inplace"
+                        onClick={() => handleConfirmDeleteClick(item)}
+                        title="Permanently Delete Content"
                         style={{
-                          background: "rgba(193, 154, 75, 0.15)",
-                          color: "#C19A4B",
+                          background: "rgba(239, 68, 68, 0.15)",
+                          color: "#ef4444",
                         }}
                       >
-                        <i className="fa-solid fa-edit"></i>
-                      </button>}
-                      {!isTourPackage(item) && normalizeContentType(item.type) !== MODEL_CONTENT_TYPE && <button className={tableStyles.btnAction} onClick={() => handleDuplicateClick(item)} title="Duplicate content">
-                        <i className="fa-solid fa-copy"></i>
-                      </button>}
+                        <i className="fa-solid fa-trash"></i>
+                      </button>
+
                       {item.type === MODEL_CONTENT_TYPE &&
                         item.status === "Awaiting Curator Approval" &&
                         !item.curatorApproved && (
@@ -866,15 +1082,12 @@ const InstituteContentManagement = () => {
                                   : "Verify and approve this model"
                             }
                           >
-                            {approvingContentId === item.id
-                              ? "Approving..."
-                              : "Verify and approve"}
+                            {approvingContentId === item.id ? "Approving..." : "Verify and approve"}
                           </button>
                         )}
-                      {item.type === MODEL_CONTENT_TYPE &&
-                        item.status === "Awaiting Curator Approval" && (
-                          <span style={{ color: "#fbbf24" }}>Awaiting Curator verification</span>
-                        )}
+                      {item.type === MODEL_CONTENT_TYPE && item.status === "Awaiting Curator Approval" && (
+                        <span style={{ color: "#fbbf24" }}>Awaiting Curator verification</span>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -897,6 +1110,73 @@ const InstituteContentManagement = () => {
         </table>
       </div>
 
+      {/* CURATOR <-> 3D MODELLER COMMUNICATION THREAD */}
+      {userInstitutionId && (
+        <section
+          aria-label="Communicate with 3D modeller"
+          style={{
+            marginTop: "2rem",
+            padding: "1.25rem",
+            borderRadius: 12,
+            background: "#151515",
+            border: "1px solid #34312a",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+              marginBottom: "0.75rem",
+            }}
+          >
+            <div>
+              <h2 style={{ margin: 0, color: "#f3d16f", fontSize: "1.15rem" }}>
+                Communicate with 3D Modeller
+              </h2>
+              <p style={{ margin: "0.25rem 0 0", color: "#a8a29e", fontSize: "0.85rem" }}>
+                Coordinate with your assigned 3D modeller on landmark models, spawn orientation, textures, or AR references.
+              </p>
+            </div>
+            {institutionLandmarks.length > 0 && (
+              <select
+                aria-label="Select landmark thread for 3D modeller communication"
+                className={commonStyles.formControl}
+                value={discussionLandmarkId}
+                onChange={(e) => setDiscussionLandmarkId(e.target.value)}
+                style={{ maxWidth: 320 }}
+              >
+                {institutionLandmarks.map((landmark) => (
+                  <option key={landmark.id} value={landmark.id}>
+                    {landmark.landmarkName || landmark.institutionName || "Unnamed landmark"}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {institutionLandmarks.length === 0 ? (
+            <p style={{ color: "#888", margin: 0 }}>
+              No landmarks are assigned to your institution yet. Once a landmark is created, you can message your 3D modeller here.
+            </p>
+          ) : (
+            discussionLandmarkId && (
+              <LandmarkDiscussion
+                institutionId={userInstitutionId}
+                landmarkId={discussionLandmarkId}
+                title={`Modeller Thread · ${
+                  activeDiscussionLandmark?.landmarkName ||
+                  activeDiscussionLandmark?.institutionName ||
+                  "Landmark"
+                }`}
+              />
+            )
+          )}
+        </section>
+      )}
+
       {/* MODAL: INPUT FIELDS CONFIGURATION WORKSPACE CONTAINER */}
       <Modal
         isOpen={isAddModalOpen}
@@ -906,16 +1186,9 @@ const InstituteContentManagement = () => {
           setSelectedType("");
           setQuizQuestions([{ question: "", answer: "True" }]);
         }}
-        title={
-          isEditMode
-            ? "Edit Content"
-            : "Add New Institution Content"
-        }
+        title={isEditMode ? "Edit Content" : "Add New Institution Content"}
         actions={
-          <button
-            className={commonStyles.btnCancel}
-            onClick={() => setIsAddModalOpen(false)}
-          >
+          <button className={commonStyles.btnCancel} onClick={() => setIsAddModalOpen(false)}>
             Cancel
           </button>
         }
@@ -955,24 +1228,22 @@ const InstituteContentManagement = () => {
               required
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              disabled={isEditMode} // Enforce architectural format locking on edits
+              disabled={isEditMode}
               style={{ opacity: isEditMode ? 0.6 : 1 }}
             >
               <option value="">Select Type</option>
-              {CONTENT_TYPES
-                .filter((type) =>
+              {CONTENT_TYPES.filter(
+                (type) =>
                   (currentRole === "developer" || type !== MODEL_CONTENT_TYPE) &&
                   (formScope !== "POI" ||
                     isEditMode ||
                     ["Information", "Fun Fact", "Quiz"].includes(type)),
-                )
-                .map((type) => (
+              ).map((type) => (
                 <option
                   key={type}
                   value={type}
                   disabled={
-                    (type === MODEL_CONTENT_TYPE &&
-                      !hasPublishedInstitutionARContent(contents))
+                    type === MODEL_CONTENT_TYPE && !hasPublishedInstitutionARContent(contents)
                   }
                 >
                   {type}
@@ -993,6 +1264,7 @@ const InstituteContentManagement = () => {
               </small>
             )}
           </div>
+
           <div className={commonStyles.formGroup}>
             <label>Content Area</label>
             <select
@@ -1012,10 +1284,27 @@ const InstituteContentManagement = () => {
             >
               <option value="">Select Content Area</option>
               {CONTENT_SCOPES.map((scope) => (
-                <option key={scope} value={scope}>{scope}</option>
+                <option key={scope} value={scope}>
+                  {scope}
+                </option>
               ))}
             </select>
           </div>
+
+          {normalizeContentType(selectedType) !== MODEL_CONTENT_TYPE && (
+            <div className={commonStyles.formGroup}>
+              <label htmlFor="institution-content-status">Publication Status</label>
+              <select
+                id="institution-content-status"
+                className={commonStyles.formControl}
+                value={formStatus}
+                onChange={(e) => setFormStatus(e.target.value)}
+              >
+                <option value="Awaiting Content">Unpublished (Awaiting Content / Draft)</option>
+                <option value="Published">Published</option>
+              </select>
+            </div>
+          )}
 
           <label
             style={{
@@ -1043,21 +1332,18 @@ const InstituteContentManagement = () => {
                 marginTop: "10px",
               }}
             >
-              {/* INFORMATION FORMAT */}
               {selectedType === "Information" && (
-                <>
-                  <div className={commonStyles.formGroup}>
-                    <label>Description</label>
-                    <textarea
-                      name="description"
-                      className={commonStyles.formControl}
-                      rows={3}
-                      value={formInfoDesc}
-                      onChange={(e) => setFormInfoDesc(e.target.value)}
-                      required
-                    />
-                  </div>
-                </>
+                <div className={commonStyles.formGroup}>
+                  <label>Description</label>
+                  <textarea
+                    name="description"
+                    className={commonStyles.formControl}
+                    rows={3}
+                    value={formInfoDesc}
+                    onChange={(e) => setFormInfoDesc(e.target.value)}
+                    required
+                  />
+                </div>
               )}
 
               {selectedType === "Fun Fact" && (
@@ -1084,9 +1370,15 @@ const InstituteContentManagement = () => {
                       try {
                         const textureInfo = await inspectGlbTextures(file);
                         if (textureInfo.externalImageUris.length > 0) {
-                          throw new Error("This GLB references external texture files. Export it with textures embedded, then try again.");
+                          throw new Error(
+                            "This GLB references external texture files. Export it with textures embedded, then try again.",
+                          );
                         }
-                        const uploaded = await uploadStorageFile(file, `content-models/${userInstitutionId}`, setModelUploadProgress);
+                        const uploaded = await uploadStorageFile(
+                          file,
+                          `content-models/${userInstitutionId}`,
+                          setModelUploadProgress,
+                        );
                         setModelFile(uploaded);
                         setFormModelUrl(uploaded.url);
                       } catch (error) {
@@ -1100,12 +1392,25 @@ const InstituteContentManagement = () => {
                     }}
                     style={{ color: "#ccc", marginBottom: "0.75rem" }}
                   />
-                  <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>Upload a GLB file, maximum 1 GB. GLB keeps the model, geometry, and textures together.</small>
-                  {modelFile && <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>Uploaded: {modelFile.fileName}</small>}
+                  <small style={{ display: "block", color: "#888", marginBottom: "0.75rem" }}>
+                    Upload a GLB file, maximum 1 GB. GLB keeps the model, geometry, and textures together.
+                  </small>
+                  {modelFile && (
+                    <small style={{ display: "block", color: "#4ade80", marginBottom: "0.75rem" }}>
+                      Uploaded: {modelFile.fileName}
+                    </small>
+                  )}
                   {uploadingModel && (
                     <div style={{ marginBottom: "0.75rem" }}>
-                      <small style={{ display: "block", color: "#fbbf24" }}>Uploading model... {Math.floor(modelUploadProgress)}%</small>
-                      <progress value={modelUploadProgress} max="100" aria-label="GLB upload progress" style={{ width: "100%", marginTop: 6 }} />
+                      <small style={{ display: "block", color: "#fbbf24" }}>
+                        Uploading model... {Math.floor(modelUploadProgress)}%
+                      </small>
+                      <progress
+                        value={modelUploadProgress}
+                        max="100"
+                        aria-label="GLB upload progress"
+                        style={{ width: "100%", marginTop: 6 }}
+                      />
                     </div>
                   )}
                   <label>Or use an existing model URL</label>
@@ -1117,7 +1422,13 @@ const InstituteContentManagement = () => {
                     disabled={!hasPublishedInstitutionARContent(contents)}
                     required
                   />
-                  <ModelSpawnPointEditor enabled={modelSpawnPointEnabled} onEnabledChange={setModelSpawnPointEnabled} value={formModelSpawnPoint} onChange={setFormModelSpawnPoint} modelUrl={formModelUrl} />
+                  <ModelSpawnPointEditor
+                    enabled={modelSpawnPointEnabled}
+                    onEnabledChange={setModelSpawnPointEnabled}
+                    value={formModelSpawnPoint}
+                    onChange={setFormModelSpawnPoint}
+                    modelUrl={formModelUrl}
+                  />
                 </div>
               )}
 
@@ -1163,6 +1474,49 @@ const InstituteContentManagement = () => {
         </form>
       </Modal>
 
+      {/* MODAL: HARD DELETE CONFIRMATION */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setDeleteDocId(null);
+        }}
+        title="Confirm Permanent Delete"
+        actions={
+          <>
+            <button
+              className={commonStyles.btnCancel}
+              onClick={() => {
+                setIsDeleteModalOpen(false);
+                setDeleteDocId(null);
+              }}
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleHardDelete}
+              disabled={loading}
+              style={{
+                padding: "0.5rem 1rem",
+                background: "#ef4444",
+                color: "#fff",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              {loading ? "Deleting..." : "Permanently Delete"}
+            </button>
+          </>
+        }
+      >
+        <p style={{ color: "#ccc" }}>
+          Are you sure you want to permanently delete this content item? This cannot be undone.
+        </p>
+      </Modal>
+
       {/* MODAL: INSPECT SUBSECTION ENTRIES */}
       <Modal
         isOpen={isViewModalOpen}
@@ -1170,10 +1524,7 @@ const InstituteContentManagement = () => {
         title={currentContent?.title}
         size={normalizeContentType(currentContent?.type) === MODEL_CONTENT_TYPE ? "wide" : "default"}
         actions={
-          <button
-            className={commonStyles.btnCancel}
-            onClick={() => setIsViewModalOpen(false)}
-          >
+          <button className={commonStyles.btnCancel} onClick={() => setIsViewModalOpen(false)}>
             Close
           </button>
         }

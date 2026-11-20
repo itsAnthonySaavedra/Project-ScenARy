@@ -41,6 +41,8 @@ import { editTourMetadata, isTourPackage, publishTourDraft } from "../../lib/tou
 
 const ContentManagement = () => {
   const { currentUser, currentRole } = useAuth();
+  const isAdmin = ["admin", "superadmin"].includes(currentRole || "");
+
   // --- STATE ---
   const [contents, setContents] = useState([]);
   const [institutions, setInstitutions] = useState([]);
@@ -88,6 +90,7 @@ const ContentManagement = () => {
   const [loading, setLoading] = useState(false);
   const [approvalError, setApprovalError] = useState("");
   const [approvingContentId, setApprovingContentId] = useState("");
+  const [deactivatingContentId, setDeactivatingContentId] = useState("");
   const [isTourUploadOpen, setIsTourUploadOpen] = useState(false);
   const [tourUploadNotice, setTourUploadNotice] = useState("");
 
@@ -152,7 +155,6 @@ const ContentManagement = () => {
     });
   };
 
-  // --- QUIZ FIELDS MANAGEMENT ---
   // --- OPEN MODAL CLEANING FUNCTION ---
   const handleOpenCreateModal = () => {
     setIsEditMode(false);
@@ -206,6 +208,40 @@ const ContentManagement = () => {
     setIsAddModalOpen(true);
   };
 
+  // --- ADMIN DEACTIVATE / REACTIVATE CONTENT (ADMIN ONLY) ---
+  const handleToggleDeactivateContent = async (item) => {
+    if (!isAdmin) {
+      setApprovalError("Only an administrator can deactivate or reactivate content.");
+      return;
+    }
+    const isDeactivated = item.status === "Deactivated";
+    const nextStatus = isDeactivated ? "Awaiting Content" : "Deactivated";
+    setDeactivatingContentId(item.id);
+    setApprovalError("");
+    try {
+      await updateDoc(doc(db, "content", item.id), {
+        status: nextStatus,
+        deactivated: !isDeactivated,
+        deactivatedAt: isDeactivated ? null : serverTimestamp(),
+        deactivatedBy: isDeactivated ? null : currentUser?.uid || null,
+        updatedAt: serverTimestamp(),
+      });
+      await writeAuditLog({
+        actorId: currentUser?.uid,
+        actorRole: currentRole,
+        action: isDeactivated ? "content.reactivated" : "content.deactivated",
+        entityType: "content",
+        entityId: item.id,
+        metadata: { institutionId: item.institutionId || null, title: item.title, status: nextStatus },
+      });
+    } catch (error) {
+      console.error("Unable to change content deactivation status:", error);
+      setApprovalError(getFirebaseErrorMessage(error, "Unable to update content status."));
+    } finally {
+      setDeactivatingContentId("");
+    }
+  };
+
   // --- DELETE HANDLERS ---
   const handleConfirmDeleteClick = (id) => {
     setDeleteDocId(id);
@@ -253,9 +289,13 @@ const ContentManagement = () => {
       !institutionChanged &&
       (editedContent?.institutionApproved === true ||
         editedContent?.status === "Published");
+    if (formStatus === "Deactivated" && !isAdmin) {
+      alert("Only an administrator can deactivate content.");
+      return;
+    }
     if (isTourPackage(editedContent) && (institutionChanged || formScope !== "Landmark" ||
       formModelUrl.trim() !== editedContent.data.modelUrl || modelFile ||
-      (formStatus !== editedContent.status && !["Rejected", "Archived"].includes(formStatus)))) {
+      (formStatus !== editedContent.status && !["Rejected", "Archived", "Deactivated"].includes(formStatus)))) {
       alert("Use Upload interactive tour to replace the model and Approve & publish to publish a reviewed ZIP.");
       return;
     }
@@ -340,6 +380,7 @@ const ContentManagement = () => {
             isModelContent && institutionChanged
               ? "Awaiting Content"
               : formStatus,
+          deactivated: formStatus === "Deactivated",
           ...(retainModelMetadata
             ? buildModelEditPatch(contentData, editedContent.data ?? {}, deleteField())
             : { data: contentData }),
@@ -369,6 +410,7 @@ const ContentManagement = () => {
           scope: formScope,
           institutionId: formInstitutionId.trim(),
           status: formStatus,
+          deactivated: formStatus === "Deactivated",
           ...(isModelContent
             ? {
                 institutionApproved: false,
@@ -438,6 +480,7 @@ const ContentManagement = () => {
         adminApprovedAt: serverTimestamp(),
         adminApprovedBy: currentUser?.uid || null,
         status: "Published",
+        deactivated: false,
         updatedAt: serverTimestamp(),
       });
       try {
@@ -480,47 +523,21 @@ const ContentManagement = () => {
       {dataLoadError && <p role="alert" style={{ color: "#f87171" }}>{dataLoadError}</p>}
       {approvalError && <p role="alert" style={{ color: "#f87171" }}>{approvalError}</p>}
       {tourUploadNotice && <p role="status">{tourUploadNotice}</p>}
+
       {/* 1. CONTROLS */}
       <div className={tableStyles.controls} style={{ marginBottom: "2rem" }}>
-        <div style={{ display: "flex", gap: "1rem" }}>
-          <button
-            className={`${tableStyles.tabBtn} ${filter === "All" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("All")}
-          >
-            All Content
-          </button>
-          <button
-            className={`${tableStyles.tabBtn} ${filter === "Awaiting Content" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("Awaiting Content")}
-          >
-            Awaiting Content
-          </button>
-          <button
-            className={`${tableStyles.tabBtn} ${filter === "Awaiting Admin Approval" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("Awaiting Admin Approval")}
-          >
-            Awaiting Admin Approval
-          </button>
-          <button
-            className={`${tableStyles.tabBtn} ${filter === "Published" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("Published")}
-          >
-            Published
-          </button>
-          <button
-            className={`${tableStyles.tabBtn} ${filter === "Rejected" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("Rejected")}
-          >
-            Rejected
-          </button>
-          <button
-            className={`${tableStyles.tabBtn} ${filter === "Needs attention" ? tableStyles.active : ""}`}
-            onClick={() => setFilter("Needs attention")}
-          >
-            Needs attention
-          </button>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+          {["All", "Awaiting Content", "Awaiting Admin Approval", "Published", "Rejected", "Deactivated", "Needs attention"].map((tabStatus) => (
+            <button
+              key={tabStatus}
+              className={`${tableStyles.tabBtn} ${filter === tabStatus ? tableStyles.active : ""}`}
+              onClick={() => setFilter(tabStatus)}
+            >
+              {tabStatus === "All" ? "All Content" : tabStatus}
+            </button>
+          ))}
         </div>
-        <div style={{ display: "flex", gap: "1rem" }}>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
           <select
             className={commonStyles.formControl}
             aria-label="Filter content by area"
@@ -613,8 +630,19 @@ const ContentManagement = () => {
                   <td>
                     <span
                       style={{
-                        color: item.status === "Published" ? "#4ade80" : item.status === "Rejected" ? "#f87171" : "#fbbf24",
-                        border: `1px solid ${item.status === "Published" ? "#4ade80" : item.status === "Rejected" ? "#f87171" : "#fbbf24"}`,
+                        color:
+                          item.status === "Published"
+                            ? "#4ade80"
+                            : item.status === "Rejected" || item.status === "Deactivated"
+                              ? "#f87171"
+                              : "#fbbf24",
+                        border: `1px solid ${
+                          item.status === "Published"
+                            ? "#4ade80"
+                            : item.status === "Rejected" || item.status === "Deactivated"
+                              ? "#f87171"
+                              : "#fbbf24"
+                        }`,
                         padding: "0.2rem 0.6rem",
                         borderRadius: "4px",
                         fontSize: "0.7rem",
@@ -625,7 +653,7 @@ const ContentManagement = () => {
                     </span>
                   </td>
                   <td>
-                    <div style={{ display: "flex", gap: "8px" }}>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       <button
                         className={tableStyles.btnAction}
                         onClick={() => handleView(item)}
@@ -646,6 +674,22 @@ const ContentManagement = () => {
                         <i className="fa-solid fa-edit"></i>
                       </button>
 
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          className={tableStyles.btnAction}
+                          disabled={deactivatingContentId === item.id}
+                          onClick={() => handleToggleDeactivateContent(item)}
+                          title={item.status === "Deactivated" ? "Reactivate Content" : "Deactivate Content"}
+                          style={{
+                            background: "rgba(251, 191, 36, 0.15)",
+                            color: item.status === "Deactivated" ? "#4ade80" : "#fbbf24",
+                          }}
+                        >
+                          <i className={`fa-solid ${item.status === "Deactivated" ? "fa-rotate-left" : "fa-ban"}`}></i>
+                        </button>
+                      )}
+
                       <button
                         className={tableStyles.btnAction}
                         onClick={() => handleConfirmDeleteClick(item.id)}
@@ -657,8 +701,10 @@ const ContentManagement = () => {
                       >
                         <i className="fa-solid fa-trash"></i>
                       </button>
+
                       {normalizeContentType(item.type) === MODEL_CONTENT_TYPE &&
                         item.status !== "Published" &&
+                        item.status !== "Deactivated" &&
                         (!isTourPackage(item) || item.status === "Awaiting Admin Approval" || item.status === "Awaiting Content") && (
                           <button
                             type="button"
@@ -840,6 +886,7 @@ const ContentManagement = () => {
               </option>
               <option value="Rejected">Rejected</option>
               <option value="Archived">Archived</option>
+              <option value="Deactivated" disabled={!isAdmin}>Deactivated</option>
             </select>
           </div>
 
@@ -852,21 +899,18 @@ const ContentManagement = () => {
                 marginTop: "10px",
               }}
             >
-              {/* INFORMATION FORMAT */}
               {selectedType === "Information" && (
-                <>
-                  <div className={commonStyles.formGroup}>
-                    <label>Description</label>
-                    <textarea
-                      name="description"
-                      className={commonStyles.formControl}
-                      rows={3}
-                      value={formInfoDesc}
-                      onChange={(e) => setFormInfoDesc(e.target.value)}
-                      required
-                    />
-                  </div>
-                </>
+                <div className={commonStyles.formGroup}>
+                  <label>Description</label>
+                  <textarea
+                    name="description"
+                    className={commonStyles.formControl}
+                    rows={3}
+                    value={formInfoDesc}
+                    onChange={(e) => setFormInfoDesc(e.target.value)}
+                    required
+                  />
+                </div>
               )}
 
               {selectedType === MODEL_CONTENT_TYPE && (
@@ -981,7 +1025,7 @@ const ContentManagement = () => {
       <Modal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
-        title="Confirm Delete"
+        title="Confirm Hard Delete"
         actions={
           <>
             <button
@@ -1008,7 +1052,7 @@ const ContentManagement = () => {
         }
       >
         <p style={{ color: "#ccc" }}>
-          Are you sure you want to delete this content item? This action cannot be undone.
+          Are you sure you want to permanently delete this content item? This action cannot be undone.
         </p>
       </Modal>
     </div>
