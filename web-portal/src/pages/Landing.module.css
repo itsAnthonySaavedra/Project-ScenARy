@@ -65,6 +65,12 @@
     color: var(--color-text-light);
 }
 
+.navLinks {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
 .brandMark {
     width: 2.4rem;
     height: 2.4rem;
@@ -216,6 +222,10 @@
         font-size: 1.25rem;
     }
 
+    .navLinks {
+        gap: 0.6rem;
+    }
+
     .btnOutline,
     .btnPrimary {
         padding: 0.8rem 1.2rem;
@@ -255,6 +265,10 @@
 
     .navLogo {
         font-size: 1.15rem;
+    }
+
+    .navLinks {
+        gap: 0.4rem;
     }
 
     .btnOutline {

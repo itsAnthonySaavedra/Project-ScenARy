@@ -21,6 +21,7 @@ import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import { findNumericValue, formatAnalyticsDate, getRatingStats, loadFeedback, loadTourFeedback, loadTourViews } from "../../lib/userAnalytics";
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
+import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 
 L.Marker.prototype.options.icon = L.icon({
   iconUrl: markerIcon,

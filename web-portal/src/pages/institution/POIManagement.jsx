@@ -11,6 +11,7 @@ import { writeAuditLog } from "../../lib/auditLog";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { createPoiCatalog, downloadPoiCatalog } from "../../lib/poiCatalog";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
+import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -463,6 +464,25 @@ const POIManagement = ({ adminMode = false }) => {
       title="POI Management"
       description="Organize visitor destinations, QR markers, and AR tracking images under their parent landmarks."
     />
+{!adminMode && (
+  <SetupFlowBanner
+    hasLandmarkPinAndInfo={landmarks.some(
+      (l) =>
+        typeof l.lat === "number" &&
+        typeof l.lng === "number" &&
+        (l.landmarkName || l.institutionName) &&
+        (l.info?.description || l.description),
+    )}
+    hasContentItems={contents.length > 0}
+    hasLinkedLandmarkContent={landmarks.some(
+      (l) => Array.isArray(l.contentIds) && l.contentIds.length > 0,
+    )}
+    hasPoiWithImageAndContent={pois.some(
+      (p) => Boolean(p.imageUrl || p.markerImageUrl) && Array.isArray(p.contentIds) && p.contentIds.length > 0,
+    )}
+  />
+)}
+{formError && <div role="alert" style={{ color: "#fbbf24", margin: "0 0 16px" }}>{formError}</div>}
     {formError && <div role="alert" style={{ color: "#fbbf24", margin: "0 0 16px" }}>{formError}</div>}
     {poiLoadError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
       {poiLoadError}{" "}

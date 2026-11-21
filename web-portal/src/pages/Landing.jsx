@@ -14,10 +14,10 @@ const Landing = () => {
     >
       <nav className={styles.mainNav}>
         <div className={styles.navLogo}>
-          <img className={styles.brandMark} src="/assets/images/scenary-mark.png" alt="" />
+          <img className={styles.brandMark} src="/assets/images/scenary-mark.png" alt="ScenARy" />
           ScenARy
         </div>
-        <div className="nav-links">
+        <div className={styles.navLinks}>
           <Link to="/login?type=institution" className={styles.btnOutline}>
             Curator Login
           </Link>
@@ -57,7 +57,7 @@ const Landing = () => {
                 gap: "0.5rem",
               }}
             >
-              <img className={styles.brandMark} src="/assets/images/scenary-mark.png" alt="" />
+              <img className={styles.brandMark} src="/assets/images/scenary-mark.png" alt="ScenARy" />
               ScenARy
             </div>
             <p
@@ -73,9 +73,8 @@ const Landing = () => {
           </div>
           <div className={styles.footerLinks}>
             <Link to="/collab">Collab</Link>
-            <Link to="/terms-and-conditions">Terms & Conditions</Link>
+            <Link to="/terms-and-conditions">Terms &amp; Conditions</Link>
             <Link to="/privacy-policy">Privacy Policy</Link>
-            <a href="#">Create for Institution</a>
             <Link to="/login?type=admin">Admin</Link>
           </div>
         </div>

@@ -26,6 +26,7 @@ import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor
 import QuizEditor from "../../components/common/QuizEditor";
 import FunFactsEditor from "../../components/common/FunFactsEditor";
 import { CONTENT_SCOPES, getContentScope } from "../../lib/contentScope";
+import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 import {
   CONTENT_TYPES,
   MODEL_CONTENT_TYPE,
@@ -795,6 +796,22 @@ const InstituteContentManagement = () => {
         title="Content Management"
         description="Create, publish or unpublish, and manage AR content for your institution, then review VR models and coordinate with your 3D modeller."
       />
+      <SetupFlowBanner
+  hasLandmarkPinAndInfo={institutionLandmarks.some(
+    (l) =>
+      typeof l.lat === "number" &&
+      typeof l.lng === "number" &&
+      (l.landmarkName || l.institutionName) &&
+      (l.info?.description || l.description),
+  )}
+  hasContentItems={contents.length > 0}
+  hasLinkedLandmarkContent={institutionLandmarks.some(
+    (l) => Array.isArray(l.contentIds) && l.contentIds.length > 0,
+  )}
+  hasPoiWithImageAndContent={assignmentTargets.some(
+    (t) => t.scope === "POI" && Array.isArray(t.contentIds) && t.contentIds.length > 0,
+  )}
+/>
       <div
         role="status"
         style={{

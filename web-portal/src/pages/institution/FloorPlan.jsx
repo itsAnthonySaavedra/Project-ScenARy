@@ -5,6 +5,7 @@ import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { QRCodeCanvas } from "qrcode.react";
 import commonStyles from "../../components/common/Common.module.css";
 import PageHeader from "../../components/common/PageHeader";
+import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 import { db, storage } from "../../lib/firebase";
 import { writeAuditLog } from "../../lib/auditLog";
 import { isInstitutionActive } from "../../lib/institutionStatus";
@@ -217,12 +218,14 @@ const FloorPlan = ({ adminMode = false }) => {
     setMessage("");
     let uploadStage = "uploading the file to Firebase Storage";
     let uploadedStoragePath = "";
+    let uploadCompleted = false;
     let floorPlanSaved = false;
     try {
       const storagePath = `floor-plans/${institutionId}/${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, "-")}`;
       uploadedStoragePath = storagePath;
       const fileRef = ref(storage, storagePath);
       await uploadBytes(fileRef, file, { contentType: file.type });
+      uploadCompleted = true;
       const url = await getDownloadURL(fileRef);
       uploadStage = "saving floor-plan metadata in Firestore";
       const floorPlanData = {
@@ -277,26 +280,24 @@ const FloorPlan = ({ adminMode = false }) => {
     } catch (error) {
       console.error(`Unable to complete floor-plan upload while ${uploadStage}:`, error);
       const code = error?.code || "unknown";
-      const details = error?.message || "No additional details were provided by Firebase.";
       let failureMessage;
       if (code === "storage/unauthorized") {
-        failureMessage = `Firebase Storage denied the upload to floor-plans/${institutionId}/. Check the Storage rules for this path and account. (${code})`;
+        failureMessage = `Upload blocked: your account isn't authorized to upload floor plans for institution (${institutionId}). Confirm your curator profile is assigned to this institution or ask an admin to update your access.`;
       } else if (code === "storage/cors-unsupported-method" || code === "storage/cors-unsupported-origin") {
-        failureMessage = `Firebase Storage blocked this browser request because of its CORS configuration. Check the bucket CORS settings for this site's origin and upload method. (${code})`;
+        failureMessage = "Upload blocked by browser CORS settings on the Storage bucket. Ask an administrator to check bucket CORS rules.";
       } else if (code === "firestore/permission-denied" || code === "permission-denied") {
-        failureMessage = `The file reached Firebase Storage, but Firestore denied saving its floor-plan record. Check the Firestore rules. (${code})`;
+        failureMessage = "The file uploaded, but saving the floor-plan record was denied by Firestore rules.";
       } else {
         failureMessage = getFirebaseErrorMessage(
           error,
-          `Floor-plan upload failed while ${uploadStage} (${code}): ${details}`,
+          `Floor-plan upload failed while ${uploadStage}.`,
         );
       }
-      if (uploadedStoragePath && !floorPlanSaved) {
+      if (uploadCompleted && uploadedStoragePath && !floorPlanSaved) {
         try {
           await deleteStorageFile(uploadedStoragePath);
         } catch (cleanupError) {
           console.error("Unable to remove the uncommitted floor-plan upload:", cleanupError);
-          failureMessage += " The uploaded file could not be cleaned up; contact an administrator.";
         }
       }
       setMessage(failureMessage);
@@ -394,6 +395,30 @@ const FloorPlan = ({ adminMode = false }) => {
 
   const unplacedPois = pois.filter((poi) => !poi.floorPlanPosition);
   const matchingUnplacedPois = unplacedPois.filter((poi) => poi.name?.toLowerCase().includes(poiSearch.trim().toLowerCase()));
+
+  const setupFlowProps = {
+    hasLandmarkPinAndInfo: landmarks.some(
+      (l) =>
+        typeof l.lat === "number" &&
+        typeof l.lng === "number" &&
+        (l.landmarkName || l.institutionName) &&
+        (l.info?.description || l.description),
+    ),
+    hasContentItems:
+      pois.some((p) => Array.isArray(p.contentIds) && p.contentIds.length > 0) ||
+      Boolean(floorPlan),
+    hasLinkedLandmarkContent: landmarks.some(
+      (l) => Array.isArray(l.contentIds) && l.contentIds.length > 0,
+    ),
+    hasPoiWithImageAndContent: pois.some(
+      (p) =>
+        Boolean(p.imageUrl || p.markerImageUrl) &&
+        Array.isArray(p.contentIds) &&
+        p.contentIds.length > 0,
+    ),
+    hasFloorPlanOrPlacedPois:
+      Boolean(floorPlan) || pois.some((p) => Boolean(p.floorPlanPosition)),
+  };
 
   if (adminMode) {
     const selectedInstitution = institutions.find((institution) => institution.id === institutionId);
@@ -606,6 +631,7 @@ const FloorPlan = ({ adminMode = false }) => {
         title="Floor Plan"
         description="Upload a floor plan, then place your existing POIs on it for visitors to tap."
       />
+      <SetupFlowBanner {...setupFlowProps} />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 360px) 1fr", gap: 20, alignItems: "start" }}>
         <form onSubmit={uploadFloorPlan} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 12, padding: 20 }}>

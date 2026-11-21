@@ -3,17 +3,17 @@ import { collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, wh
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
-import { MapContainer, Marker, Popup, TileLayer, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import commonStyles from "../../components/common/Common.module.css";
 import PageHeader from "../../components/common/PageHeader";
+import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 import LandmarkDiscussion from "../../components/common/LandmarkDiscussion";
 import { getContentScope } from "../../lib/contentScope";
 import { getContentAssignmentLimitError } from "../../lib/contentTypes";
-import { buildGeneratedExperiences } from "../../lib/generatedExperiences";
 import { writeAuditLog } from "../../lib/auditLog";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
@@ -359,7 +359,6 @@ const LandmarkManagement = () => {
     else setPageNotice("Landmark saved.");
   };
 
-  const generatedExperiences = buildGeneratedExperiences(landmarks, pois, allContent);
   const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId);
   const activePinCoords =
     draftCoords && Number.isFinite(Number(draftCoords.lat)) && Number.isFinite(Number(draftCoords.lng))
@@ -367,16 +366,41 @@ const LandmarkManagement = () => {
       : hasValidCoords(selectedLandmark)
         ? [selectedLandmark.lat, selectedLandmark.lng]
         : DEFAULT_CENTER;
-  const overviewCenter = hasValidCoords(landmarks[0]) ? [landmarks[0].lat, landmarks[0].lng] : DEFAULT_CENTER;
+
+  const targetLandmark = selectedLandmark || landmarks[0];
+  const landmarkPois = targetLandmark
+    ? pois.filter((poi) => poi.landmarkId === targetLandmark.id)
+    : [];
+  const activeContentIds =
+    targetLandmark && selectedLandmarkId === targetLandmark.id
+      ? selectedContentIds
+      : targetLandmark?.contentIds || [];
+  const linkedContentItems = activeContentIds
+    .map((id) => allContent.find((item) => item.id === id))
+    .filter(Boolean);
+  const publishedContentCount = linkedContentItems.filter(
+    (item) => item.status === "Published",
+  ).length;
 
   if (loading) return <div style={{ padding: 20, color: "#fff" }}>Loading landmarks...</div>;
 
   return (
-    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "32px 24px", color: "#ccc" }}>
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "28px 24px", color: "#ccc" }}>
       <PageHeader
         eyebrow="Experience design"
         title="Landmarks"
         description="Curate landmark details, imagery, AR content, and pin positions for your institution."
+      />
+      <SetupFlowBanner
+        hasLandmarkPinAndInfo={landmarks.some(
+          (l) => hasValidCoords(l) && (l.landmarkName || l.institutionName) && (l.info?.description || l.description),
+        )}
+        hasContentItems={allContent.length > 0}
+        hasLinkedLandmarkContent={landmarks.some((l) => Array.isArray(l.contentIds) && l.contentIds.length > 0)}
+        hasPoiWithImageAndContent={pois.some(
+          (p) => Boolean(p.imageUrl || p.markerImageUrl) && Array.isArray(p.contentIds) && p.contentIds.length > 0,
+        )}
+        hasFloorPlanOrPlacedPois={pois.some((p) => Boolean(p.floorPlanPosition))}
       />
       {pageError && (
         <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
@@ -388,20 +412,16 @@ const LandmarkManagement = () => {
           {pageNotice}
         </div>
       )}
-      <p style={{ color: "#999", margin: "0 0 24px", fontSize: 14 }}>
-        Admin-created map pins are associated with your institution. You can reposition any of your institution&apos;s pins as often as needed by dragging or clicking the pin map.
+      <p style={{ color: "#999", margin: "0 0 20px", fontSize: 14 }}>
+        Admin-created map pins are associated with your institution. Select a landmark below to edit its details, assign content, or adjust its pin.
       </p>
+
       <div
-        className={commonStyles.contentCard}
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr",
-          gap: 30,
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))",
+          gap: 24,
           alignItems: "start",
-          padding: "24px",
-          borderRadius: 14,
-          border: "1px solid #39352c",
-          background: "rgba(255,255,255,0.03)",
         }}
       >
         <form
@@ -410,8 +430,8 @@ const LandmarkManagement = () => {
           style={{
             display: "flex",
             flexDirection: "column",
-            gap: "12px",
-            padding: "22px",
+            gap: 14,
+            padding: 22,
             borderRadius: 14,
             border: "1px solid #39352c",
           }}
@@ -447,12 +467,14 @@ const LandmarkManagement = () => {
           <textarea
             className={commonStyles.formControl}
             placeholder="Landmark information"
+            rows={3}
             value={form.description}
             onChange={(e) => updateField("description", e.target.value)}
             required
           />
-          <div>
-            <label htmlFor="landmark-image" style={{ color: "#fff", display: "block", marginBottom: 8 }}>
+
+          <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <label htmlFor="landmark-image" style={{ color: "#fff", display: "block", marginBottom: 6 }}>
               Landmark picture
             </label>
             <input
@@ -479,15 +501,15 @@ const LandmarkManagement = () => {
               style={{ color: "#ccc" }}
             />
             <small style={{ display: "block", color: "#888", marginTop: 6 }}>
-              PNG, JPG, or WEBP. Maximum 10 MB. The picture uploads when you save.
+              PNG, JPG, or WEBP, max 10 MB. Uploads when you click Save Landmark.
             </small>
             {imageFile && (
-              <small style={{ display: "block", color: "#4ade80", marginTop: 6 }}>
+              <small style={{ display: "block", color: "#4ade80", marginTop: 4 }}>
                 Selected: {imageFile.name}
               </small>
             )}
             {!imageFile && form.imageFileName && (
-              <small style={{ display: "block", color: "#888", marginTop: 6 }}>
+              <small style={{ display: "block", color: "#888", marginTop: 4 }}>
                 Current picture: {form.imageFileName}
               </small>
             )}
@@ -498,19 +520,20 @@ const LandmarkManagement = () => {
                 style={{
                   display: "block",
                   width: "100%",
-                  maxHeight: 180,
+                  maxHeight: 150,
                   objectFit: "contain",
                   marginTop: 10,
-                  borderRadius: 4,
+                  borderRadius: 6,
                   background: "#111",
                 }}
               />
             )}
           </div>
-          <div>
-            <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>Assign Existing Content</label>
-            <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
-              Assign at most one Information item, one Quiz, and one VR model per Landmark. Fun Facts are unlimited.
+
+          <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <label style={{ color: "#fff", display: "block", marginBottom: 4 }}>Assign Existing Content</label>
+            <small style={{ display: "block", color: "#888", marginBottom: 8 }}>
+              Up to 1 Information, 1 Quiz, and 1 VR model per Landmark. Fun Facts are unlimited.
             </small>
             {availableContent.length === 0 ? (
               <small style={{ color: "#888" }}>No reusable landmark content found.</small>
@@ -521,8 +544,8 @@ const LandmarkManagement = () => {
                   ? ""
                   : getContentAssignmentLimitError("Landmark", [...selectedContentIds, item.id], availableContent);
                 return (
-                  <div key={item.id} style={{ padding: "6px 0" }}>
-                    <label style={{ display: "flex", gap: 8, color: "#ccc" }}>
+                  <div key={item.id} style={{ padding: "4px 0" }}>
+                    <label style={{ display: "flex", gap: 8, color: "#ccc", cursor: "pointer" }}>
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -546,16 +569,16 @@ const LandmarkManagement = () => {
             )}
           </div>
 
-          <div>
+          <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
             <label style={{ color: "#fff", display: "block", marginBottom: 6 }}>
-              Pin Location (drag pin or click map to adjust anytime)
+              Pin Location (drag pin or click map anytime)
             </label>
             <MapContainer
               key={selectedLandmarkId ? `pin-${selectedLandmarkId}` : "pin-unselected"}
               center={activePinCoords}
               zoom={15}
               maxBounds={CEBU_BOUNDS}
-              style={{ height: 260, width: "100%" }}
+              style={{ height: 220, width: "100%", borderRadius: 8 }}
             >
               <TileLayer
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -593,11 +616,11 @@ const LandmarkManagement = () => {
                 }}
               >
                 <small style={{ color: "#aaa" }}>
-                  Coordinates: {Number(draftCoords.lat).toFixed(6)}, {Number(draftCoords.lng).toFixed(6)}
+                  {Number(draftCoords.lat).toFixed(6)}, {Number(draftCoords.lng).toFixed(6)}
                 </small>
                 <button
                   type="button"
-                  className={commonStyles.btnPrimary}
+                  className={commonStyles.btnOutline}
                   disabled={saving || savingPinLocation}
                   onClick={handleSavePinLocation}
                 >
@@ -607,99 +630,162 @@ const LandmarkManagement = () => {
             )}
           </div>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 10,
+              paddingTop: 6,
+            }}
+          >
             <small style={{ color: "#888" }}>
-              Your institution can update this marker&apos;s coordinates whenever needed.
+              Saves landmark info, image, and content links.
             </small>
-            {selectedLandmarkId && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {selectedLandmarkId && (
+                <button
+                  type="button"
+                  className={commonStyles.btnOutline}
+                  disabled={saving || savingPinLocation}
+                  onClick={() => selectLandmark(selectedLandmark)}
+                >
+                  Reload Landmark
+                </button>
+              )}
               <button
-                type="button"
+                type="submit"
                 className={commonStyles.btnPrimary}
-                disabled={saving}
-                onClick={() => selectLandmark(selectedLandmark)}
+                disabled={saving || savingPinLocation || !selectedLandmarkId}
               >
-                {saving ? "Saving..." : "Reload Landmark"}
+                {saving ? "Saving..." : "Save Landmark"}
               </button>
-            )}
+            </div>
           </div>
         </form>
 
         <div
           className={commonStyles.contentCard}
-          style={{ padding: 16, borderRadius: 14, border: "1px solid #39352c" }}
+          style={{ padding: 20, borderRadius: 14, border: "1px solid #39352c" }}
         >
-          <MapContainer center={overviewCenter} zoom={15} style={{ height: 420, width: "100%" }}>
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution="&copy; OpenStreetMap"
-            />
-            {landmarks.filter(hasValidCoords).map((landmark) => (
-              <Marker key={landmark.id} position={[landmark.lat, landmark.lng]}>
-                <Popup>
-                  <div style={{ color: "#111827", minWidth: 220, textAlign: "center" }}>
-                    <strong style={{ fontSize: "1rem" }}>
-                      {landmark.landmarkName || landmark.institutionName}
-                    </strong>
-                    {landmark.imageUrl && (
-                      <img
-                        src={landmark.imageUrl}
-                        alt={landmark.landmarkName || landmark.institutionName || "Landmark"}
-                        style={{
-                          width: "100%",
-                          maxHeight: "140px",
-                          objectFit: "cover",
-                          borderRadius: "4px",
-                          marginTop: "8px",
-                        }}
-                      />
-                    )}
-                    {(landmark.info?.description || landmark.description) && (
-                      <p style={{ margin: "8px 0", color: "#4b5563", fontSize: "0.9rem", lineHeight: 1.4 }}>
-                        {landmark.info?.description || landmark.description}
-                      </p>
-                    )}
+          <h2 style={{ color: "#f3d16f", fontSize: 19, marginTop: 0, marginBottom: 6 }}>
+            Connected Summary
+          </h2>
+          <p style={{ color: "#999", fontSize: 13, marginTop: 0, marginBottom: 16 }}>
+            See which POIs and content items are currently linked to{" "}
+            <strong style={{ color: "#fff" }}>
+              {targetLandmark?.landmarkName || targetLandmark?.institutionName || "your landmark"}
+            </strong>
+            .
+          </p>
+
+          {!targetLandmark ? (
+            <p style={{ color: "#888", fontSize: 13 }}>No landmark available yet.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                  gap: 10,
+                }}
+              >
+                <div style={{ padding: 12, borderRadius: 10, background: "#141210", border: "1px solid #2e2a24" }}>
+                  <div style={{ fontSize: 11, color: "#a8a29e" }}>Connected POIs</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#f3d16f", marginTop: 4 }}>
+                    {landmarkPois.length}
                   </div>
-                </Popup>
-              </Marker>
-            ))}
-          </MapContainer>
-          <div style={{ marginTop: 18 }}>
-            <h2 style={{ color: "#f3d16f", fontSize: 19 }}>Experience preview</h2>
-            {generatedExperiences.map((experience) => (
-              <div key={experience.id} style={{ padding: 10, borderBottom: "1px solid #333" }}>
-                <strong>{experience.title}</strong>
-                <span style={{ color: "#888" }}>
-                  {" "}
-                  ({experience.poiCount} POIs, {experience.contentItems.length} published items)
-                </span>
-                {experience.contentItems.length > 0 ? (
-                  <ul style={{ margin: "8px 0 0", paddingLeft: 20, color: "#aaa" }}>
-                    {experience.contentItems.map((item) => (
-                      <li key={item.id}>{item.title}</li>
+                </div>
+                <div style={{ padding: 12, borderRadius: 10, background: "#141210", border: "1px solid #2e2a24" }}>
+                  <div style={{ fontSize: 11, color: "#a8a29e" }}>Assigned Content</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginTop: 4 }}>
+                    {linkedContentItems.length}
+                  </div>
+                </div>
+                <div style={{ padding: 12, borderRadius: 10, background: "#141210", border: "1px solid #2e2a24" }}>
+                  <div style={{ fontSize: 11, color: "#a8a29e" }}>Published</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#4ade80", marginTop: 4 }}>
+                    {publishedContentCount}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: 14, borderRadius: 10, background: "#141210", border: "1px solid #2e2a24" }}>
+                <h3 style={{ color: "#fff", fontSize: 14, margin: "0 0 8px" }}>
+                  POIs under this landmark ({landmarkPois.length})
+                </h3>
+                {landmarkPois.length === 0 ? (
+                  <p style={{ color: "#888", fontSize: 13, margin: 0 }}>
+                    No POIs linked to this landmark yet. Add them in <strong>POI Management</strong>.
+                  </p>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: 18, color: "#d6d3d1", fontSize: 13, lineHeight: 1.6 }}>
+                    {landmarkPois.map((poi) => (
+                      <li key={poi.id}>
+                        <strong style={{ color: "#fff" }}>{poi.name || "Unnamed POI"}</strong>
+                        {Array.isArray(poi.contentIds) && poi.contentIds.length > 0 && (
+                          <span style={{ color: "#a8a29e" }}>
+                            {" "}
+                            · {poi.contentIds.length} POI item{poi.contentIds.length === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </li>
                     ))}
                   </ul>
-                ) : (
-                  <div style={{ color: "#888", marginTop: 6 }}>
-                    The AR and VR items will appear together after both are ready and approved.
-                  </div>
                 )}
               </div>
-            ))}
-          </div>
-        </div>
 
-        <div
-          style={{
-            marginTop: 24,
-            padding: 16,
-            background: "#1a1714",
-            borderRadius: 12,
-            border: "1px solid #39352c",
-          }}
-        >
-          <h3 style={{ color: "#f3d16f", marginTop: 0, marginBottom: 12 }}>Landmarks</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-            {landmarks.map((landmark) => (
+              <div style={{ padding: 14, borderRadius: 10, background: "#141210", border: "1px solid #2e2a24" }}>
+                <h3 style={{ color: "#fff", fontSize: 14, margin: "0 0 8px" }}>
+                  Assigned Landmark Content ({linkedContentItems.length})
+                </h3>
+                {linkedContentItems.length === 0 ? (
+                  <p style={{ color: "#888", fontSize: 13, margin: 0 }}>
+                    No landmark content assigned yet. Check items under <strong>Assign Existing Content</strong> and save.
+                  </p>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: 18, color: "#d6d3d1", fontSize: 13, lineHeight: 1.65 }}>
+                    {linkedContentItems.map((item) => {
+                      const isPub = item.status === "Published";
+                      return (
+                        <li key={item.id}>
+                          <strong style={{ color: "#fff" }}>{item.title}</strong>{" "}
+                          <span style={{ color: "#a8a29e" }}>({item.type})</span>{" "}
+                          <span
+                            style={{
+                              color: isPub ? "#4ade80" : "#fbbf24",
+                              fontSize: 12,
+                              marginLeft: 4,
+                            }}
+                          >
+                            · {isPub ? "Published" : item.status || "Unpublished"}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 24,
+          padding: 18,
+          background: "#1a1714",
+          borderRadius: 12,
+          border: "1px solid #39352c",
+        }}
+      >
+        <h3 style={{ color: "#f3d16f", marginTop: 0, marginBottom: 12 }}>Institution Landmarks</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
+          {landmarks.map((landmark) => {
+            const isSelected = selectedLandmarkId === landmark.id;
+            return (
               <div
                 key={landmark.id}
                 onClick={() => selectLandmark(landmark)}
@@ -707,56 +793,44 @@ const LandmarkManagement = () => {
                   cursor: "pointer",
                   padding: 16,
                   borderRadius: 12,
-                  border: selectedLandmarkId === landmark.id ? "2px solid #d4af37" : "1px solid #39352c",
-                  background: selectedLandmarkId === landmark.id ? "rgba(212, 175, 55, 0.1)" : "transparent",
+                  border: isSelected ? "2px solid #d4af37" : "1px solid #39352c",
+                  background: isSelected ? "rgba(212, 175, 55, 0.1)" : "#141210",
                   transition: "all 0.2s ease",
                 }}
-                onMouseEnter={(e) => {
-                  if (selectedLandmarkId !== landmark.id) {
-                    e.currentTarget.style.borderColor = "#d4af37";
-                    e.currentTarget.style.background = "rgba(212, 175, 55, 0.05)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedLandmarkId !== landmark.id) {
-                    e.currentTarget.style.borderColor = "#39352c";
-                    e.currentTarget.style.background = "transparent";
-                  }
-                }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                   <h4 style={{ color: "#fff", margin: 0, fontSize: 16 }}>
                     {landmark.landmarkName || landmark.institutionName}
                   </h4>
-                  <span style={{ color: "#d4af37", fontSize: 12, fontWeight: 600 }}>
-                    {selectedLandmarkId === landmark.id ? "● Selected" : "○ Click to select"}
+                  <span style={{ color: "#d4af37", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {isSelected ? "● Selected" : "○ Select"}
                   </span>
                 </div>
-                {landmark.info?.description && (
-                  <p style={{ color: "#a8a29e", fontSize: 13, margin: 0, marginBottom: 12, lineHeight: 1.5 }}>
-                    {landmark.info.description}
+                {(landmark.info?.description || landmark.description) && (
+                  <p style={{ color: "#a8a29e", fontSize: 13, margin: "0 0 10px", lineHeight: 1.45 }}>
+                    {landmark.info?.description || landmark.description}
                   </p>
                 )}
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                  <span style={{ color: "#888", fontSize: 12 }}>
-                    {landmark.contentIds?.length || 0} content items
-                  </span>
+                <div style={{ color: "#888", fontSize: 12, marginBottom: 10 }}>
+                  {landmark.contentIds?.length || 0} content items linked
                 </div>
-                <div onClick={(e) => e.stopPropagation()}>
-                  <LandmarkDiscussion
-                    institutionId={institutionId}
-                    landmarkId={landmark.id}
-                    title={`Discussion: ${landmark.landmarkName || landmark.institutionName}`}
-                  />
-                </div>
+                {isSelected && (
+                  <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10 }}>
+                    <LandmarkDiscussion
+                      institutionId={institutionId}
+                      landmarkId={landmark.id}
+                      title={`Discussion: ${landmark.landmarkName || landmark.institutionName}`}
+                    />
+                  </div>
+                )}
               </div>
-            ))}
-            {landmarks.length === 0 && (
-              <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#888", padding: 32 }}>
-                No landmarks created yet. Create one to begin building your virtual tour.
-              </div>
-            )}
-          </div>
+            );
+          })}
+          {landmarks.length === 0 && (
+            <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#888", padding: 32 }}>
+              No landmarks created yet.
+            </div>
+          )}
         </div>
       </div>
     </div>

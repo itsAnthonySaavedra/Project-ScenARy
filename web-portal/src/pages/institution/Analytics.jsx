@@ -267,38 +267,26 @@ const InstituteAnalytics = () => {
       </div>
       <div className={dashboardStyles.statsGrid}>
         <div className={dashboardStyles.statCard}>
-          <div className={dashboardStyles.statIcon}>
-            <i className="fa-solid fa-users"></i>
+          <div className={dashboardStyles.statIcon} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <i className="fa-solid fa-layer-group" style={{ width: "auto", height: "auto" }}></i>
           </div>
           <div className={dashboardStyles.statInfo}>
-            <h3>Total Content</h3>
+            <h3>Content items</h3>
             <div className={dashboardStyles.value}>{analytics.content}</div>
           </div>
         </div>
         <div className={dashboardStyles.statCard}>
-          <div className={dashboardStyles.statIcon}>
-            <i className="fa-solid fa-clock"></i>
+          <div className={dashboardStyles.statIcon} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <i className="fa-solid fa-circle-check" style={{ width: "auto", height: "auto" }}></i>
           </div>
           <div className={dashboardStyles.statInfo}>
-            <h3>Published Content</h3>
+            <h3>Published</h3>
             <div className={dashboardStyles.value}>{analytics.published}</div>
           </div>
         </div>
         <div className={dashboardStyles.statCard}>
-          <div className={dashboardStyles.statIcon}>
-            <i className="fa-solid fa-coins"></i>
-          </div>
-          <div className={dashboardStyles.statInfo}>
-            <h3>Recorded Pass Revenue</h3>
-            <div className={dashboardStyles.value}>{siteRevenueLabel}</div>
-            <small style={{ color: "#888" }}>
-              {siteRevenue.passCount} recorded day passes
-            </small>
-          </div>
-        </div>
-        <div className={dashboardStyles.statCard}>
-          <div className={dashboardStyles.statIcon}>
-            <i className="fa-solid fa-location-dot"></i>
+          <div className={dashboardStyles.statIcon} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <i className="fa-solid fa-landmark" style={{ width: "auto", height: "auto" }}></i>
           </div>
           <div className={dashboardStyles.statInfo}>
             <h3>Landmarks</h3>
@@ -306,8 +294,8 @@ const InstituteAnalytics = () => {
           </div>
         </div>
         <div className={dashboardStyles.statCard}>
-          <div className={dashboardStyles.statIcon}>
-            <i className="fa-solid fa-qrcode"></i>
+          <div className={dashboardStyles.statIcon} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <i className="fa-solid fa-location-dot" style={{ width: "auto", height: "auto" }}></i>
           </div>
           <div className={dashboardStyles.statInfo}>
             <h3>POIs</h3>
@@ -315,12 +303,35 @@ const InstituteAnalytics = () => {
           </div>
         </div>
         <div className={dashboardStyles.statCard}>
-          <div className={dashboardStyles.statIcon}><i className="fa-solid fa-hand-pointer"></i></div>
-          <div className={dashboardStyles.statInfo}><h3>User Interactions</h3><div className={dashboardStyles.value}>{analytics.interactionCount}</div></div>
+          <div className={dashboardStyles.statIcon} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <i className="fa-solid fa-hand-pointer" style={{ width: "auto", height: "auto" }}></i>
+          </div>
+          <div className={dashboardStyles.statInfo}>
+            <h3>User interactions</h3>
+            <div className={dashboardStyles.value}>{analytics.interactionCount}</div>
+          </div>
         </div>
         <div className={dashboardStyles.statCard}>
-          <div className={dashboardStyles.statIcon}><i className="fa-solid fa-star"></i></div>
-          <div className={dashboardStyles.statInfo}><h3>Average Rating</h3><div className={dashboardStyles.value}>{ratingStats.average === null ? "-" : `${ratingStats.average.toFixed(1)} / 5`}</div><small style={{ color: "#888" }}>{ratingStats.reviewCount} reviews</small></div>
+          <div className={dashboardStyles.statIcon} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <i className="fa-solid fa-star" style={{ width: "auto", height: "auto" }}></i>
+          </div>
+          <div className={dashboardStyles.statInfo}>
+            <h3>Average rating</h3>
+            <div className={dashboardStyles.value}>{ratingStats.average === null ? "-" : `${ratingStats.average.toFixed(1)} / 5`}</div>
+            <small style={{ color: "#888" }}>{ratingStats.reviewCount} reviews</small>
+          </div>
+        </div>
+        <div className={dashboardStyles.statCard}>
+          <div className={dashboardStyles.statIcon} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <i className="fa-solid fa-money-bill-wave" style={{ width: "auto", height: "auto" }}></i>
+          </div>
+          <div className={dashboardStyles.statInfo}>
+            <h3>Recorded pass revenue</h3>
+            <div className={dashboardStyles.value}>{siteRevenueLabel}</div>
+            <small style={{ color: "#888" }}>
+              {siteRevenue.passCount} recorded day passes
+            </small>
+          </div>
         </div>
       </div>
       {siteRevenueError ? (

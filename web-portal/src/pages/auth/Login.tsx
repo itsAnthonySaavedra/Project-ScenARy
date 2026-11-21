@@ -1,6 +1,6 @@
 // src/pages/Login.tsx
 import React, { useState, FormEvent } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import styles from "./Login.module.css";
 
@@ -115,9 +115,7 @@ const Login: React.FC = () => {
               <input
                 type="email"
                 className={styles.formControl}
-                placeholder={
-                  isAdmin ? "Email" : "Email"
-                }
+                placeholder="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -163,11 +161,35 @@ const Login: React.FC = () => {
 
           <div className={styles.authFooter}>
             <p style={{ fontSize: "0.8rem" }}>
-              {isAdmin
-                ? "Restricted area for ScenARy administrators only."
-                : loginType === "developer"
-                  ? "Sign in to your assigned model workspace."
-                  : "Not a partner yet? Contact our sales team."}
+              {isAdmin ? (
+                "Restricted area for ScenARy administrators only."
+              ) : loginType === "developer" ? (
+                <>
+                  Sign in to your assigned model workspace.{" "}
+                  <Link
+                    to="/collab"
+                    style={{
+                      color: "var(--color-accent-gold)",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Contact our team
+                  </Link>
+                </>
+              ) : (
+                <>
+                  Not a partner yet?{" "}
+                  <Link
+                    to="/collab"
+                    style={{
+                      color: "var(--color-accent-gold)",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Contact our team
+                  </Link>
+                </>
+              )}
             </p>
           </div>
         </div>

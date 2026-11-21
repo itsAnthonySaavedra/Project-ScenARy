@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from "chart.js";
 import { Doughnut, Bar } from "react-chartjs-2";
 import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
@@ -10,12 +9,13 @@ import { cleanFeedbackComment, getRatingStats, loadFeedback } from "../../lib/us
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import dashboardStyles from '../../components/features/dashboard/Dashboard.module.css';
+import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
+
 const InstituteDashboard = () => {
     const { currentUser } = useAuth();
-    const navigate = useNavigate();
     const [dashboard, setDashboard] = useState({
         institution: null,
         content: 0,
@@ -209,6 +209,14 @@ const InstituteDashboard = () => {
                     </div>
                 }
             />
+
+            <SetupFlowBanner
+  hasLandmarkPinAndInfo={dashboard.landmarks > 0}
+  hasContentItems={dashboard.content > 0}
+  hasLinkedLandmarkContent={dashboard.landmarks > 0 && dashboard.content > 0}
+  hasPoiWithImageAndContent={dashboard.pois > 0 && dashboard.content > 0}
+/>
+{warning && <p role="status" style={{ color: "#fbbf24" }}>{warning}</p>}
             {warning && <p role="status" style={{ color: "#fbbf24" }}>{warning}</p>}
 
             <section className={dashboardStyles.statsGrid}>
@@ -219,10 +227,12 @@ const InstituteDashboard = () => {
                     ["POIs", dashboard.pois, "fa-location-dot"],
                     ["User interactions", dashboard.interactions, "fa-hand-pointer"],
                     ["Average rating", ratingStats.average === null ? "-" : `${ratingStats.average.toFixed(1)} / 5`, "fa-star"],
-                    [`Recorded pass revenue (${dashboard.revenueCount} passes)`, revenueValue, "fa-coins"],
+                    [`Recorded pass revenue (${dashboard.revenueCount} passes)`, revenueValue, "fa-money-bill-wave"],
                 ].map(([label, value, icon]) => (
                     <div className={dashboardStyles.statCard} key={label}>
-                        <div className={dashboardStyles.statIcon}><i className={`fa-solid ${icon}`}></i></div>
+                        <div className={dashboardStyles.statIcon} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <i className={`fa-solid ${icon}`} style={{ width: "auto", height: "auto" }}></i>
+                        </div>
                         <div className={dashboardStyles.statInfo}><h3>{label}</h3><div className={dashboardStyles.value}>{value}</div></div>
                     </div>
                 ))}
@@ -234,13 +244,6 @@ const InstituteDashboard = () => {
                     Revenue includes admin-granted day passes recorded for your institution. One-minute tests and phone purchases are not included.
                 </p>
             )}
-
-            <section className={dashboardStyles.quickActions} aria-label="Quick actions">
-                <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/content")}><i className="fa-solid fa-layer-group" /> Manage content</button>
-                <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/landmarks")}><i className="fa-solid fa-landmark" /> Manage landmarks</button>
-                <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/pois")}><i className="fa-solid fa-location-dot" /> Manage POIs</button>
-                <button type="button" className={dashboardStyles.quickAction} onClick={() => navigate("/institution/analytics")}><i className="fa-solid fa-chart-bar" /> Open analytics</button>
-            </section>
 
             <section className={dashboardStyles.dashboardCharts}>
                 <div className={dashboardStyles.chartCard}>
