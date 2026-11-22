@@ -733,7 +733,7 @@ const POIManagement = ({ adminMode = false }) => {
         )}
         <div>{landmarks.map((landmark) => {
           const landmarkPois = pois.filter((poi) => poi.landmarkId === landmark.id);
-          const catalog = createPoiCatalog(institutionId, landmark, landmarkPois, contents);
+          const catalog = createPoiCatalog(institutionId, landmark, landmarkPois, contents, { includeDrafts: true });
           const sharedQr = landmark.poiQrCode || landmarkPois[0]?.qrCode || "";
           return <div key={landmark.id} style={{ padding: 16, border: "1px solid #333", borderRadius: 10, marginBottom: 16, background: "#111827" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>

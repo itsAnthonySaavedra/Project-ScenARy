@@ -75,7 +75,7 @@ export default function TourPackageUpload({
         <div className={styles.formGroup}>
           <label htmlFor={fileId}>Unity tour ZIP</label>
           <input id={fileId} type="file" accept=".zip,application/zip" onChange={chooseFile} disabled={checking || saving} />
-          {checking && <p role="status">Checking the ZIP, landmark, and published POIs…</p>}
+          {checking && <p role="status">Checking the ZIP, landmark, and linked POIs…</p>}
           {tour && <small>{tour.name}</small>}
         </div>
         {target && (

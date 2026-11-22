@@ -9,8 +9,9 @@ const previewPanelStyle = {
   marginBottom: "1rem",
 };
 
-const ContentPreview = ({ content }) => {
+const ContentPreview = ({ content, poiNames = {} }) => {
   const [modelStates, setModelStates] = useState({});
+  const [placedStops, setPlacedStops] = useState({});
 
   if (!content) return null;
 
@@ -21,6 +22,21 @@ const ContentPreview = ({ content }) => {
     : data.fact ? [data.fact] : [];
   const modelState = modelStates[modelUrl] || "loading";
   const updateModelState = (state) => setModelStates((current) => ({ ...current, [modelUrl]: state }));
+  const exhibits = data.tourPackageVersion === 2 && Array.isArray(data.exhibits) ? data.exhibits : [];
+  const readPlacedStops = (viewer) => {
+    updateModelState("loaded");
+    if (!exhibits.length) return;
+    const gltf = viewer.originalGltfJson;
+    const roots = gltf?.scenes?.[gltf.scene]?.nodes ?? [];
+    const nodes = new Map(roots.map((index) => gltf.nodes[index]).filter(Boolean)
+      .map((node) => [node.name, node]));
+    const pins = exhibits.flatMap(({ anchor, poiId }, index) => {
+      const node = nodes.get(anchor);
+      if (!anchor.startsWith("ScenARy_Stop_") || node?.mesh != null || node?.translation?.length !== 3) return [];
+      return [{ anchor, poiId, number: index + 1, position: node.translation.map((value) => `${value}m`).join(" ") }];
+    });
+    setPlacedStops((current) => ({ ...current, [modelUrl]: pins }));
+  };
 
   return (
     <div style={{ color: "#ccc" }}>
@@ -65,10 +81,18 @@ const ContentPreview = ({ content }) => {
               camera-controls
               camera-orbit="0deg 75deg auto"
               shadow-intensity="1"
-              onLoad={() => updateModelState("loaded")}
-              onError={() => updateModelState("error")}
+              onload={(event) => readPlacedStops(event.currentTarget)}
+              onerror={() => updateModelState("error")}
               style={{ width: "100%", height: "420px", backgroundColor: "#111", marginBottom: "1rem" }}
-            />
+            >
+              {(placedStops[modelUrl] ?? []).map(({ anchor, poiId, number, position }) => (
+                <span key={anchor} slot={`hotspot-review-${number}`} data-position={position}
+                  title={poiNames[poiId] || poiId}
+                  style={{ borderRadius: "50%", padding: "4px 9px", background: "#d4af37", color: "#111", fontWeight: 700 }}>
+                  {number}
+                </span>
+              ))}
+            </model-viewer>
             {modelState === "loading" && (
               <p style={{ ...previewPanelStyle, color: "#fbbf24" }}>
                 Loading VR model (uploading can take a while)...
@@ -79,12 +103,12 @@ const ContentPreview = ({ content }) => {
                 The model could not be rendered. Open the model URL directly to check Storage access, then check the browser console for the model-loading error.
               </p>
             )}
-            {data.tourPackageVersion === 2 && Array.isArray(data.exhibits) && (
+            {exhibits.length > 0 && (
               <details style={previewPanelStyle}>
-                <summary>{data.exhibits.length} VR trigger links</summary>
-                <ul>
-                  {data.exhibits.map(({ anchor, poiId }) => <li key={anchor}>{anchor} → {poiId}</li>)}
-                </ul>
+                <summary>{exhibits.length} VR stops</summary>
+                <ol>
+                  {exhibits.map(({ anchor, poiId }) => <li key={anchor}>{poiNames[poiId] || poiId}</li>)}
+                </ol>
               </details>
             )}
           </div>

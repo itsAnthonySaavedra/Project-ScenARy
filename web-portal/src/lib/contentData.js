@@ -33,7 +33,7 @@ export function buildModelEditPatch(model, previous, deleteValue) {
   const patch = Object.fromEntries(Object.entries(model).map(([field, value]) => [`data.${field}`, value]));
   const obsoleteFields = [
     "spawnPoint", "position", "rotation", "surfaceNormal",
-    "spawnX", "spawnY", "spawnZ", "SpawnZ", "spawnRotationY", "spawnRotationalY", "spawnSurfaceNormal",
+    "spawnX", "spawnY", "spawnZ", "SpawnZ", "spawnRotationY", "spawnRotationalY", "spawnSurfaceNormal", "spawnCoordinateSpace",
   ];
   if (model.modelUrl !== (previous.modelUrl || previous.modelPath)) {
     obsoleteFields.push("modelPath", "modelFileName", "modelFileType", "modelStoragePath");

@@ -1,4 +1,5 @@
 export const createDefaultModelSpawnPoint = () => ({
+  coordinateSpace: "gltf",
   position: { x: 0, y: 0, z: 0 },
   rotation: { x: 0, y: 0, z: 0 },
   surfaceNormal: { x: 0, y: 1, z: 0 },
@@ -15,6 +16,7 @@ export const normalizeModelSpawnPoint = (spawnPoint) => {
   const legacyRotation = spawnPoint?.spawnPoint?.rotation || spawnPoint?.rotation || {};
 
   return {
+    coordinateSpace: (spawnPoint?.spawnCoordinateSpace ?? spawnPoint?.coordinateSpace) === "gltf" ? "gltf" : null,
     position: normalizeVector({
       x: spawnPoint?.spawnX ?? legacyPosition.x,
       y: spawnPoint?.spawnY ?? legacyPosition.y,
@@ -28,6 +30,7 @@ export const normalizeModelSpawnPoint = (spawnPoint) => {
 export const serializeModelSpawnPoint = (spawnPoint) => {
   const normalized = normalizeModelSpawnPoint(spawnPoint);
   return {
+    ...(normalized.coordinateSpace ? { spawnCoordinateSpace: normalized.coordinateSpace } : {}),
     spawnX: normalized.position.x,
     spawnY: normalized.position.y,
     spawnZ: normalized.position.z,

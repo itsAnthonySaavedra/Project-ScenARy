@@ -1,89 +1,93 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import "@google/model-viewer";
 import commonStyles from "./Common.module.css";
 import { createDefaultModelSpawnPoint } from "../../lib/modelSpawnPoint";
+import { MAX_TOUR_STOPS } from "../../lib/tourPackage.js";
 
 const axes = ["x", "y", "z"];
+const formatVector = (vector = {}) => axes.map((axis) => `${Number(vector[axis]) || 0}m`).join(" ");
+const readVector = (vector) => axes.every((axis) => Number.isFinite(vector?.[axis]))
+  ? { x: vector.x, y: vector.y, z: vector.z }
+  : null;
 
-const ModelSpawnPointEditor = ({ enabled, onEnabledChange, value, onChange, modelUrl }) => {
+const ModelSpawnPointEditor = ({
+  enabled, onEnabledChange, value, onChange, modelUrl, poiOptions = [], stops = [], onStopsChange, disabled = false,
+}) => {
   const spawnPoint = value || createDefaultModelSpawnPoint();
   const modelViewerRef = useRef(null);
-  const [placementArmed, setPlacementArmed] = useState(false);
+  const poiFieldId = useId();
+  const [placement, setPlacement] = useState(null);
   const [placementMessage, setPlacementMessage] = useState("");
-
-  useEffect(() => {
-    modelViewerRef.current?.toggleAttribute("camera-controls", !placementArmed);
-  }, [placementArmed]);
+  const [modelLoad, setModelLoad] = useState(null);
+  const [poiId, setPoiId] = useState("");
+  const allowStops = Boolean(onStopsChange && modelUrl);
+  const selectedPoi = poiOptions.find((poi) => poi.id === poiId);
+  const modelStatus = modelLoad?.url === modelUrl ? modelLoad.status : "loading";
+  const placementActive = Boolean(!disabled && placement && placement.url === modelUrl &&
+    (placement.kind === "spawn" ? enabled : allowStops && selectedPoi));
 
   const updateAxis = (vector, axis, axisValue) => {
     onChange({
       ...spawnPoint,
+      ...(vector === "position" ? { positionChosen: true } : {}),
       [vector]: { ...spawnPoint[vector], [axis]: axisValue },
     });
   };
 
-  const placeSpawnPoint = (event) => {
-    const modelViewer = modelViewerRef.current;
-    if (!modelViewer) return false;
-
-    const hit = modelViewer.positionAndNormalFromPoint(
-      event.clientX,
-      event.clientY,
-    );
-    if (!hit) {
-      setPlacementMessage("No surface hit there. Keep placement mode on and click a visible part of the model.");
-      return false;
-    }
-
-    const parseVector = (vector) => {
-      const [x, y, z] = String(vector).trim().split(/\s+/).map(Number.parseFloat);
-      return [x, y, z].every(Number.isFinite) ? { x, y, z } : null;
-    };
-    const position = parseVector(hit.position);
-    const surfaceNormal = parseVector(hit.normal);
-    if (!position || !surfaceNormal) {
-      setPlacementMessage("Could not read the selected model position. Try another spot.");
-      return false;
-    }
-
-    onChange({ ...spawnPoint, position, surfaceNormal });
-    setPlacementMessage("Spawn point placed. Drag the marker again or edit the coordinates below.");
-    return true;
-  };
-
   const handleViewerClick = (event) => {
-    if (!placementArmed) return;
+    if (!placementActive || modelStatus !== "ready") return;
     event.preventDefault();
-    setPlacementArmed(!placeSpawnPoint(event));
+    const hit = modelViewerRef.current?.positionAndNormalFromPoint(event.clientX, event.clientY);
+    const position = readVector(hit?.position);
+    const surfaceNormal = readVector(hit?.normal);
+    if (!position || !surfaceNormal) {
+      setPlacementMessage("No model surface found there. Click a visible part of the GLB.");
+      return;
+    }
+    if (placement.kind === "spawn") {
+      onChange({ ...spawnPoint, positionChosen: true, coordinateSpace: "gltf", position, surfaceNormal });
+      setPlacementMessage("Player spawn placed.");
+    } else if (stops.length < MAX_TOUR_STOPS) {
+      onStopsChange([...stops, { id: crypto.randomUUID(), poiId, position, surfaceNormal }]);
+      setPlacementMessage(`${selectedPoi.name} stop placed.`);
+    }
+    setPlacement(null);
   };
 
-  const formatVector = (vector = {}) => (
-    axes.map((axis) => `${Number.isFinite(Number(vector[axis])) ? Number(vector[axis]) : 0}m`).join(" ")
-  );
+  const startPlacement = (kind) => {
+    setPlacement({ kind, url: modelUrl });
+    setPlacementMessage(kind === "spawn"
+      ? "Click the ground where the player should start."
+      : "Click where visitors should approach this stop.");
+  };
+  const cancelPlacement = () => {
+    setPlacement(null);
+    setPlacementMessage("");
+  };
   const spawnPosition = formatVector(spawnPoint.position);
   const spawnNormal = formatVector(spawnPoint.surfaceNormal);
 
   useEffect(() => {
     const modelViewer = modelViewerRef.current;
-    if (typeof modelViewer?.updateHotspot !== "function") return;
+    if (!enabled || modelStatus !== "ready" || typeof modelViewer?.updateHotspot !== "function") return;
     modelViewer.updateHotspot({
       name: "hotspot-spawn",
       position: spawnPosition,
       normal: spawnNormal,
     });
-  }, [spawnPosition, spawnNormal]);
+  }, [enabled, modelStatus, spawnPosition, spawnNormal]);
 
   return (
     <fieldset style={{ border: "1px solid #444", padding: "0.9rem", margin: "1rem 0 0", color: "#ddd" }}>
-      <legend style={{ padding: "0 0.35rem", color: "#d4af37" }}>Phone spawn transform</legend>
+      <legend style={{ padding: "0 0.35rem", color: "#d4af37" }}>{allowStops ? "Tour stops and player spawn" : "Phone spawn transform"}</legend>
       <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        <input type="checkbox" checked={enabled} onChange={(event) => onEnabledChange(event.target.checked)} />
+        <input type="checkbox" checked={enabled} disabled={disabled} onChange={(event) => {
+          cancelPlacement();
+          onEnabledChange(event.target.checked);
+        }} />
         Set a spawn point for this model
       </label>
-      <small style={{ display: "block", color: "#999", margin: "0.5rem 0 0.75rem" }}>
-        GLB-local coordinates in meters (Y up), with yaw in degrees. The portal saves this transform; phone placement must apply it relative to the same model anchor.
-      </small>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.6rem", opacity: enabled ? 1 : 0.5 }}>
+      {enabled && <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.6rem", marginTop: 10 }}>
         {[{ key: "position", title: "Position (m)", axes, step: "0.01" }, { key: "rotation", title: "Yaw (deg)", axes: ["y"], step: "1" }].map(({ key, title, axes: vectorAxes, step }) => (
           <div key={key}>
             <strong style={{ display: "block", marginBottom: "0.35rem", fontSize: "0.8rem" }}>{title}</strong>
@@ -94,7 +98,7 @@ const ModelSpawnPointEditor = ({ enabled, onEnabledChange, value, onChange, mode
                   type="number"
                   step={step}
                   value={spawnPoint[key]?.[axis] ?? 0}
-                  disabled={!enabled}
+                  disabled={disabled}
                   aria-label={`${title} ${axis.toUpperCase()}`}
                   className={commonStyles.formControl}
                   onChange={(event) => updateAxis(key, axis, event.target.value)}
@@ -103,57 +107,50 @@ const ModelSpawnPointEditor = ({ enabled, onEnabledChange, value, onChange, mode
             ))}
           </div>
         ))}
-      </div>
-      {enabled && modelUrl && (
+      </div>}
+      {(enabled || allowStops) && modelUrl && (
         <div style={{ marginTop: "0.9rem", border: "1px solid #444", borderRadius: 8, padding: "0.75rem", background: "#151515" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
-            <div>
-              <strong style={{ display: "block", fontSize: "0.9rem" }}>Place the phone spawn</strong>
-              <small style={{ color: "#aaa" }}>
-                {placementArmed
-                  ? "Click or tap a visible part of the model. Camera movement is paused while placing."
-                  : "Choose Place spawn, then click or tap the desired spot on the model."}
-              </small>
-            </div>
-            <button
-              type="button"
-              aria-pressed={placementArmed}
-              onClick={() => {
-                const armed = !placementArmed;
-                setPlacementArmed(armed);
-                setPlacementMessage(armed ? "Placement mode on. Click or tap the model where the player should spawn." : "");
-              }}
-              style={{
-                flexShrink: 0,
-                padding: "0.55rem 0.75rem",
-                border: "1px solid #d4af37",
-                borderRadius: 6,
-                color: "#111",
-                background: "#d4af37",
-                cursor: "pointer",
-                fontWeight: 700,
-              }}
-            >
-              {placementArmed ? "Cancel placement" : "Place spawn"}
-            </button>
+          {allowStops && <div className={commonStyles.formGroup}>
+            <label htmlFor={poiFieldId}>POI for the next stop</label>
+            <select id={poiFieldId} className={commonStyles.formControl} value={selectedPoi?.id || ""} disabled={disabled}
+              onChange={(event) => { cancelPlacement(); setPoiId(event.target.value); }}>
+              <option value="">Choose a POI</option>
+              {poiOptions.map((poi) => <option key={poi.id} value={poi.id}>{poi.name}</option>)}
+            </select>
+            {!poiOptions.length && <small>Ask the Curator to attach complete AR content to a POI at this landmark.</small>}
+            {selectedPoi && <small>{selectedPoi.contentTypes.join(", ")}</small>}
+          </div>}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+            {allowStops && <button type="button" className={commonStyles.btnPrimary}
+              disabled={disabled || modelStatus !== "ready" || !selectedPoi || stops.length >= MAX_TOUR_STOPS}
+              onClick={() => startPlacement("stop")}>Add VR stop</button>}
+            {enabled && <button type="button" className={commonStyles.btnOutline}
+              disabled={disabled || modelStatus !== "ready"}
+              onClick={() => startPlacement("spawn")}>Place spawn</button>}
+            {placementActive && <button type="button" className={commonStyles.btnOutline}
+              onClick={cancelPlacement}>Cancel placement</button>}
           </div>
           <model-viewer
+            key={modelUrl}
             ref={modelViewerRef}
             src={modelUrl}
-            alt="Model preview"
+            alt="Landmark model preview"
+            camera-controls={!placementActive}
             camera-orbit="0deg 65deg 70%"
             interaction-prompt="none"
+            onload={() => setModelLoad({ url: modelUrl, status: "ready" })}
+            onerror={() => setModelLoad({ url: modelUrl, status: "error" })}
             onClick={handleViewerClick}
             style={{
               display: "block",
               width: "100%",
-              height: "clamp(420px, 55vh, 560px)",
+              height: "clamp(280px, 55vh, 560px)",
               background: "#111",
               borderRadius: 6,
-              cursor: placementArmed ? "crosshair" : "grab",
+              cursor: placementActive ? "crosshair" : "grab",
             }}
           >
-            <button
+            {enabled && <button
               slot="hotspot-spawn"
               type="button"
               aria-label="Current spawn point; click to reposition it"
@@ -163,8 +160,7 @@ const ModelSpawnPointEditor = ({ enabled, onEnabledChange, value, onChange, mode
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();
-                setPlacementArmed(true);
-                setPlacementMessage("Placement mode on. Click or tap the model where the player should spawn.");
+                if (!disabled) startPlacement("spawn");
               }}
               style={{
                 display: "grid",
@@ -180,11 +176,34 @@ const ModelSpawnPointEditor = ({ enabled, onEnabledChange, value, onChange, mode
               }}
             >
               <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: "#111" }} />
-            </button>
+            </button>}
+            {stops.map((stop, index) => (
+              <span key={stop.id}
+                slot={`hotspot-stop-${stop.id}`}
+                data-position={formatVector(stop.position)}
+                data-normal={formatVector(stop.surfaceNormal)}
+                style={{ pointerEvents: "none", borderRadius: "50%", padding: "4px 9px", background: "#d4af37", color: "#111", fontWeight: 700 }}>
+                {index + 1}
+              </span>
+            ))}
           </model-viewer>
-          <small role="status" style={{ display: "block", minHeight: "1.1rem", marginTop: "0.45rem", color: placementMessage ? "#d4af37" : "#999" }}>
-            {placementMessage || "The marker shows the saved spawn location. Click it or Place spawn to choose a new spot."}
+          <small role="status" style={{ display: "block", minHeight: "1.1rem", marginTop: "0.45rem", color: "#d4af37" }}>
+            {modelStatus === "error" ? "This GLB could not be previewed. Check the export and choose the file again."
+              : modelStatus === "loading" ? "Loading model preview…"
+                : placementMessage || "Drag to orbit and zoom in before placing a stop."}
           </small>
+          {stops.length > 0 && <ol>
+            {stops.map((stop) => {
+              const poi = poiOptions.find((option) => option.id === stop.poiId);
+              return <li key={stop.id} style={{ marginBottom: 6 }}>
+                {poi?.name || "POI no longer available"}{" "}
+                <button type="button" className={commonStyles.btnOutline}
+                  disabled={disabled}
+                  aria-label={`Remove stop for ${poi?.name || "unavailable POI"}`}
+                  onClick={() => onStopsChange(stops.filter((item) => item.id !== stop.id))}>Remove</button>
+              </li>;
+            })}
+          </ol>}
         </div>
       )}
     </fieldset>

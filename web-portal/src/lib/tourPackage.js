@@ -7,6 +7,12 @@ const MAX_TOUR_MODEL_BYTES = 1024 ** 3;
 const MAX_MANIFEST_BYTES = 64 * 1024;
 const MAX_ZIP_BYTES = MAX_TOUR_MODEL_BYTES + MAX_MANIFEST_BYTES + 1024 * 1024;
 const MAX_SCENE_JSON_BYTES = 64 * 1024 * 1024;
+export const MAX_TOUR_STOPS = 24;
+const mobileDecoderExtensions = new Map([
+  ["KHR_draco_mesh_compression", "Draco"],
+  ["EXT_meshopt_compression", "Meshopt"],
+  ["KHR_texture_basisu", "KTX2 / Basis"],
+]);
 const entriesExpected = new Set(["model.glb", "tour.json"]);
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -122,8 +128,8 @@ export const isTourDocumentId = (value) => typeof value === "string" && value.le
 export function readTourManifest(raw) {
   const landmarkId = raw?.landmarkId ?? "";
   if (raw?.version !== 2 || (landmarkId !== "" && !isTourDocumentId(landmarkId)) ||
-    !Array.isArray(raw.exhibits) || raw.exhibits.length < 1 || raw.exhibits.length > 24) {
-    throw new Error("tour.json must be a version 2 ScenARy export with 1 to 24 trigger links.");
+    !Array.isArray(raw.exhibits) || raw.exhibits.length < 1 || raw.exhibits.length > MAX_TOUR_STOPS) {
+    throw new Error(`A version 2 ScenARy tour must have 1 to ${MAX_TOUR_STOPS} trigger links.`);
   }
   const names = new Set();
   const exhibits = raw.exhibits.map((stop, index) => {
@@ -141,7 +147,7 @@ export function resolveTourLandmarkId(manifest, pois) {
   const landmarkId = manifest.landmarkId || byId.get(manifest.exhibits[0].poiId)?.landmarkId;
   if (!isTourDocumentId(landmarkId) ||
     manifest.exhibits.some(({ poiId }) => byId.get(poiId)?.landmarkId !== landmarkId)) {
-    throw new Error("The ZIP links to missing POIs or to POIs from different landmarks. Refresh the POI list in Unity and re-export.");
+    throw new Error("A stop links to a POI that was removed or belongs to a different landmark. Update the stop and try again.");
   }
   return landmarkId;
 }
@@ -150,13 +156,19 @@ export function validateTourRecords(manifest, landmark, pois, contents, options)
   const landmarkId = resolveTourLandmarkId(manifest, pois);
   const institutionId = landmark?.institutionId;
   if (landmark?.id !== landmarkId || !isTourDocumentId(institutionId)) {
-    throw new Error("The landmark in this ZIP no longer exists or has no institution.");
+    throw new Error("The landmark for this tour is no longer available. Choose a landmark again.");
   }
   const catalog = createPoiCatalog(institutionId, landmark, pois, contents, options);
   const available = new Map(catalog.pois.map((poi) => [poi.id, poi]));
+  const poiNames = new Map(pois.filter((poi) => poi.institutionId === institutionId).map((poi) => [poi.id, poi.name]));
   const stops = manifest.exhibits.map(({ anchor, poiId }) => {
     const poi = available.get(poiId);
-    if (!poi) throw new Error(`The POI for “${anchor}” is unavailable. It must belong to this landmark and have published content.`);
+    if (!poi) {
+      const name = poiNames.get(poiId);
+      throw new Error(name
+        ? `Ask the Curator to add complete AR content to “${name}”, or choose another POI for this stop.`
+        : "A linked POI no longer belongs to this institution. Choose another POI for this stop.");
+    }
     return { anchor, ...poi };
   });
   const linkedContentIds = new Set([
@@ -183,14 +195,14 @@ export function validateTourRecords(manifest, landmark, pois, contents, options)
   };
 }
 
-async function validateModelAnchors(model, exhibits) {
-  if (model.size < 20) throw new Error("model.glb is too short to be a GLB.");
+async function readModelScene(model) {
+  if (model.size < 20) throw new Error("This GLB is empty or incomplete. Export the model again.");
   const header = await viewOf(model, 0, 20);
   const jsonLength = header.getUint32(12, true);
   if (header.getUint32(0, true) !== 0x46546c67 || header.getUint32(4, true) !== 2 ||
     header.getUint32(8, true) !== model.size || header.getUint32(16, true) !== 0x4e4f534a ||
-    jsonLength > MAX_SCENE_JSON_BYTES || jsonLength > model.size - 20) {
-    throw new Error("model.glb must be a valid GLB 2 file with a readable scene.");
+    jsonLength === 0 || jsonLength % 4 !== 0 || jsonLength > MAX_SCENE_JSON_BYTES || jsonLength > model.size - 20) {
+    throw new Error("This file is not a readable GLB. In Blender, export as glTF Binary (.glb).");
   }
   let scene;
   try {
@@ -200,7 +212,10 @@ async function validateModelAnchors(model, exhibits) {
   }
   if (!scene || typeof scene !== "object" ||
     (scene.images != null && !Array.isArray(scene.images)) ||
-    (scene.buffers != null && !Array.isArray(scene.buffers))) throw new Error("model.glb has invalid scene metadata.");
+    (scene.buffers != null && !Array.isArray(scene.buffers)) ||
+    (scene.extensionsRequired != null && !Array.isArray(scene.extensionsRequired))) {
+    throw new Error("This GLB has invalid scene metadata. Export the model again.");
+  }
   if ((scene.images ?? []).concat(scene.buffers ?? []).some((part) =>
     typeof part?.uri === "string" && !part.uri.startsWith("data:"))) {
     throw new Error("model.glb references external files. Export the model with its textures and geometry embedded.");
@@ -214,6 +229,23 @@ async function validateModelAnchors(model, exhibits) {
       throw new Error("model.glb is missing its embedded geometry or texture data.");
     }
   }
+  return { scene, binaryOffset: 20 + jsonLength };
+}
+
+export async function inspectTourModel(file) {
+  if (!file?.name?.toLowerCase().endsWith(".glb") || file.size > MAX_TOUR_MODEL_BYTES) {
+    throw new Error("Choose a GLB model of 1 GB or smaller.");
+  }
+  const model = await readModelScene(file);
+  const missingDecoders = (model.scene.extensionsRequired ?? [])
+    .map((extension) => mobileDecoderExtensions.get(extension)).filter(Boolean);
+  if (missingDecoders.length) {
+    throw new Error(`This model needs ${missingDecoders.join(", ")} decoding on the phone. Export again with that compression disabled.`);
+  }
+  return { ...model, hasSpawn: validateModelAnchors(model.scene, []) };
+}
+
+function validateModelAnchors(scene, exhibits) {
   const nodes = scene.nodes;
   const roots = Number.isInteger(scene.scene) ? scene.scenes?.[scene.scene]?.nodes : null;
   if (!Array.isArray(nodes) || !Array.isArray(roots) || roots.length === 0) {
@@ -242,6 +274,66 @@ async function validateModelAnchors(model, exhibits) {
   if (!hasGeometry) throw new Error("model.glb has no renderable geometry in its default scene.");
   const invalid = exhibits.filter(({ anchor }) => names.get(anchor) !== 1);
   if (invalid.length) throw new Error(`Every trigger must name one object in the default scene. Check: ${invalid.map(({ anchor }) => anchor).join(", ")}.`);
+  return names.get("PlayerSpawn") === 1;
+}
+
+const positionOf = (point) => ["x", "y", "z"].map((axis) => {
+  const value = point?.[axis];
+  if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) {
+    throw new Error("A tour point has an invalid position. Place it again on the model.");
+  }
+  return value;
+});
+
+export async function createPlacedTour(file, landmarkId, stops, spawnPoint) {
+  if (!isTourDocumentId(landmarkId) || !Array.isArray(stops) || stops.length < 1 || stops.length > MAX_TOUR_STOPS) {
+    throw new Error(`Choose a landmark and place between 1 and ${MAX_TOUR_STOPS} VR stops.`);
+  }
+  const { scene, binaryOffset } = await inspectTourModel(file);
+  const roots = scene.scenes[scene.scene].nodes;
+  const usedNames = new Set(scene.nodes.map((node) => node?.name));
+  let nextAnchor = 1;
+  const addNode = (node) => {
+    roots.push(scene.nodes.length);
+    scene.nodes.push(node);
+  };
+  const exhibits = stops.map((stop) => {
+    while (usedNames.has(`ScenARy_Stop_${nextAnchor}`)) nextAnchor++;
+    const anchor = `ScenARy_Stop_${nextAnchor++}`;
+    addNode({ name: anchor, translation: positionOf(stop.position) });
+    return { anchor, poiId: stop.poiId };
+  });
+  if (spawnPoint) {
+    // The mobile loader already uses a PlayerSpawn node when no override is present.
+    for (const node of scene.nodes) {
+      if (node?.name !== "PlayerSpawn") continue;
+      while (usedNames.has(`ScenARy_Previous_Spawn_${nextAnchor}`)) nextAnchor++;
+      node.name = `ScenARy_Previous_Spawn_${nextAnchor++}`;
+    }
+    const yaw = Number(spawnPoint.rotation?.y ?? 0);
+    if (!Number.isFinite(yaw)) throw new Error("Enter a valid spawn yaw.");
+    const halfYaw = (yaw % 360) * Math.PI / 360;
+    addNode({
+      name: "PlayerSpawn",
+      translation: positionOf(spawnPoint.position),
+      rotation: [0, Math.sin(halfYaw), 0, Math.cos(halfYaw)],
+    });
+  }
+  const manifest = readTourManifest({ version: 2, landmarkId, exhibits });
+  const json = new TextEncoder().encode(JSON.stringify(scene));
+  const padding = (4 - json.length % 4) % 4;
+  const total = 20 + json.length + padding + file.size - binaryOffset;
+  if (json.length + padding > MAX_SCENE_JSON_BYTES || total > MAX_TOUR_MODEL_BYTES) {
+    throw new Error("The model with the new stops exceeds the GLB upload limit.");
+  }
+  const header = new DataView(new ArrayBuffer(20));
+  [0x46546c67, 2, total, json.length + padding, 0x4e4f534a]
+    .forEach((value, index) => header.setUint32(index * 4, value, true));
+  const model = new Blob(
+    [header.buffer, json, new Uint8Array(padding).fill(0x20), file.slice(binaryOffset)],
+    { type: "model/gltf-binary" },
+  );
+  return { manifest, model, name: file.name };
 }
 
 export async function readTourPackage(file) {
@@ -256,6 +348,7 @@ export async function readTourPackage(file) {
   const manifest = readTourManifest(raw);
   const model = await openZipEntry(file, "model.glb", entries.get("model.glb"), offset);
   if (model.start < metadata.end && metadata.start < model.end) throw new Error("The ZIP entries overlap.");
-  await validateModelAnchors(model.blob, manifest.exhibits);
+  const { scene } = await readModelScene(model.blob);
+  validateModelAnchors(scene, manifest.exhibits);
   return { manifest, model: model.blob, name: file.name };
 }

@@ -1099,7 +1099,8 @@ const InstituteContentManagement = () => {
                                   : "Verify and approve this model"
                             }
                           >
-                            {approvingContentId === item.id ? "Approving..." : "Verify and approve"}
+                            {approvingContentId === item.id ? "Publishing..." :
+                              isTourPackage(item) ? "Publish AR and VR" : "Verify and approve"}
                           </button>
                         )}
                       {item.type === MODEL_CONTENT_TYPE && item.status === "Awaiting Curator Approval" && (
@@ -1548,7 +1549,10 @@ const InstituteContentManagement = () => {
       >
         {currentContent && (
           <>
-            <ContentPreview content={currentContent} />
+            <ContentPreview content={currentContent} poiNames={Object.fromEntries(
+              assignmentTargets.filter((target) => target.collectionName === "pois")
+                .map((target) => [target.id, target.name]),
+            )} />
             {currentContent.targetId && (
               <LandmarkDiscussion
                 institutionId={userInstitutionId}
