@@ -125,11 +125,11 @@ const LandmarkDiscussion = ({ institutionId, landmarkId }) => {
     }
   };
 
-  if (!["institution", "developer"].includes(currentRole || "")) return null;
+  if (!["institution", "3d-modeler"].includes(currentRole || "")) return null;
 
   return (
     <section style={{ marginTop: 24, padding: 18, border: "1px solid #3b3528", borderRadius: 12, background: "#11100d" }}>
-      <h3 style={{ margin: "0 0 6px", color: "#f5d477" }}>Developer / Curator discussion</h3>
+      <h3 style={{ margin: "0 0 6px", color: "#f5d477" }}>3D Modeler / Curator discussion</h3>
       <p style={{ margin: "0 0 14px", color: "#aaa", fontSize: 13 }}>
         Share model references, feedback, and contract documents for this landmark.
       </p>

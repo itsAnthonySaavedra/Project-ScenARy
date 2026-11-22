@@ -12,13 +12,13 @@ const Login: React.FC = () => {
   // Determine portal type from URL query
   const requestedType = (searchParams.get("type") || "institution").toLowerCase();
   const loginType =
-    requestedType === "admin" || requestedType === "developer"
+    requestedType === "admin" || requestedType === "3d-modeler"
       ? requestedType
       : "institution";
   const isAdmin = loginType === "admin";
   const portalLabel = isAdmin
     ? "Admin"
-    : loginType === "developer" ? "Developer / 3D modeller" : "Curator";
+    : loginType === "3d-modeler" ? "3D Modeler" : "Curator";
 
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
@@ -59,8 +59,8 @@ const Login: React.FC = () => {
         navigate("/change-password");
       } else {
         navigate(
-          role === "developer"
-            ? "/developer"
+          role === "3d-modeler"
+            ? "/3d-modeler"
             : role === "institution"
               ? "/institution/dashboard"
               : "/admin/dashboard",
@@ -163,7 +163,7 @@ const Login: React.FC = () => {
             <p style={{ fontSize: "0.8rem" }}>
               {isAdmin ? (
                 "Restricted area for ScenARy administrators only."
-              ) : loginType === "developer" ? (
+              ) : loginType === "3d-modeler" ? (
                 <>
                   Sign in to your assigned model workspace.{" "}
                   <Link

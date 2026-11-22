@@ -49,7 +49,7 @@ const getAssignedInstitutionIds = (profileData) => {
   return [...new Set([...list, ...single])];
 };
 
-const DeveloperWorkspace = () => {
+const ModelerWorkspace = () => {
   const { currentUser } = useAuth();
   const [assignedInstitutions, setAssignedInstitutions] = useState([]);
   const [institutionId, setInstitutionId] = useState("");
@@ -87,7 +87,7 @@ const DeveloperWorkspace = () => {
         if (disposed) return;
         const ids = getAssignedInstitutionIds(profile.data());
         if (!profile.exists() || ids.length === 0) {
-          setError("Your Developer account must be assigned to at least one institution.");
+          setError("Your 3D Modeler account must be assigned to at least one institution.");
           setAssignedInstitutions([]);
           setInstitutionId("");
           setLoading(false);
@@ -110,8 +110,8 @@ const DeveloperWorkspace = () => {
         setLoading(false);
       } catch (profileError) {
         if (disposed) return;
-        console.error("Unable to load Developer workspace profile:", profileError);
-        setError(getFirebaseErrorMessage(profileError, "Unable to load your Developer workspace."));
+        console.error("Unable to load 3D Modeler workspace profile:", profileError);
+        setError(getFirebaseErrorMessage(profileError, "Unable to load your 3D Modeler workspace."));
         setLoading(false);
       }
     };
@@ -148,7 +148,7 @@ const DeveloperWorkspace = () => {
         setError("");
       },
       (snapshotError) => {
-        console.error("Unable to load Developer content:", snapshotError);
+        console.error("Unable to load 3D Modeler content:", snapshotError);
         setError(getFirebaseErrorMessage(snapshotError, "Unable to load content for this institution."));
       },
     );
@@ -163,7 +163,7 @@ const DeveloperWorkspace = () => {
         );
       },
       (snapshotError) => {
-        console.error("Unable to load Developer landmarks:", snapshotError);
+        console.error("Unable to load 3D Modeler landmarks:", snapshotError);
         setError(getFirebaseErrorMessage(snapshotError, "Unable to load landmarks."));
       },
     );
@@ -172,7 +172,7 @@ const DeveloperWorkspace = () => {
       query(collection(db, "pois"), where("institutionId", "==", institutionId)),
       (snapshot) => setPois(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
       (snapshotError) => {
-        console.error("Unable to load Developer POIs:", snapshotError);
+        console.error("Unable to load 3D Modeler POIs:", snapshotError);
         setError(getFirebaseErrorMessage(snapshotError, "Unable to load POIs."));
       },
     );
@@ -296,7 +296,7 @@ const DeveloperWorkspace = () => {
       try {
         await writeAuditLog({
           actorId: currentUser.uid,
-          actorRole: "developer",
+          actorRole: "3d-modeler",
           action: "content.model-uploaded",
           entityType: "content",
           entityId: contentRef.id,
@@ -320,7 +320,7 @@ const DeveloperWorkspace = () => {
       setSpawnPoint(createDefaultModelSpawnPoint());
       setSpawnPointEnabled(false);
     } catch (uploadError) {
-      console.error("Unable to upload Developer VR model:", uploadError);
+      console.error("Unable to upload 3D Modeler VR model:", uploadError);
       setError(getFirebaseErrorMessage(uploadError, uploadError.message || "Unable to upload the VR model."));
     } finally {
       setSaving(false);
@@ -335,7 +335,7 @@ const DeveloperWorkspace = () => {
       !hasReadyARForLandmark(targetLandmark, pois, contents) ||
       !isContentReady(item)
     ) {
-      setError("Complete AR content and model details are required before Developer approval.");
+      setError("Complete AR content and model details are required before 3D Modeler approval.");
       return;
     }
     setApprovingModelId(item.id);
@@ -355,20 +355,20 @@ const DeveloperWorkspace = () => {
       try {
         await writeAuditLog({
           actorId: currentUser.uid,
-          actorRole: "developer",
+          actorRole: "3d-modeler",
           action: "content.developer-approved",
           entityType: "content",
           entityId: item.id,
           metadata: { institutionId, title: item.title },
           throwOnFailure: true,
         });
-        setNotice("Developer review recorded. The model is ready for Curator verification.");
+        setNotice("3D Modeler review recorded. The model is ready for Curator verification.");
       } catch (auditError) {
-        console.error("Developer approval was saved, but its audit record could not be written:", auditError);
-        setNotice("Developer review was saved, but its activity record could not be written.");
+        console.error("3D Modeler approval was saved, but its audit record could not be written:", auditError);
+        setNotice("3D Modeler review was saved, but its activity record could not be written.");
       }
     } catch (approvalError) {
-      console.error("Unable to record Developer model approval:", approvalError);
+      console.error("Unable to record 3D Modeler model approval:", approvalError);
       setError(getFirebaseErrorMessage(approvalError, "Unable to approve this model."));
     } finally {
       setApprovingModelId("");
@@ -380,18 +380,18 @@ const DeveloperWorkspace = () => {
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 20px", color: "#ddd" }}>
       <PageHeader
-        eyebrow="Developer / 3D modeller"
+        eyebrow="3D Modeler"
         title="Model Workspace"
         description={`Active institution: ${activeInstitutionName}. Switch institutions to review AR drafts, upload VR models, and coordinate with Curators.`}
       />
 
       {assignedInstitutions.length > 0 && (
         <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <label htmlFor="developer-institution-select" style={{ color: "#f3d16f", fontWeight: 600 }}>
+          <label htmlFor="modeler-institution-select" style={{ color: "#f3d16f", fontWeight: 600 }}>
             Institution ({assignedInstitutions.length} assigned):
           </label>
           <select
-            id="developer-institution-select"
+            id="modeler-institution-select"
             value={institutionId}
             onChange={(event) => {
               setInstitutionId(event.target.value);
@@ -588,7 +588,7 @@ const DeveloperWorkspace = () => {
                 <div>
                   <strong style={{ color: "#eee" }}>{item.title || "Untitled VR model"}</strong>
                   <div style={{ color: "#999", fontSize: 12 }}>
-                    {item.status || "Draft"} · {item.developerApproved ? "Developer approved" : "Developer review required"}
+                    {item.status || "Draft"} · {item.developerApproved ? "3D Modeler approved" : "3D Modeler review required"}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -637,14 +637,14 @@ const DeveloperWorkspace = () => {
         <TourPackageUpload
           institutions={assignedInstitutions}
           allowedInstitutionId={institutionId}
-          developerUid={currentUser?.uid || null}
+          modelerUid={currentUser?.uid || null}
           onClose={() => setIsTourUploadOpen(false)}
           onSaved={async (saved) => {
             setIsTourUploadOpen(false);
             try {
               await writeAuditLog({
                 actorId: currentUser?.uid || null,
-                actorRole: "developer",
+                actorRole: "3d-modeler",
                 action: "content.model-uploaded",
                 entityType: "content",
                 entityId: saved.id,
@@ -687,4 +687,4 @@ const DeveloperWorkspace = () => {
   );
 };
 
-export default DeveloperWorkspace;
+export default ModelerWorkspace;

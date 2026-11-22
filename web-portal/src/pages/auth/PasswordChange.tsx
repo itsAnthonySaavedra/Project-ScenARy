@@ -30,8 +30,8 @@ const PasswordChange: React.FC = () => {
     return (
       <Navigate
         to={
-          currentRole === "developer"
-            ? "/developer"
+          currentRole === "3d-modeler"
+            ? "/3d-modeler"
             : currentRole === "institution"
               ? "/institution/dashboard"
               : "/admin/dashboard"
@@ -59,8 +59,8 @@ const PasswordChange: React.FC = () => {
       const result = await changePassword(currentPassword, newPassword);
       if (result.warning) window.alert(result.warning);
       navigate(
-        currentRole === "developer"
-          ? "/developer"
+        currentRole === "3d-modeler"
+          ? "/3d-modeler"
           : currentRole === "institution"
             ? "/institution/dashboard"
             : "/admin/dashboard",

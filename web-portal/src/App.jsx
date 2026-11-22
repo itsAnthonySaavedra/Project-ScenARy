@@ -33,7 +33,7 @@ import InstituteAnalytics from "./pages/institution/Analytics";
 import LandmarkManagement from "./pages/institution/LandmarkManagement";
 import POIManagement from "./pages/institution/POIManagement";
 import InstituteContentManagement from "./pages/institution/ContentManagement";
-import DeveloperWorkspace from "./pages/developer/Workspace";
+import ModelerWorkspace from "./pages/3d-modeler/Workspace";
 
 function ProtectedRoute({ role, children }) {
   const { currentUser, currentRole, mustChangePassword } = useAuth();
@@ -56,8 +56,8 @@ function ProtectedRoute({ role, children }) {
         to={
           currentRole === "admin" || currentRole === "superadmin"
             ? "/admin/dashboard"
-            : currentRole === "developer"
-              ? "/developer"
+            : currentRole === "3d-modeler"
+              ? "/3d-modeler"
               : "/institution/dashboard"
         }
         replace
@@ -101,14 +101,14 @@ function AppRoutes() {
       </Route>
 
       <Route
-        path="/developer"
+        path="/3d-modeler"
         element={
-          <ProtectedRoute role="developer">
-            <Layout role="developer" />
+          <ProtectedRoute role="3d-modeler">
+            <Layout role="3d-modeler" />
           </ProtectedRoute>
         }
       >
-        <Route index element={<DeveloperWorkspace />} />
+        <Route index element={<ModelerWorkspace />} />
       </Route>
 
       {/* Institute Routes */}

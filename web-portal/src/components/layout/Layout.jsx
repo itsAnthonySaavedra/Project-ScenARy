@@ -21,7 +21,7 @@ const Layout = ({ role }) => {
 };
 
 Layout.propTypes = {
-    role: PropTypes.oneOf(['admin', 'institution', 'developer']).isRequired,
+    role: PropTypes.oneOf(['admin', 'institution', '3d-modeler']).isRequired,
 };
 
 export default Layout;

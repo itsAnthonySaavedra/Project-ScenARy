@@ -56,7 +56,7 @@ const AdminActivityFeed = () => {
           const timestamp = item.createdAt?.toMillis?.() || 0;
           return (
             timestamp > clearedAt &&
-            ["institution", "curator", "developer"].includes(item.actorRole) &&
+            ["institution", "curator", "3d-modeler"].includes(item.actorRole) &&
             relevantActions.has(item.action)
           );
         });

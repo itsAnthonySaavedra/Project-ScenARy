@@ -21,7 +21,7 @@ const Landing = () => {
           <Link to="/login?type=institution" className={styles.btnOutline}>
             Curator Login
           </Link>
-          <Link to="/login?type=developer" className={styles.btnOutline}>
+          <Link to="/login?type=3d-modeler" className={styles.btnOutline}>
             Modeler Login
           </Link>
         </div>

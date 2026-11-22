@@ -23,7 +23,7 @@ import { useNavigate } from "react-router-dom";
 import { writeAuditLog } from "../lib/auditLog";
 import { getFirebaseErrorMessage } from "../lib/firebaseErrorMessage";
 
-export type UserRole = "admin" | "superadmin" | "institution" | "developer";
+export type UserRole = "admin" | "superadmin" | "institution" | "3d-modeler";
 
 interface AuthContextType {
   currentUser: User | null;
@@ -32,7 +32,7 @@ interface AuthContextType {
   login: (
     email: string,
     password: string,
-    expectedRole: "admin" | "institution" | "developer",
+    expectedRole: "admin" | "institution" | "3d-modeler",
   ) => Promise<{
     success: boolean;
     role?: UserRole;
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = async (
     email: string,
     password: string,
-    expectedRole: "admin" | "institution" | "developer",
+    expectedRole: "admin" | "institution" | "3d-modeler",
   ): Promise<{
     success: boolean;
     role?: UserRole;
@@ -109,7 +109,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const storedRole = String(profile.role || "").toLowerCase();
       if (
         expectedRole !== "admin" &&
-        ["institute", "institution", "curator", "developer"].includes(storedRole)
+        ["institute", "institution", "curator", "3d-modeler"].includes(storedRole)
       ) {
         const institutionId = profile.institutionId;
         const institutionSnapshot = institutionId
@@ -128,8 +128,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ? "admin"
           : storedRole === "superadmin"
             ? "superadmin"
-            : storedRole === "developer"
-              ? "developer"
+            : storedRole === "3d-modeler"
+              ? "3d-modeler"
               : ["institute", "institution", "curator"].includes(storedRole)
               ? "institution"
               : null;
@@ -280,8 +280,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setCurrentRole(null);
     setMustChangePassword(false);
     navigate(
-      role === "developer"
-        ? "/login?type=developer"
+      role === "3d-modeler"
+        ? "/login?type=3d-modeler"
         : role === "institution"
           ? "/login?type=institution"
           : "/login?type=admin",
@@ -298,7 +298,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const expectedRole = sessionStorage.getItem("scenaryExpectedRole") as
         | "admin"
         | "institution"
-        | "developer"
+        | "3d-modeler"
         | null;
       const expectedUserId = sessionStorage.getItem("scenaryUserId");
 
@@ -361,8 +361,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const role: UserRole | null =
           storedRole === "admin" || storedRole === "superadmin"
             ? storedRole
-            : storedRole === "developer"
-              ? "developer"
+            : storedRole === "3d-modeler"
+              ? "3d-modeler"
               : ["institute", "institution", "curator"].includes(storedRole)
               ? "institution"
               : null;
@@ -451,8 +451,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setMustChangePassword(false);
         navigate(
           `/login?type=${
-            currentRole === "developer"
-              ? "developer"
+            currentRole === "3d-modeler"
+              ? "3d-modeler"
               : currentRole === "institution"
                 ? "institution"
                 : "admin"
@@ -464,7 +464,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [currentRole, currentUser, navigate]);
 
   useEffect(() => {
-    if (!["institution", "developer"].includes(currentRole || "") || !currentUser) return undefined;
+    if (!["institution", "3d-modeler"].includes(currentRole || "") || !currentUser) return undefined;
 
     let disposed = false;
     let unsubscribeInstitution = () => {};
@@ -484,7 +484,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setCurrentUser(null);
             setCurrentRole(null);
             setMustChangePassword(false);
-            navigate(`/login?type=${currentRole === "developer" ? "developer" : "institution"}`);
+            navigate(`/login?type=${currentRole === "3d-modeler" ? "3d-modeler" : "institution"}`);
           },
           (error) => console.error("Unable to monitor institution status:", error),
         );

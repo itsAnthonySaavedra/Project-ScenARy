@@ -4,7 +4,7 @@ import PageHeader from "../../components/common/PageHeader";
 
 const actions = [
   { to: "/admin/content", icon: "fa-layer-group", title: "Browse content", description: "Read-only access to drafts and published content." },
-  { to: "/admin/users", icon: "fa-users", title: "Manage users", description: "Create and maintain Admin, Developer, and Curator accounts." },
+  { to: "/admin/users", icon: "fa-users", title: "Manage users", description: "Create and maintain Admin, 3D-modeler, and Curator accounts." },
   { to: "/admin/map", icon: "fa-map-location-dot", title: "Map system", description: "Manage platform map settings." },
   { to: "/admin/activity-logs", icon: "fa-list-check", title: "Activity logs", description: "Review recorded system activity." },
 ];

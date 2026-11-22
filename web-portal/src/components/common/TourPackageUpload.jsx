@@ -10,7 +10,7 @@ export default function TourPackageUpload({
   onClose,
   onSaved,
   allowedInstitutionId = null,
-  developerUid = null,
+  modelerUid = null,
 }) {
   const fileId = useId();
   const titleId = useId();
@@ -34,7 +34,7 @@ export default function TourPackageUpload({
       const parsed = await readTourPackage(file);
       const destination = await inspectTourTarget(parsed.manifest, { includeDrafts: true });
       if (allowedInstitutionId && destination.institutionId !== allowedInstitutionId) {
-        throw new Error("This Developer account can only upload tours for its assigned institution.");
+        throw new Error("This 3D Modeler account can only upload tours for its assigned institution.");
       }
       setTour(parsed);
       setTarget(destination);
@@ -54,7 +54,7 @@ export default function TourPackageUpload({
     setProgress(0);
     try {
       const saved = await saveTourDraft(tour, target, title, setProgress, {
-        developerUid,
+        modelerUid,
         allowedInstitutionId,
       });
       onSaved(saved);
@@ -89,7 +89,7 @@ export default function TourPackageUpload({
             <ul>
               {target.stops.map((stop) => <li key={stop.anchor}>{stop.anchor} → {stop.name}</li>)}
             </ul>
-            <p>The Developer technical approval is recorded on submission. The Curator verifies and publishes the AR/VR pair.</p>
+            <p>The 3D Modeler technical approval is recorded on submission. The Curator verifies and publishes the AR/VR pair.</p>
           </>
         )}
         {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}

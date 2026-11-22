@@ -36,7 +36,7 @@ interface UserType {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "superadmin" | "institution" | "curator" | "developer" | "user";
+  role: "admin" | "superadmin" | "institution" | "curator" | "3d-modeler" | "user";
   status: "Active" | "Deactivated" | "Inactive" | "Banned";
   institutionId?: string | null;
   institutionIds?: string[];
@@ -45,7 +45,7 @@ interface UserType {
   mustChangePassword?: boolean;
 }
 
-type UserAssignmentRole = "admin" | "superadmin" | "curator" | "developer";
+type UserAssignmentRole = "admin" | "superadmin" | "curator" | "3d-modeler";
 
 interface Institution {
   id: string;
@@ -134,7 +134,7 @@ const getUserInstitutionIds = (user: Pick<UserType, "institutionId" | "instituti
 const hasUnpublishedSitePreview = (user: UserType) =>
   user.canPreviewUnpublishedSite === true ||
   (user.canPreviewUnpublishedSite === undefined &&
-    ["institution", "curator", "developer"].includes(user.role) &&
+    ["institution", "curator", "3d-modeler"].includes(user.role) &&
     getUserInstitutionIds(user).length > 0);
 
 // Secondary Firebase app for user creation (won't affect your current session)
@@ -673,7 +673,7 @@ const UserManagement: React.FC = () => {
     setUserFormError("");
   };
 
-  const toggleDeveloperInstitution = (instId: string) => {
+  const toggleModelerInstitution = (instId: string) => {
     setSelectedInstitutionIds((prev) =>
       prev.includes(instId) ? prev.filter((id) => id !== instId) : [...prev, instId],
     );
@@ -699,13 +699,13 @@ const UserManagement: React.FC = () => {
     const isAdminOrSuperAdmin = ["admin", "superadmin"].includes(currentRole || "");
 
     const normalizedInstitutionIds =
-      role === "developer"
+      role === "3d-modeler"
         ? [...new Set(selectedInstitutionIds.map((id) => String(id).trim()).filter(Boolean))]
         : role === "curator"
           ? (form.institutionId?.value ? [String(form.institutionId.value).trim()] : [])
           : [];
     const primaryInstitutionId = normalizedInstitutionIds[0] || null;
-    const canPreviewUnpublishedSite = role === "curator" || role === "developer";
+    const canPreviewUnpublishedSite = role === "curator" || role === "3d-modeler";
 
     if (role === "superadmin" && !isSuperAdmin) {
       setUserFormError("Only a super admin can assign or modify the superadmin role.");
@@ -723,7 +723,7 @@ const UserManagement: React.FC = () => {
       setUserFormError("Select an institution for this curator account.");
       return;
     }
-    if (role === "developer" && normalizedInstitutionIds.length === 0) {
+    if (role === "3d-modeler" && normalizedInstitutionIds.length === 0) {
       setUserFormError("Select at least one institution for this 3D modeler account.");
       return;
     }
@@ -739,7 +739,7 @@ const UserManagement: React.FC = () => {
           canPreviewUnpublishedSite,
           additionalRoles: deleteField(),
         };
-        if (role === "developer") {
+        if (role === "3d-modeler") {
           updatePayload.institutionIds = normalizedInstitutionIds;
         } else if (role === "curator") {
           updatePayload.institutionIds = normalizedInstitutionIds;
@@ -759,7 +759,7 @@ const UserManagement: React.FC = () => {
                   role,
                   institutionId: primaryInstitutionId,
                   institutionIds:
-                    role === "curator" || role === "developer"
+                    role === "curator" || role === "3d-modeler"
                       ? normalizedInstitutionIds
                       : undefined,
                   canPreviewUnpublishedSite,
@@ -808,7 +808,7 @@ const UserManagement: React.FC = () => {
           mustChangePassword: false,
           createdAt: serverTimestamp(),
         };
-        if (role === "curator" || role === "developer") {
+        if (role === "curator" || role === "3d-modeler") {
           newUserDoc.institutionIds = normalizedInstitutionIds;
         }
 
@@ -839,7 +839,7 @@ const UserManagement: React.FC = () => {
             role,
             institutionId: primaryInstitutionId,
             institutionIds:
-              role === "curator" || role === "developer"
+              role === "curator" || role === "3d-modeler"
                 ? normalizedInstitutionIds
                 : undefined,
             canPreviewUnpublishedSite,
@@ -1030,10 +1030,10 @@ const UserManagement: React.FC = () => {
     currentRole === "superadmin"
       ? currentUser?.role === "superadmin"
         ? ["superadmin"]
-        : ["admin", "curator", "developer"]
+        : ["admin", "curator", "3d-modeler"]
       : currentUser?.role === "superadmin"
         ? ["superadmin"]
-        : ["admin", "curator", "developer"];
+        : ["admin", "curator", "3d-modeler"];
 
   /* =====================
      UI
@@ -1167,12 +1167,12 @@ const UserManagement: React.FC = () => {
                       <td>
                         {["institution", "curator"].includes(user.role)
                           ? "Curator"
-                          : user.role === "developer"
+                          : user.role === "3d-modeler"
                             ? "3D modeler"
                             : user.role}
                       </td>
                       <td>
-                        {["institution", "curator", "developer"].includes(user.role)
+                        {["institution", "curator", "3d-modeler"].includes(user.role)
                           ? assignedInstitutionNames.length > 0
                             ? assignedInstitutionNames.join(", ")
                             : "—"
@@ -1330,7 +1330,7 @@ const UserManagement: React.FC = () => {
                     <p>
                       {["institution", "curator"].includes(detailsUser.role)
                         ? "Curator"
-                        : detailsUser.role === "developer"
+                        : detailsUser.role === "3d-modeler"
                           ? "3D modeler"
                           : detailsUser.role || "-"}
                     </p>
@@ -1395,7 +1395,7 @@ const UserManagement: React.FC = () => {
                   onChange={(event) => {
                     const nextRole = event.target.value as UserAssignmentRole;
                     setSelectedRole(nextRole);
-                    if (nextRole !== "developer") {
+                    if (nextRole !== "3d-modeler") {
                       setSelectedInstitutionIds((prev) => prev.slice(0, 1));
                     }
                   }}
@@ -1404,7 +1404,7 @@ const UserManagement: React.FC = () => {
                     <option key={r} value={r}>
                       {r === "curator"
                         ? "Curator"
-                        : r === "developer"
+                        : r === "3d-modeler"
                           ? "3D modeler"
                           : r}
                     </option>
@@ -1428,7 +1428,7 @@ const UserManagement: React.FC = () => {
                 </div>
               )}
 
-              {selectedRole === "developer" && (
+              {selectedRole === "3d-modeler" && (
                 <div className={commonStyles.formGroup}>
                   <label>Assigned Institutions (select one or more)</label>
                   <div style={{ display: "grid", gap: "0.5rem", marginTop: "0.4rem" }}>
@@ -1442,7 +1442,7 @@ const UserManagement: React.FC = () => {
                           <input
                             type="checkbox"
                             checked={checked}
-                            onChange={() => toggleDeveloperInstitution(i.id)}
+                            onChange={() => toggleModelerInstitution(i.id)}
                           />
                           <span>{i.name}</span>
                         </label>

@@ -449,9 +449,9 @@ const InstituteContentManagement = () => {
     }
     if (
       normalizeContentType(selectedType) === MODEL_CONTENT_TYPE &&
-      currentRole !== "developer"
+      currentRole !== "3d-modeler"
     ) {
-      setFormError("Only a Developer / 3D modeller can upload a VR model.");
+      setFormError("Only a 3D Modeler can upload a VR model.");
       return;
     }
     if (
@@ -647,7 +647,7 @@ const InstituteContentManagement = () => {
   const handleInstitutionApproveModel = async (item) => {
     if (normalizeContentType(item.type) !== MODEL_CONTENT_TYPE) return;
     if (item.developerApproved !== true) {
-      setApprovalError("The Developer must review and approve the model before Curator verification.");
+      setApprovalError("The 3D Modeler must review and approve the model before Curator verification.");
       return;
     }
     const hasARForModel = hasReadyARForModel(item);
@@ -1251,7 +1251,7 @@ const InstituteContentManagement = () => {
               <option value="">Select Type</option>
               {CONTENT_TYPES.filter(
                 (type) =>
-                  (currentRole === "developer" || type !== MODEL_CONTENT_TYPE) &&
+                  (currentRole === "3d-modeler" || type !== MODEL_CONTENT_TYPE) &&
                   (formScope !== "POI" ||
                     isEditMode ||
                     ["Information", "Fun Fact", "Quiz"].includes(type)),

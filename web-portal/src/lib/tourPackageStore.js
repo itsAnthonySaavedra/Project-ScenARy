@@ -58,14 +58,14 @@ export async function saveTourDraft(
   expected,
   title,
   onProgress,
-  { developerUid = null, allowedInstitutionId = null } = {},
+  { modelerUid = null, allowedInstitutionId = null } = {},
 ) {
   const target = await inspectTourTarget(tour.manifest, { includeDrafts: true });
   if (target.landmark.id !== expected.landmark.id || target.institutionId !== expected.institutionId) {
     throw new Error("The ZIP destination changed. Select the file again to review its landmark.");
   }
   if (allowedInstitutionId && target.institutionId !== allowedInstitutionId) {
-    throw new Error("This Developer account can only upload tours for its assigned institution.");
+    throw new Error("This 3D Modeler account can only upload tours for its assigned institution.");
   }
 
   const contentRef = doc(collection(db, "content"));
@@ -91,7 +91,7 @@ export async function saveTourDraft(
         status: "Awaiting Curator Approval",
         developerApproved: true,
         developerApprovedAt: serverTimestamp(),
-        developerApprovedBy: developerUid,
+        developerApprovedBy: modelerUid,
         curatorApproved: false,
         institutionApproved: false,
         adminApproved: false,

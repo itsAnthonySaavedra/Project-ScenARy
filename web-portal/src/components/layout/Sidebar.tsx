@@ -6,12 +6,12 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 
 interface SidebarProps {
-  role?: "admin" | "superadmin" | "institution" | "developer";
+  role?: "admin" | "superadmin" | "institution" | "3d-modeler";
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
   const { currentUser, logout } = useAuth();
-  const [role, setRole] = useState<"admin" | "superadmin" | "institution" | "developer">(
+  const [role, setRole] = useState<"admin" | "superadmin" | "institution" | "3d-modeler">(
     initialRole || "admin",
   );
   const [displayName, setDisplayName] = useState("Loading...");
@@ -33,8 +33,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
               ? "superadmin"
               : userRole === "admin"
                 ? "admin"
-                : userRole === "developer"
-                  ? "developer"
+                : userRole === "3d-modeler"
+                  ? "3d-modeler"
                   : "institution",
           );
 
@@ -78,11 +78,11 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
     { path: "/institution/profile", icon: "fa-user", label: "Profile" },
   ];
 
-  const developerLinks = [
-    { path: "/developer", icon: "fa-cube", label: "Model Workspace" },
+  const modelerLinks = [
+    { path: "/3d-modeler", icon: "fa-cube", label: "Model Workspace" },
   ];
-  const links = role === "developer"
-    ? developerLinks
+  const links = role === "3d-modeler"
+    ? modelerLinks
     : role !== "institution" ? adminLinks : institutionLinks;
 
   return (
@@ -100,8 +100,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role: initialRole }) => {
               ? "Super Admin"
               : role === "admin"
                 ? "Admin"
-                : role === "developer"
-                  ? "Developer / 3D modeller"
+                : role === "3d-modeler"
+                  ? "3D Modeler"
                   : "Curator"}
           </span>
         </div>
