@@ -6,7 +6,12 @@ import commonStyles from "../../components/common/Common.module.css";
 import PageHeader from "../../components/common/PageHeader";
 import { db } from "../../lib/firebase";
 import { getContentScope } from "../../lib/contentScope";
-import { getContentAssignmentLimitError, normalizeContentType } from "../../lib/contentTypes";
+import {
+  getContentAssignmentLimitError,
+  MODEL_CONTENT_TYPE,
+  normalizeContentType,
+} from "../../lib/contentTypes";
+import { isContentReady } from "../../lib/contentQuality";
 import { writeAuditLog } from "../../lib/auditLog";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { createPoiCatalog, downloadPoiCatalog } from "../../lib/poiCatalog";
@@ -15,6 +20,126 @@ import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 
 const getPoiPublishStatus = (poi) =>
   poi?.status === "Published" || poi?.isPublished === true ? "Published" : "Unpublished";
+
+const isPoiPublished = (poi) => getPoiPublishStatus(poi) === "Published";
+
+const hasValidCoords = (item) =>
+  typeof item?.lat === "number" &&
+  Number.isFinite(item.lat) &&
+  typeof item?.lng === "number" &&
+  Number.isFinite(item.lng);
+
+const evaluatePoiReadiness = (contentIds = [], contents = []) => {
+  const assignedItems = (Array.isArray(contentIds) ? contentIds : [])
+    .map((id) => contents.find((item) => item.id === id))
+    .filter((item) => item && getContentScope(item) === "POI");
+
+  const readyItems = assignedItems.filter((item) => isContentReady(item));
+  const notReadyItems = assignedItems.filter((item) => !isContentReady(item));
+  const types = new Set(readyItems.map((item) => normalizeContentType(item.type)));
+
+  const missingTypes = [];
+  if (!types.has("Information")) missingTypes.push("Information");
+  if (!types.has("Quiz")) missingTypes.push("Quiz");
+  if (!types.has("Fun Fact")) missingTypes.push("Fun Fact");
+
+  const reasons = [];
+  if (missingTypes.length > 0) {
+    reasons.push(`missing POI-area content: ${missingTypes.join(", ")}`);
+  }
+  if (notReadyItems.length > 0) {
+    reasons.push(
+      `content needing attention: ${notReadyItems.map((i) => i.title || i.type).join(", ")}`,
+    );
+  }
+
+  return {
+    canPublish: reasons.length === 0,
+    missingTypes,
+    notReadyItems,
+    reasons,
+  };
+};
+
+const isPoiContentComplete = (poi, contents = []) =>
+  evaluatePoiReadiness(poi?.contentIds, contents).canPublish;
+
+const evaluateLandmarkReadiness = (landmark, contents = [], pois = []) => {
+  if (!landmark) {
+    return {
+      canPublish: false,
+      hasInfo: false,
+      hasLandmarkInformation: false,
+      hasLandmarkQuiz: false,
+      hasLandmarkFunFact: false,
+      hasLandmarkVR: false,
+      hasCompletePoi: false,
+      missing: [
+        "landmark name, description, and coordinates",
+        "Landmark area missing: Information, Quiz, Fun Fact, VR model",
+        "POI area missing: at least 1 POI having POI-area Information, Quiz, and Fun Fact",
+      ],
+    };
+  }
+
+  const name = (landmark.landmarkName || landmark.institutionName || "").trim();
+  const description = (landmark.info?.description ?? landmark.description ?? "").trim();
+  const hasInfo = Boolean(name && description && hasValidCoords(landmark));
+
+  const landmarkContentIds = new Set(
+    Array.isArray(landmark.contentIds) ? landmark.contentIds : [],
+  );
+  const landmarkScopedItems = contents.filter(
+    (item) =>
+      getContentScope(item) === "Landmark" &&
+      (landmarkContentIds.has(item.id) || item.targetId === landmark.id),
+  );
+
+  const hasLandmarkInformation = landmarkScopedItems.some(
+    (item) => normalizeContentType(item.type) === "Information" && isContentReady(item),
+  );
+  const hasLandmarkQuiz = landmarkScopedItems.some(
+    (item) => normalizeContentType(item.type) === "Quiz" && isContentReady(item),
+  );
+  const hasLandmarkFunFact = landmarkScopedItems.some(
+    (item) => normalizeContentType(item.type) === "Fun Fact" && isContentReady(item),
+  );
+  const hasLandmarkVR = landmarkScopedItems.some(
+    (item) =>
+      normalizeContentType(item.type) === MODEL_CONTENT_TYPE &&
+      item.status === "Published" &&
+      isContentReady(item),
+  );
+
+  const missingLandmarkTypes = [];
+  if (!hasLandmarkInformation) missingLandmarkTypes.push("Information");
+  if (!hasLandmarkQuiz) missingLandmarkTypes.push("Quiz");
+  if (!hasLandmarkFunFact) missingLandmarkTypes.push("Fun Fact");
+  if (!hasLandmarkVR) missingLandmarkTypes.push("VR model");
+
+  const linkedPois = pois.filter((poi) => poi.landmarkId === landmark.id);
+  const hasCompletePoi = linkedPois.some((poi) => isPoiContentComplete(poi, contents));
+
+  const missing = [];
+  if (!hasInfo) missing.push("landmark name, description, and coordinates");
+  if (missingLandmarkTypes.length > 0) {
+    missing.push(`Landmark area missing: ${missingLandmarkTypes.join(", ")}`);
+  }
+  if (!hasCompletePoi) {
+    missing.push("POI area missing: at least 1 POI having POI-area Information, Quiz, and Fun Fact");
+  }
+
+  return {
+    canPublish: hasInfo && missingLandmarkTypes.length === 0 && hasCompletePoi,
+    hasInfo,
+    hasLandmarkInformation,
+    hasLandmarkQuiz,
+    hasLandmarkFunFact,
+    hasLandmarkVR,
+    hasCompletePoi,
+    missing,
+  };
+};
 
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
@@ -361,6 +486,16 @@ const POIManagement = ({ adminMode = false }) => {
       setFormError("Generate the shared landmark POI QR before saving POIs.");
       return;
     }
+
+    const poiReadiness = evaluatePoiReadiness(selectedContentIds, contents);
+    const wantsPublished = form.status === "Published";
+    if (wantsPublished && !poiReadiness.canPublish) {
+      setFormError(
+        `Cannot publish POI yet. Requirements not met: ${poiReadiness.reasons.join("; ")}.`,
+      );
+      return;
+    }
+
     const hasMarkerWidth = form.markerWidthMeters.trim() !== "";
     const markerWidthMeters = hasMarkerWidth ? Number(form.markerWidthMeters) : null;
     const hasMarkerImage = Boolean(markerImageFile || (form.markerImageUrl && !removeMarkerImage));
@@ -377,7 +512,8 @@ const POIManagement = ({ adminMode = false }) => {
       setFormError(assignmentLimitError);
       return;
     }
-    const normalizedStatus = form.status === "Published" ? "Published" : "Unpublished";
+
+    const normalizedStatus = wantsPublished && poiReadiness.canPublish ? "Published" : "Unpublished";
     setSaving(true);
     setFormError("");
     let uploadedImage = null;
@@ -510,6 +646,13 @@ const POIManagement = ({ adminMode = false }) => {
 
   if (loading) return <div style={{ padding: 20, color: "#fff" }}>Loading POIs...</div>;
 
+  const poiReadiness = evaluatePoiReadiness(selectedContentIds, contents);
+  const hasPublishedPoi = pois.some(isPoiPublished);
+  const activeLandmark =
+    landmarks.find((item) => item.id === form.landmarkId) || landmarks[0] || null;
+  const landmarkStatus = activeLandmark?.status === "Published" ? "Published" : "Unpublished";
+  const landmarkReadiness = evaluateLandmarkReadiness(activeLandmark, contents, pois);
+
   return <div style={{ maxWidth: 1320, margin: "0 auto", padding: "24px 20px", color: "#ccc" }}>
     <PageHeader
       eyebrow="Experience design"
@@ -536,8 +679,84 @@ const POIManagement = ({ adminMode = false }) => {
         hasPoiWithImageAndContent={pois.some(
           (p) => Boolean(p.imageUrl || p.markerImageUrl) && Array.isArray(p.contentIds) && p.contentIds.length > 0,
         )}
+        hasFloorPlanOrPlacedPois={pois.some((p) => Boolean(p.floorPlanPosition)) || hasPublishedPoi}
+        hasPublishedPoi={hasPublishedPoi}
       />
     )}
+
+    {activeLandmark && (
+      <section
+        aria-label="Landmark publish status"
+        style={{
+          marginBottom: 20,
+          padding: "16px 20px",
+          borderRadius: 14,
+          background:
+            landmarkStatus === "Published"
+              ? "rgba(74, 222, 128, 0.07)"
+              : "rgba(251, 191, 36, 0.07)",
+          border:
+            landmarkStatus === "Published"
+              ? "1px solid rgba(74, 222, 128, 0.35)"
+              : "1px solid rgba(251, 191, 36, 0.35)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.06em", color: "#a8a29e" }}>
+            Landmark Publish Status
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              padding: "3px 10px",
+              borderRadius: 999,
+              background: landmarkStatus === "Published" ? "rgba(74,222,128,0.18)" : "rgba(251,191,36,0.18)",
+              color: landmarkStatus === "Published" ? "#4ade80" : "#fbbf24",
+              border: `1px solid ${landmarkStatus === "Published" ? "#4ade80" : "#fbbf24"}`,
+            }}
+          >
+            {landmarkStatus === "Published" ? "PUBLISHED (LIVE)" : "UNPUBLISHED (HIDDEN)"}
+          </span>
+        </div>
+
+        <div style={{ fontSize: 16, fontWeight: 600, color: "#fff" }}>
+          {activeLandmark.landmarkName || activeLandmark.institutionName || "Selected Landmark"}
+        </div>
+
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
+          <span style={{ color: landmarkReadiness.hasInfo ? "#4ade80" : "#f87171" }}>
+            {landmarkReadiness.hasInfo ? "✓ Landmark Info & Pin" : "✕ Landmark Info & Pin"}
+          </span>
+          <span style={{ color: landmarkReadiness.hasLandmarkInformation ? "#4ade80" : "#f87171" }}>
+            {landmarkReadiness.hasLandmarkInformation ? "✓ Landmark Area: Information" : "✕ Landmark Area Missing: Information"}
+          </span>
+          <span style={{ color: landmarkReadiness.hasLandmarkQuiz ? "#4ade80" : "#f87171" }}>
+            {landmarkReadiness.hasLandmarkQuiz ? "✓ Landmark Area: Quiz" : "✕ Landmark Area Missing: Quiz"}
+          </span>
+          <span style={{ color: landmarkReadiness.hasLandmarkFunFact ? "#4ade80" : "#f87171" }}>
+            {landmarkReadiness.hasLandmarkFunFact ? "✓ Landmark Area: Fun Fact" : "✕ Landmark Area Missing: Fun Fact"}
+          </span>
+          <span style={{ color: landmarkReadiness.hasLandmarkVR ? "#4ade80" : "#f87171" }}>
+            {landmarkReadiness.hasLandmarkVR ? "✓ Landmark Area: VR Model" : "✕ Landmark Area Missing: VR Model"}
+          </span>
+          <span style={{ color: landmarkReadiness.hasCompletePoi ? "#4ade80" : "#f87171" }}>
+            {landmarkReadiness.hasCompletePoi ? "✓ POI Area: 1 POI with Info, Quiz & Fun Fact" : "✕ POI Area Missing: 1 POI with Info, Quiz & Fun Fact"}
+          </span>
+        </div>
+
+        {!landmarkReadiness.canPublish && (
+          <small style={{ color: "#fbbf24", fontSize: 12.5 }}>
+            Publishing requires complete landmark info, Landmark-area Information + Quiz + Fun Fact + published VR model, and at least 1 POI with POI-area Information + Quiz + Fun Fact. Missing:{" "}
+            {landmarkReadiness.missing.join("; ")}.
+          </small>
+        )}
+      </section>
+    )}
+
     {formError && <div role="alert" style={{ color: "#fbbf24", margin: "0 0 16px" }}>{formError}</div>}
     {poiLoadError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
       {poiLoadError}{" "}
@@ -597,11 +816,26 @@ const POIManagement = ({ adminMode = false }) => {
                 id="poi-publish-status"
                 className={commonStyles.formControl}
                 value={form.status}
-                onChange={(e) => updateField("status", e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (next === "Published" && !poiReadiness.canPublish) {
+                    setFormError(
+                      `Cannot set POI status to Published yet. Requirements not met: ${poiReadiness.reasons.join("; ")}.`,
+                    );
+                    return;
+                  }
+                  setFormError("");
+                  updateField("status", next);
+                }}
               >
                 <option value="Unpublished">Unpublished</option>
-                <option value="Published">Published</option>
+                <option value="Published" disabled={!poiReadiness.canPublish}>
+                  Published {!poiReadiness.canPublish ? "(Requires POI Info, Quiz & Fun Fact)" : ""}
+                </option>
               </select>
+              <small style={{ display: "block", color: "#888", marginTop: 4 }}>
+                Publishing a POI requires ready POI-area Information, Quiz, and Fun Fact content.
+              </small>
             </div>
             <label htmlFor="poi-image" style={{ color: "#fff" }}>POI location image (optional)</label>
             <input
@@ -697,11 +931,16 @@ const POIManagement = ({ adminMode = false }) => {
             {form.qrCode.trim() && <div style={{ background: "#fff", padding: 12, width: "fit-content" }}><QRCodeCanvas ref={qrCanvasRef} value={form.qrCode.trim()} size={140} includeMargin /></div>}
             <div>
               <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
-                Assign Existing Content
+                Assign Existing Content (Area: POI)
               </label>
               <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
-                Assign at most one Information item and one Quiz per POI. Add any number of Fun Facts. VR models cannot be assigned to POIs.
+                Required per POI: at least 1 POI-area Information, 1 Quiz, and 1 Fun Fact (up to 1 Information and 1 Quiz; Fun Facts are unlimited).
               </small>
+              {!poiReadiness.canPublish && (
+                <small style={{ display: "block", color: "#fbbf24", marginBottom: 6 }}>
+                  Publish block active: {poiReadiness.reasons.join("; ")}.
+                </small>
+              )}
               {availableContent.length === 0 ? (
                 <small style={{ color: "#888" }}>No reusable POI content found.</small>
               ) : availableContent.map((item) => {
@@ -720,7 +959,16 @@ const POIManagement = ({ adminMode = false }) => {
                       checked={isSelected}
                       disabled={Boolean(limitError)}
                       title={limitError || undefined}
-                      onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}
+                      onChange={() => {
+                        const nextIds = selectedContentIds.includes(item.id)
+                          ? selectedContentIds.filter((id) => id !== item.id)
+                          : [...selectedContentIds, item.id];
+                        setSelectedContentIds(nextIds);
+                        const nextCheck = evaluatePoiReadiness(nextIds, contents);
+                        if (!nextCheck.canPublish && form.status === "Published") {
+                          updateField("status", "Unpublished");
+                        }
+                      }}
                     />
                     {item.title} ({item.type})
                   </label>

@@ -51,6 +51,7 @@ const InstituteContentManagement = () => {
   const { currentRole } = useAuth();
   const [contents, setContents] = useState([]);
   const [institutionLandmarks, setInstitutionLandmarks] = useState([]);
+  const [institutionPois, setInstitutionPois] = useState([]);
   const [discussionLandmarkId, setDiscussionLandmarkId] = useState("");
   const [assignmentTargets, setAssignmentTargets] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
@@ -134,6 +135,7 @@ const InstituteContentManagement = () => {
     if (!userInstitutionId) {
       setContents([]);
       setInstitutionLandmarks([]);
+      setInstitutionPois([]);
       setDiscussionLandmarkId("");
       setAssignmentTargets([]);
       return undefined;
@@ -167,6 +169,8 @@ const InstituteContentManagement = () => {
           name: item.data().landmarkName || item.data().institutionName || "Unnamed landmark",
           collectionName: "landmarks",
           scope: "Landmark",
+          status: item.data().status,
+          isPublished: item.data().isPublished,
           contentIds: item.data().contentIds || [],
         })),
         ...poiDocs.map((item) => ({
@@ -176,6 +180,8 @@ const InstituteContentManagement = () => {
           collectionName: "pois",
           scope: "POI",
           landmarkId: item.data().landmarkId,
+          status: item.data().status,
+          isPublished: item.data().isPublished,
           contentIds: item.data().contentIds || [],
         })),
       ]);
@@ -210,6 +216,7 @@ const InstituteContentManagement = () => {
       query(collection(db, "pois"), where("institutionId", "==", institutionId)),
       (snapshot) => {
         pois = snapshot.docs;
+        setInstitutionPois(pois.map((item) => ({ id: item.id, ...item.data() })));
         updateAssignmentTargets(landmarks, pois);
       },
       (error) => {
@@ -780,6 +787,9 @@ const InstituteContentManagement = () => {
   const incompleteCount = contents.filter((item) => !isContentReady(item)).length;
   const siteReadiness = getInstitutionContentReadiness(contents);
   const activeDiscussionLandmark = institutionLandmarks.find((item) => item.id === discussionLandmarkId);
+  const hasPublishedPoi = institutionPois.some(
+    (p) => p?.status === "Published" || p?.isPublished === true,
+  );
 
   if (isAuthChecking) {
     return (
@@ -797,21 +807,28 @@ const InstituteContentManagement = () => {
         description="Create, publish or unpublish, and manage AR content for your institution, then review VR models and coordinate with your 3D modeller."
       />
       <SetupFlowBanner
-  hasLandmarkPinAndInfo={institutionLandmarks.some(
-    (l) =>
-      typeof l.lat === "number" &&
-      typeof l.lng === "number" &&
-      (l.landmarkName || l.institutionName) &&
-      (l.info?.description || l.description),
-  )}
-  hasContentItems={contents.length > 0}
-  hasLinkedLandmarkContent={institutionLandmarks.some(
-    (l) => Array.isArray(l.contentIds) && l.contentIds.length > 0,
-  )}
-  hasPoiWithImageAndContent={assignmentTargets.some(
-    (t) => t.scope === "POI" && Array.isArray(t.contentIds) && t.contentIds.length > 0,
-  )}
-/>
+        hasLandmarkPinAndInfo={institutionLandmarks.some(
+          (l) =>
+            typeof l.lat === "number" &&
+            typeof l.lng === "number" &&
+            (l.landmarkName || l.institutionName) &&
+            (l.info?.description || l.description),
+        )}
+        hasContentItems={contents.length > 0}
+        hasLinkedLandmarkContent={institutionLandmarks.some(
+          (l) => Array.isArray(l.contentIds) && l.contentIds.length > 0,
+        )}
+        hasPoiWithImageAndContent={institutionPois.some(
+          (p) =>
+            Boolean(p.imageUrl || p.markerImageUrl) &&
+            Array.isArray(p.contentIds) &&
+            p.contentIds.length > 0,
+        )}
+        hasFloorPlanOrPlacedPois={
+          institutionPois.some((p) => Boolean(p.floorPlanPosition)) || hasPublishedPoi
+        }
+        hasPublishedPoi={hasPublishedPoi}
+      />
       <div
         role="status"
         style={{

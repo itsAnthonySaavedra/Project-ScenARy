@@ -11,7 +11,12 @@ import PageHeader from "../../components/common/PageHeader";
 import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 import LandmarkDiscussion from "../../components/common/LandmarkDiscussion";
 import { getContentScope } from "../../lib/contentScope";
-import { getContentAssignmentLimitError } from "../../lib/contentTypes";
+import {
+  getContentAssignmentLimitError,
+  MODEL_CONTENT_TYPE,
+  normalizeContentType,
+} from "../../lib/contentTypes";
+import { isContentReady } from "../../lib/contentQuality";
 import { writeAuditLog } from "../../lib/auditLog";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
@@ -48,6 +53,136 @@ const formatErrorDetail = (error, fallback) => {
   return `${code}${base}${detail}`;
 };
 
+const isPoiPublished = (poi) => poi?.status === "Published" || poi?.isPublished === true;
+
+const getPoiContentTypeSet = (poi, contents = []) => {
+  const ids = Array.isArray(poi?.contentIds) ? poi.contentIds : [];
+  const types = new Set();
+  for (const item of contents) {
+    if (ids.includes(item.id) && getContentScope(item) === "POI" && isContentReady(item)) {
+      types.add(normalizeContentType(item.type));
+    }
+  }
+  return types;
+};
+
+const isPoiContentComplete = (poi, contents = []) => {
+  const types = getPoiContentTypeSet(poi, contents);
+  return types.has("Information") && types.has("Quiz") && types.has("Fun Fact");
+};
+
+/**
+ * Evaluates landmark readiness requiring:
+ * 1. Complete landmark info (name, description, coordinates)
+ * 2. Landmark-scoped (Area: "Landmark") Information, Quiz, Fun Fact, and published VR model
+ * 3. At least 1 published POI under the landmark with POI-scoped (Area: "POI") Information, Quiz, and Fun Fact
+ */
+const evaluateLandmarkReadiness = (
+  landmark,
+  {
+    contents = [],
+    pois = [],
+    overrideLandmarkContentIds = null,
+    overrideName = null,
+    overrideDescription = null,
+    overrideCoords = null,
+  } = {},
+) => {
+  if (!landmark) {
+    return {
+      canPublish: false,
+      hasInfo: false,
+      hasLandmarkInformation: false,
+      hasLandmarkQuiz: false,
+      hasLandmarkFunFact: false,
+      hasLandmarkVR: false,
+      hasCompletePoi: false,
+      missingLandmarkTypes: ["Information", "Quiz", "Fun Fact", "VR model"],
+      missingPoiSummary: "at least 1 published POI with POI-area Information, Quiz, and Fun Fact",
+      missing: [
+        "landmark name, description, and coordinates",
+        "Landmark area missing: Information, Quiz, Fun Fact, VR model",
+        "POI area missing: at least 1 published POI with POI-area Information, Quiz, and Fun Fact",
+      ],
+    };
+  }
+
+  const name = (overrideName ?? landmark.landmarkName ?? landmark.institutionName ?? "").trim();
+  const description = (overrideDescription ?? landmark.info?.description ?? landmark.description ?? "").trim();
+  const coordsOk = overrideCoords
+    ? Number.isFinite(Number(overrideCoords.lat)) && Number.isFinite(Number(overrideCoords.lng))
+    : hasValidCoords(landmark);
+  const hasInfo = Boolean(name && description && coordsOk);
+
+  const landmarkContentIds = new Set(
+    Array.isArray(overrideLandmarkContentIds)
+      ? overrideLandmarkContentIds
+      : Array.isArray(landmark.contentIds)
+        ? landmark.contentIds
+        : [],
+  );
+
+  const landmarkScopedItems = contents.filter(
+    (item) =>
+      getContentScope(item) === "Landmark" &&
+      (landmarkContentIds.has(item.id) || item.targetId === landmark.id),
+  );
+
+  const hasLandmarkInformation = landmarkScopedItems.some(
+    (item) => normalizeContentType(item.type) === "Information" && isContentReady(item),
+  );
+  const hasLandmarkQuiz = landmarkScopedItems.some(
+    (item) => normalizeContentType(item.type) === "Quiz" && isContentReady(item),
+  );
+  const hasLandmarkFunFact = landmarkScopedItems.some(
+    (item) => normalizeContentType(item.type) === "Fun Fact" && isContentReady(item),
+  );
+  const hasLandmarkVR = landmarkScopedItems.some(
+    (item) =>
+      normalizeContentType(item.type) === MODEL_CONTENT_TYPE &&
+      item.status === "Published" &&
+      isContentReady(item),
+  );
+
+  const missingLandmarkTypes = [];
+  if (!hasLandmarkInformation) missingLandmarkTypes.push("Information");
+  if (!hasLandmarkQuiz) missingLandmarkTypes.push("Quiz");
+  if (!hasLandmarkFunFact) missingLandmarkTypes.push("Fun Fact");
+  if (!hasLandmarkVR) missingLandmarkTypes.push("VR model");
+
+  const linkedPois = pois.filter((poi) => poi.landmarkId === landmark.id);
+  const hasCompletePoi = linkedPois.some(
+    (poi) => isPoiPublished(poi) && isPoiContentComplete(poi, contents),
+  );
+
+  const missingPoiSummary =
+    linkedPois.length === 0
+      ? "at least 1 published POI with POI-area Information, Quiz, and Fun Fact"
+      : "at least 1 published POI having POI-area Information, Quiz, and Fun Fact";
+
+  const missing = [];
+  if (!hasInfo) missing.push("landmark name, description, and coordinates");
+  if (missingLandmarkTypes.length > 0) {
+    missing.push(`Landmark area missing: ${missingLandmarkTypes.join(", ")}`);
+  }
+  if (!hasCompletePoi) {
+    missing.push(`POI area missing: ${missingPoiSummary}`);
+  }
+
+  return {
+    canPublish: hasInfo && missingLandmarkTypes.length === 0 && hasCompletePoi,
+    hasInfo,
+    hasLandmarkInformation,
+    hasLandmarkQuiz,
+    hasLandmarkFunFact,
+    hasLandmarkVR,
+    hasCompletePoi,
+    missingLandmarkTypes,
+    missingPoiSummary,
+    missing,
+  };
+};
+
 const PinPlacementEvents = ({ enabled, onPickCoords }) => {
   useMapEvents({
     click: (event) => {
@@ -71,6 +206,8 @@ const LandmarkManagement = () => {
   const [selectedLandmarkId, setSelectedLandmarkId] = useState("");
   const [draftCoords, setDraftCoords] = useState(null);
   const [savingPinLocation, setSavingPinLocation] = useState(false);
+  const [formStatus, setFormStatus] = useState("Unpublished");
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -166,12 +303,14 @@ const LandmarkManagement = () => {
     (landmark) => {
       if (!landmark) return;
       setSelectedLandmarkId(landmark.id);
+      setFormStatus(landmark.status === "Published" ? "Published" : "Unpublished");
       setDraftCoords(
         hasValidCoords(landmark)
           ? { lat: landmark.lat, lng: landmark.lng }
           : { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1] },
       );
       setPageNotice("");
+      setPageError("");
       setForm({
         name: landmark.landmarkName || landmark.institutionName || "",
         description: landmark.info?.description ?? landmark.description ?? "",
@@ -189,6 +328,92 @@ const LandmarkManagement = () => {
     },
     [availableContent],
   );
+
+  const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId);
+  const targetLandmark = selectedLandmark || landmarks[0];
+
+  const readiness = evaluateLandmarkReadiness(targetLandmark, {
+    contents: allContent,
+    pois,
+    overrideLandmarkContentIds:
+      targetLandmark && selectedLandmarkId === targetLandmark.id ? selectedContentIds : null,
+    overrideName: targetLandmark && selectedLandmarkId === targetLandmark.id ? form.name : null,
+    overrideDescription:
+      targetLandmark && selectedLandmarkId === targetLandmark.id ? form.description : null,
+    overrideCoords: targetLandmark && selectedLandmarkId === targetLandmark.id ? draftCoords : null,
+  });
+
+  const applyLandmarkPublishStatus = async (nextStatus) => {
+    if (!institutionId || !selectedLandmark) {
+      setPageError("Select a landmark first.");
+      return;
+    }
+
+    const normalizedNext = nextStatus === "Published" ? "Published" : "Unpublished";
+
+    if (normalizedNext === "Published" && !readiness.canPublish) {
+      setPageError(
+        `Cannot publish landmark yet. Missing: ${readiness.missing.join("; ")}.`,
+      );
+      setFormStatus("Unpublished");
+      return;
+    }
+
+    setUpdatingStatus(true);
+    setPageError("");
+    setPageNotice("");
+    try {
+      const isPublished = normalizedNext === "Published";
+      await updateDoc(doc(db, "landmarks", selectedLandmark.id), {
+        status: normalizedNext,
+        isPublished,
+        publishedAt: isPublished ? serverTimestamp() : null,
+        updatedAt: serverTimestamp(),
+      });
+
+      setFormStatus(normalizedNext);
+      setLandmarks((current) =>
+        current.map((item) =>
+          item.id === selectedLandmark.id
+            ? { ...item, status: normalizedNext, isPublished }
+            : item,
+        ),
+      );
+
+      let tourWarning = "";
+      try {
+        await syncGeneratedInstitutionTour(institutionId);
+      } catch (tourError) {
+        console.error("Landmark status updated, but generated tour refresh failed:", tourError);
+        tourWarning = " Status updated, but its generated tour could not be refreshed.";
+      }
+
+      try {
+        await writeAuditLog({
+          actorId: getAuth().currentUser?.uid,
+          actorRole: "institution",
+          action: isPublished ? "landmark.published" : "landmark.unpublished",
+          entityType: "landmark",
+          entityId: selectedLandmark.id,
+          metadata: { institutionId, status: normalizedNext, isPublished },
+          throwOnFailure: true,
+        });
+      } catch (auditError) {
+        console.error("Landmark status updated, but audit log failed:", auditError);
+      }
+
+      setPageNotice(
+        isPublished
+          ? `Landmark "${form.name || selectedLandmark.landmarkName || selectedLandmark.institutionName || "Landmark"}" is now Published.${tourWarning}`
+          : `Landmark hidden (Unpublished).${tourWarning}`,
+      );
+    } catch (error) {
+      console.error("Unable to update landmark publish status:", error);
+      setPageError(formatErrorDetail(error, "Unable to update landmark status."));
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
 
   const handleSavePinLocation = async () => {
     if (!institutionId || !selectedLandmarkId || !draftCoords) {
@@ -255,15 +480,36 @@ const LandmarkManagement = () => {
       setPageError("Enter both a landmark name and description.");
       return;
     }
+
+    const nextContentIds = selectedContentIds.filter((contentId) =>
+      availableContent.some((item) => item.id === contentId),
+    );
+    const nextReadiness = evaluateLandmarkReadiness(selectedLandmark, {
+      contents: allContent,
+      pois,
+      overrideLandmarkContentIds: nextContentIds,
+      overrideName: name,
+      overrideDescription: description,
+      overrideCoords: draftCoords,
+    });
+
+    if (formStatus === "Published" && !nextReadiness.canPublish) {
+      setPageError(
+        `Cannot save as Published yet. Missing: ${nextReadiness.missing.join("; ")}.`,
+      );
+      return;
+    }
+
     const assignmentLimitError = getContentAssignmentLimitError(
       "Landmark",
-      selectedContentIds,
+      nextContentIds,
       availableContent,
     );
     if (assignmentLimitError) {
       setPageError(assignmentLimitError);
       return;
     }
+
     setSaving(true);
     setPageError("");
     setPageNotice("");
@@ -277,18 +523,21 @@ const LandmarkManagement = () => {
         draftCoords && Number.isFinite(Number(draftCoords.lat)) && Number.isFinite(Number(draftCoords.lng))
           ? { lat: Number(draftCoords.lat), lng: Number(draftCoords.lng) }
           : {};
+      const isPublished = formStatus === "Published";
+
       await updateDoc(doc(db, "landmarks", selectedLandmarkId), {
         landmarkName: name,
         description,
         info: { description },
+        status: formStatus,
+        isPublished,
+        ...(isPublished ? { publishedAt: serverTimestamp() } : { publishedAt: null }),
         ...coordUpdates,
         imageUrl: uploadedImage?.url || form.imageUrl,
         imageStoragePath: uploadedImage?.storagePath || form.imageStoragePath,
         imageFileName: uploadedImage?.fileName || form.imageFileName,
         imageFileType: uploadedImage?.fileType || form.imageFileType,
-        contentIds: selectedContentIds.filter((contentId) =>
-          availableContent.some((item) => item.id === contentId),
-        ),
+        contentIds: nextContentIds,
         updatedAt: serverTimestamp(),
       });
       if (uploadedImage && previousStoragePath && previousStoragePath !== uploadedImage.storagePath) {
@@ -331,6 +580,7 @@ const LandmarkManagement = () => {
         metadata: {
           institutionId,
           name,
+          status: formStatus,
           ...(uploadedImage ? { imageFileName: uploadedImage.fileName } : {}),
         },
         throwOnFailure: true,
@@ -362,7 +612,6 @@ const LandmarkManagement = () => {
     else setPageNotice("Landmark saved.");
   };
 
-  const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId);
   const activePinCoords =
     draftCoords && Number.isFinite(Number(draftCoords.lat)) && Number.isFinite(Number(draftCoords.lng))
       ? [Number(draftCoords.lat), Number(draftCoords.lng)]
@@ -370,7 +619,6 @@ const LandmarkManagement = () => {
         ? [selectedLandmark.lat, selectedLandmark.lng]
         : DEFAULT_CENTER;
 
-  const targetLandmark = selectedLandmark || landmarks[0];
   const landmarkPois = targetLandmark
     ? pois.filter((poi) => poi.landmarkId === targetLandmark.id)
     : [];
@@ -385,6 +633,14 @@ const LandmarkManagement = () => {
     (item) => item.status === "Published",
   ).length;
 
+  const currentEffectiveStatus = selectedLandmarkId
+    ? formStatus
+    : targetLandmark?.status === "Published"
+      ? "Published"
+      : "Unpublished";
+
+  const hasPublishedPoi = pois.some(isPoiPublished);
+
   if (loading) return <div style={{ padding: 20, color: "#fff" }}>Loading landmarks...</div>;
 
   return (
@@ -392,7 +648,7 @@ const LandmarkManagement = () => {
       <PageHeader
         eyebrow="Experience design"
         title="Landmarks"
-        description="Curate landmark details, imagery, AR content, and pin positions for your institution."
+        description="Curate landmark details, imagery, Landmark/POI content readiness, publish status, and pin positions for your institution."
       />
       <SetupFlowBanner
         hasLandmarkPinAndInfo={landmarks.some(
@@ -403,7 +659,8 @@ const LandmarkManagement = () => {
         hasPoiWithImageAndContent={pois.some(
           (p) => Boolean(p.imageUrl || p.markerImageUrl) && Array.isArray(p.contentIds) && p.contentIds.length > 0,
         )}
-        hasFloorPlanOrPlacedPois={pois.some((p) => Boolean(p.floorPlanPosition))}
+        hasFloorPlanOrPlacedPois={pois.some((p) => Boolean(p.floorPlanPosition)) || hasPublishedPoi}
+        hasPublishedPoi={hasPublishedPoi}
       />
       {pageError && (
         <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
@@ -415,8 +672,128 @@ const LandmarkManagement = () => {
           {pageNotice}
         </div>
       )}
+
+      {/* PROMINENT LANDMARK PUBLISH / UNPUBLISH CONTROL */}
+      {targetLandmark && (
+        <section
+          aria-label="Landmark publish status"
+          style={{
+            marginBottom: 22,
+            padding: "18px 22px",
+            borderRadius: 14,
+            background:
+              currentEffectiveStatus === "Published"
+                ? "rgba(74, 222, 128, 0.07)"
+                : "rgba(251, 191, 36, 0.07)",
+            border:
+              currentEffectiveStatus === "Published"
+                ? "1px solid rgba(74, 222, 128, 0.35)"
+                : "1px solid rgba(251, 191, 36, 0.35)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 16,
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 820 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.06em", color: "#a8a29e" }}>
+                Landmark Publish Status
+              </span>
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: "3px 10px",
+                  borderRadius: 999,
+                  background: currentEffectiveStatus === "Published" ? "rgba(74,222,128,0.18)" : "rgba(251,191,36,0.18)",
+                  color: currentEffectiveStatus === "Published" ? "#4ade80" : "#fbbf24",
+                  border: `1px solid ${currentEffectiveStatus === "Published" ? "#4ade80" : "#fbbf24"}`,
+                }}
+              >
+                {currentEffectiveStatus === "Published" ? "PUBLISHED (LIVE)" : "UNPUBLISHED (HIDDEN)"}
+              </span>
+            </div>
+
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#fff" }}>
+              {targetLandmark.landmarkName || targetLandmark.institutionName || "Selected Landmark"}
+            </div>
+
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
+              <span style={{ color: readiness.hasInfo ? "#4ade80" : "#f87171" }}>
+                {readiness.hasInfo ? "✓ Landmark Info & Pin" : "✕ Missing: Landmark Name, Description & Pin"}
+              </span>
+              <span style={{ color: readiness.hasLandmarkInformation ? "#4ade80" : "#f87171" }}>
+                {readiness.hasLandmarkInformation ? "✓ Landmark Information" : "✕ Landmark Area Missing: Information"}
+              </span>
+              <span style={{ color: readiness.hasLandmarkQuiz ? "#4ade80" : "#f87171" }}>
+                {readiness.hasLandmarkQuiz ? "✓ Landmark Quiz" : "✕ Landmark Area Missing: Quiz"}
+              </span>
+              <span style={{ color: readiness.hasLandmarkFunFact ? "#4ade80" : "#f87171" }}>
+                {readiness.hasLandmarkFunFact ? "✓ Landmark Fun Fact" : "✕ Landmark Area Missing: Fun Fact"}
+              </span>
+              <span style={{ color: readiness.hasLandmarkVR ? "#4ade80" : "#f87171" }}>
+                {readiness.hasLandmarkVR ? "✓ Landmark VR Model" : "✕ Landmark Area Missing: VR Model"}
+              </span>
+              <span style={{ color: readiness.hasCompletePoi ? "#4ade80" : "#f87171" }}>
+                {readiness.hasCompletePoi ? "✓ POI Area (Published POI with Info, Quiz & Fun Fact)" : "✕ POI Area Missing: 1 Published POI with Info, Quiz & Fun Fact"}
+              </span>
+            </div>
+
+            {!readiness.canPublish && (
+              <small style={{ color: "#fbbf24", fontSize: 12.5 }}>
+                Publishing requires complete landmark info, Landmark-area Information + Quiz + Fun Fact + published VR model, and at least 1 published POI with POI-area Information + Quiz + Fun Fact. Missing:{" "}
+                {readiness.missing.join("; ")}.
+              </small>
+            )}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <select
+              aria-label="Landmark publish status"
+              className={commonStyles.formControl}
+              value={currentEffectiveStatus}
+              disabled={!selectedLandmarkId || updatingStatus || saving}
+              onChange={(e) => applyLandmarkPublishStatus(e.target.value)}
+              style={{ minWidth: 210, fontWeight: 600 }}
+            >
+              <option value="Unpublished">Unpublished (Hide)</option>
+              <option value="Published" disabled={!readiness.canPublish}>
+                Published {readiness.canPublish ? "" : "(Incomplete)"}
+              </option>
+            </select>
+
+            {currentEffectiveStatus === "Published" ? (
+              <button
+                type="button"
+                className={commonStyles.btnOutline}
+                disabled={!selectedLandmarkId || updatingStatus || saving}
+                onClick={() => applyLandmarkPublishStatus("Unpublished")}
+              >
+                {updatingStatus ? "Updating..." : "Unpublish / Hide"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={commonStyles.btnPrimary}
+                disabled={!selectedLandmarkId || updatingStatus || saving || !readiness.canPublish}
+                onClick={() => applyLandmarkPublishStatus("Published")}
+                title={
+                  readiness.canPublish
+                    ? "Publish this landmark to Firestore"
+                    : `Missing: ${readiness.missing.join("; ")}`
+                }
+              >
+                {updatingStatus ? "Publishing..." : "Publish Landmark"}
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+
       <p style={{ color: "#999", margin: "0 0 20px", fontSize: 14 }}>
-        Admin-created map pins are associated with your institution. Select a landmark below to edit its details, assign content, or adjust its pin.
+        Admin-created map pins are associated with your institution. Select a landmark below to edit its details, assign content, manage publish status, or adjust its pin.
       </p>
 
       <div
@@ -449,6 +826,7 @@ const LandmarkManagement = () => {
               else {
                 setSelectedLandmarkId("");
                 setDraftCoords(null);
+                setFormStatus("Unpublished");
               }
             }}
             required
@@ -456,10 +834,42 @@ const LandmarkManagement = () => {
             <option value="">Select admin map pin</option>
             {landmarks.map((landmark) => (
               <option key={landmark.id} value={landmark.id}>
-                {landmark.landmarkName || landmark.institutionName}
+                {landmark.landmarkName || landmark.institutionName} (
+                {landmark.status === "Published" ? "Published" : "Unpublished"})
               </option>
             ))}
           </select>
+
+          <div>
+            <label htmlFor="landmark-status-select" style={{ color: "#fff", display: "block", marginBottom: 6 }}>
+              Status
+            </label>
+            <select
+              id="landmark-status-select"
+              className={commonStyles.formControl}
+              value={formStatus}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (next === "Published" && !readiness.canPublish) {
+                  setPageError(
+                    `Cannot set status to Published yet. Missing: ${readiness.missing.join("; ")}.`,
+                  );
+                  return;
+                }
+                setPageError("");
+                setFormStatus(next);
+              }}
+            >
+              <option value="Unpublished">Unpublished (Hidden)</option>
+              <option value="Published" disabled={!readiness.canPublish}>
+                Published {!readiness.canPublish ? `(${readiness.missing.join("; ")})` : ""}
+              </option>
+            </select>
+            <small style={{ display: "block", color: "#888", marginTop: 4 }}>
+              Requires Landmark-area Information, Quiz, Fun Fact, and published VR model, plus at least 1 published POI with POI-area Information, Quiz, and Fun Fact.
+            </small>
+          </div>
+
           <input
             className={commonStyles.formControl}
             placeholder="Landmark name"
@@ -534,12 +944,12 @@ const LandmarkManagement = () => {
           </div>
 
           <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
-            <label style={{ color: "#fff", display: "block", marginBottom: 4 }}>Assign Existing Content</label>
+            <label style={{ color: "#fff", display: "block", marginBottom: 4 }}>Assign Existing Landmark Content (Area: Landmark)</label>
             <small style={{ display: "block", color: "#888", marginBottom: 8 }}>
-              Up to 1 Information, 1 Quiz, and 1 VR model per Landmark. Fun Facts are unlimited.
+              Must include Landmark-area Information, Quiz, Fun Fact, and VR model (up to 1 Information, 1 Quiz, and 1 VR model per Landmark; Fun Facts are unlimited).
             </small>
             {availableContent.length === 0 ? (
-              <small style={{ color: "#888" }}>No reusable landmark content found.</small>
+              <small style={{ color: "#888" }}>No Landmark-area content found.</small>
             ) : (
               availableContent.map((item) => {
                 const isSelected = selectedContentIds.includes(item.id);
@@ -553,15 +963,25 @@ const LandmarkManagement = () => {
                         type="checkbox"
                         checked={isSelected}
                         disabled={Boolean(limitError)}
-                        onChange={() =>
-                          setSelectedContentIds((current) =>
-                            current.includes(item.id)
-                              ? current.filter((id) => id !== item.id)
-                              : [...current, item.id],
-                          )
-                        }
+                        onChange={() => {
+                          const nextIds = selectedContentIds.includes(item.id)
+                            ? selectedContentIds.filter((id) => id !== item.id)
+                            : [...selectedContentIds, item.id];
+                          setSelectedContentIds(nextIds);
+                          const nextCheck = evaluateLandmarkReadiness(selectedLandmark, {
+                            contents: allContent,
+                            pois,
+                            overrideLandmarkContentIds: nextIds,
+                            overrideName: form.name,
+                            overrideDescription: form.description,
+                            overrideCoords: draftCoords,
+                          });
+                          if (!nextCheck.canPublish && formStatus === "Published") {
+                            setFormStatus("Unpublished");
+                          }
+                        }}
                       />
-                      {item.title} ({item.type})
+                      {item.title} ({item.type} · Landmark)
                     </label>
                     {limitError && (
                       <small style={{ display: "block", color: "#fbbf24", marginLeft: 22 }}>{limitError}</small>
@@ -645,14 +1065,14 @@ const LandmarkManagement = () => {
             }}
           >
             <small style={{ color: "#888" }}>
-              Saves landmark info, image, and content links.
+              Saves landmark status, info, image, and content links.
             </small>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {selectedLandmarkId && (
                 <button
                   type="button"
                   className={commonStyles.btnOutline}
-                  disabled={saving || savingPinLocation}
+                  disabled={saving || savingPinLocation || updatingStatus}
                   onClick={() => selectLandmark(selectedLandmark)}
                 >
                   Reload Landmark
@@ -661,7 +1081,7 @@ const LandmarkManagement = () => {
               <button
                 type="submit"
                 className={commonStyles.btnPrimary}
-                disabled={saving || savingPinLocation || !selectedLandmarkId}
+                disabled={saving || savingPinLocation || updatingStatus || !selectedLandmarkId}
               >
                 {saving ? "Saving..." : "Save Landmark"}
               </button>
@@ -677,7 +1097,7 @@ const LandmarkManagement = () => {
             Connected Summary
           </h2>
           <p style={{ color: "#999", fontSize: 13, marginTop: 0, marginBottom: 16 }}>
-            See which POIs and content items are currently linked to{" "}
+            See which POIs and Landmark-area content items are currently linked to{" "}
             <strong style={{ color: "#fff" }}>
               {targetLandmark?.landmarkName || targetLandmark?.institutionName || "your landmark"}
             </strong>
@@ -708,7 +1128,7 @@ const LandmarkManagement = () => {
                   </div>
                 </div>
                 <div style={{ padding: 12, borderRadius: 10, background: "#141210", border: "1px solid #2e2a24" }}>
-                  <div style={{ fontSize: 11, color: "#a8a29e" }}>Published</div>
+                  <div style={{ fontSize: 11, color: "#a8a29e" }}>Published Items</div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: "#4ade80", marginTop: 4 }}>
                     {publishedContentCount}
                   </div>
@@ -721,21 +1141,24 @@ const LandmarkManagement = () => {
                 </h3>
                 {landmarkPois.length === 0 ? (
                   <p style={{ color: "#888", fontSize: 13, margin: 0 }}>
-                    No POIs linked to this landmark yet. Add them in <strong>POI Management</strong>.
+                    No POIs linked to this landmark yet. Add at least 1 published POI with POI-area Information, Quiz, and Fun Fact in <strong>POI Management</strong>.
                   </p>
                 ) : (
                   <ul style={{ margin: 0, paddingLeft: 18, color: "#d6d3d1", fontSize: 13, lineHeight: 1.6 }}>
-                    {landmarkPois.map((poi) => (
-                      <li key={poi.id}>
-                        <strong style={{ color: "#fff" }}>{poi.name || "Unnamed POI"}</strong>
-                        {Array.isArray(poi.contentIds) && poi.contentIds.length > 0 && (
-                          <span style={{ color: "#a8a29e" }}>
-                            {" "}
-                            · {poi.contentIds.length} POI item{poi.contentIds.length === 1 ? "" : "s"}
+                    {landmarkPois.map((poi) => {
+                      const poiComplete = isPoiContentComplete(poi, allContent);
+                      return (
+                        <li key={poi.id}>
+                          <strong style={{ color: "#fff" }}>{poi.name || "Unnamed POI"}</strong>
+                          <span style={{ color: isPoiPublished(poi) ? "#4ade80" : "#fbbf24", fontSize: 12, marginLeft: 6 }}>
+                            · {isPoiPublished(poi) ? "Published" : "Unpublished"}
                           </span>
-                        )}
-                      </li>
-                    ))}
+                          <span style={{ color: poiComplete ? "#4ade80" : "#fbbf24", fontSize: 12, marginLeft: 6 }}>
+                            · {poiComplete ? "POI Content Complete" : "Needs POI Info, Quiz & Fun Fact"}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -746,7 +1169,7 @@ const LandmarkManagement = () => {
                 </h3>
                 {linkedContentItems.length === 0 ? (
                   <p style={{ color: "#888", fontSize: 13, margin: 0 }}>
-                    No landmark content assigned yet. Check items under <strong>Assign Existing Content</strong> and save.
+                    No landmark content assigned yet. Check items under <strong>Assign Existing Landmark Content</strong> and save.
                   </p>
                 ) : (
                   <ul style={{ margin: 0, paddingLeft: 18, color: "#d6d3d1", fontSize: 13, lineHeight: 1.65 }}>
@@ -755,7 +1178,7 @@ const LandmarkManagement = () => {
                       return (
                         <li key={item.id}>
                           <strong style={{ color: "#fff" }}>{item.title}</strong>{" "}
-                          <span style={{ color: "#a8a29e" }}>({item.type})</span>{" "}
+                          <span style={{ color: "#a8a29e" }}>({item.type} · {getContentScope(item)})</span>{" "}
                           <span
                             style={{
                               color: isPub ? "#4ade80" : "#fbbf24",
@@ -789,6 +1212,7 @@ const LandmarkManagement = () => {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
           {landmarks.map((landmark) => {
             const isSelected = selectedLandmarkId === landmark.id;
+            const isPub = landmark.status === "Published";
             return (
               <div
                 key={landmark.id}
@@ -806,8 +1230,16 @@ const LandmarkManagement = () => {
                   <h4 style={{ color: "#fff", margin: 0, fontSize: 16 }}>
                     {landmark.landmarkName || landmark.institutionName}
                   </h4>
-                  <span style={{ color: "#d4af37", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>
-                    {isSelected ? "● Selected" : "○ Select"}
+                  <span
+                    style={{
+                      color: isPub ? "#4ade80" : "#fbbf24",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {isPub ? "Published" : "Unpublished"}
                   </span>
                 </div>
                 {(landmark.info?.description || landmark.description) && (
