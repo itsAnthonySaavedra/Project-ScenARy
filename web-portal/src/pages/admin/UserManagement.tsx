@@ -724,7 +724,7 @@ const UserManagement: React.FC = () => {
       return;
     }
     if (role === "developer" && normalizedInstitutionIds.length === 0) {
-      setUserFormError("Select at least one institution for this 3D modeller account.");
+      setUserFormError("Select at least one institution for this 3D modeler account.");
       return;
     }
     setLoading(true);
@@ -1168,7 +1168,7 @@ const UserManagement: React.FC = () => {
                         {["institution", "curator"].includes(user.role)
                           ? "Curator"
                           : user.role === "developer"
-                            ? "Developer / 3D modeller"
+                            ? "3D modeler"
                             : user.role}
                       </td>
                       <td>
@@ -1331,7 +1331,7 @@ const UserManagement: React.FC = () => {
                       {["institution", "curator"].includes(detailsUser.role)
                         ? "Curator"
                         : detailsUser.role === "developer"
-                          ? "Developer / 3D modeller"
+                          ? "3D modeler"
                           : detailsUser.role || "-"}
                     </p>
                   </div>
@@ -1405,7 +1405,7 @@ const UserManagement: React.FC = () => {
                       {r === "curator"
                         ? "Curator"
                         : r === "developer"
-                          ? "Developer / 3D modeller"
+                          ? "3D modeler"
                           : r}
                     </option>
                   ))}

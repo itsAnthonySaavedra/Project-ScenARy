@@ -6,8 +6,6 @@ import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import commonStyles from "../../components/common/Common.module.css";
 import PageHeader from "../../components/common/PageHeader";
 import SetupFlowBanner from "../../components/common/SetupFlowBanner";
@@ -18,12 +16,17 @@ import { writeAuditLog } from "../../lib/auditLog";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 
-L.Marker.prototype.options.icon = L.icon({
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
+const landmarkPinIcon = L.divIcon({
+  className: "",
+  html: `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="52" viewBox="0 0 44 52" style="filter: drop-shadow(0 3px 4px rgba(0,0,0,.45))">
+    <path d="M22 2C10.95 2 2 10.72 2 21.48 2 35.1 22 50 22 50s20-14.9 20-28.52C42 10.72 33.05 2 22 2Z" fill="#f4c542" stroke="#755300" stroke-width="2"/>
+    <circle cx="22" cy="21" r="11" fill="#fffaf0"/>
+    <path d="M14.5 25.5V18l7.5-4 7.5 4v7.5h-5v-5h-5v5h-5Z" fill="#755300" stroke="#755300" stroke-linejoin="round"/>
+    <path d="M20 17.5h4" stroke="#fffaf0" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>`,
+  iconSize: [44, 52],
+  iconAnchor: [22, 50],
+  popupAnchor: [0, -46],
 });
 
 const DEFAULT_CENTER = [10.3157, 123.8854];
@@ -591,6 +594,7 @@ const LandmarkManagement = () => {
               {selectedLandmarkId && (
                 <Marker
                   position={activePinCoords}
+                  icon={landmarkPinIcon}
                   draggable={true}
                   eventHandlers={{
                     dragend: (event) => {

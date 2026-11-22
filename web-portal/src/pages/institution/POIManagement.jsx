@@ -13,6 +13,9 @@ import { createPoiCatalog, downloadPoiCatalog } from "../../lib/poiCatalog";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 
+const getPoiPublishStatus = (poi) =>
+  poi?.status === "Published" || poi?.isPublished === true ? "Published" : "Unpublished";
+
 const POIManagement = ({ adminMode = false }) => {
   const [institutionId, setInstitutionId] = useState(null);
   const [institutions, setInstitutions] = useState([]);
@@ -21,7 +24,19 @@ const POIManagement = ({ adminMode = false }) => {
   const [contents, setContents] = useState([]);
   const [selectedContentIds, setSelectedContentIds] = useState([]);
   const [selectedPoiId, setSelectedPoiId] = useState(null);
-  const [form, setForm] = useState({ institutionId: "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "", markerImageUrl: "", markerStoragePath: "", markerFileName: "", markerWidthMeters: "" });
+  const [form, setForm] = useState({
+    institutionId: "",
+    landmarkId: "",
+    name: "",
+    status: "Unpublished",
+    qrCode: "",
+    imageUrl: "",
+    imageStoragePath: "",
+    markerImageUrl: "",
+    markerStoragePath: "",
+    markerFileName: "",
+    markerWidthMeters: "",
+  });
   const availableContent = contents.filter((item) =>
     getContentScope(item) === "POI" &&
     (adminMode || ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type))),
@@ -41,6 +56,7 @@ const POIManagement = ({ adminMode = false }) => {
   const qrCanvasRef = useRef(null);
   const imageInputRef = useRef(null);
   const markerImageInputRef = useRef(null);
+
   useEffect(() => {
     if (!imageFile) {
       setImagePreviewUrl("");
@@ -50,6 +66,7 @@ const POIManagement = ({ adminMode = false }) => {
     setImagePreviewUrl(previewUrl);
     return () => URL.revokeObjectURL(previewUrl);
   }, [imageFile]);
+
   useEffect(() => {
     if (!markerImageFile) {
       setMarkerImagePreviewUrl("");
@@ -147,7 +164,19 @@ const POIManagement = ({ adminMode = false }) => {
   const resetForm = () => {
     setSelectedPoiId(null);
     setSelectedContentIds([]);
-    setForm({ institutionId: adminMode ? institutionId || "" : "", landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "", markerImageUrl: "", markerStoragePath: "", markerFileName: "", markerWidthMeters: "" });
+    setForm({
+      institutionId: adminMode ? institutionId || "" : "",
+      landmarkId: "",
+      name: "",
+      status: "Unpublished",
+      qrCode: "",
+      imageUrl: "",
+      imageStoragePath: "",
+      markerImageUrl: "",
+      markerStoragePath: "",
+      markerFileName: "",
+      markerWidthMeters: "",
+    });
     setImageFile(null);
     setRemoveImage(false);
     if (imageInputRef.current) imageInputRef.current.value = "";
@@ -161,7 +190,19 @@ const POIManagement = ({ adminMode = false }) => {
     setInstitutionId(id);
     setSelectedPoiId(null);
     setSelectedContentIds([]);
-    setForm({ institutionId: id, landmarkId: "", name: "", qrCode: "", imageUrl: "", imageStoragePath: "", markerImageUrl: "", markerStoragePath: "", markerFileName: "", markerWidthMeters: "" });
+    setForm({
+      institutionId: id,
+      landmarkId: "",
+      name: "",
+      status: "Unpublished",
+      qrCode: "",
+      imageUrl: "",
+      imageStoragePath: "",
+      markerImageUrl: "",
+      markerStoragePath: "",
+      markerFileName: "",
+      markerWidthMeters: "",
+    });
     setImageFile(null);
     setRemoveImage(false);
     if (imageInputRef.current) imageInputRef.current.value = "";
@@ -176,6 +217,7 @@ const POIManagement = ({ adminMode = false }) => {
   };
 
   const generateLandmarkPoiQr = async (landmarkId = form.landmarkId) => {
+    if (adminMode) return;
     if (!landmarkId) {
       setFormError("Select a landmark before generating the shared POI QR.");
       return;
@@ -190,7 +232,7 @@ const POIManagement = ({ adminMode = false }) => {
       try {
         await writeAuditLog({
           actorId: getAuth().currentUser?.uid,
-          actorRole: adminMode ? "admin" : "institution",
+          actorRole: "institution",
           action: "landmark.poi_qr_generated",
           entityType: "landmark",
           entityId: landmarkId,
@@ -230,6 +272,7 @@ const POIManagement = ({ adminMode = false }) => {
   };
 
   const editPoi = (poi) => {
+    if (adminMode) return;
     setSelectedPoiId(poi.id);
     setSelectedContentIds(poi.contentIds || []);
     const landmark = landmarks.find((item) => item.id === poi.landmarkId);
@@ -237,6 +280,7 @@ const POIManagement = ({ adminMode = false }) => {
       institutionId: poi.institutionId || "",
       landmarkId: poi.landmarkId,
       name: poi.name || "",
+      status: getPoiPublishStatus(poi),
       qrCode: poi.qrCode || landmark?.poiQrCode || "",
       imageUrl: poi.imageUrl || "",
       imageStoragePath: poi.imageStoragePath || "",
@@ -255,6 +299,7 @@ const POIManagement = ({ adminMode = false }) => {
   };
 
   const removePoi = async (poi) => {
+    if (adminMode) return;
     if (!window.confirm(`Remove ${poi.name}?`)) return;
     try {
       await deleteDoc(doc(db, "pois", poi.id));
@@ -285,7 +330,7 @@ const POIManagement = ({ adminMode = false }) => {
     try {
       await writeAuditLog({
         actorId: getAuth().currentUser?.uid,
-        actorRole: adminMode ? "admin" : "institution",
+        actorRole: "institution",
         action: "poi.deleted",
         entityType: "poi",
         entityId: poi.id,
@@ -305,7 +350,8 @@ const POIManagement = ({ adminMode = false }) => {
 
   const savePoi = async (event) => {
     event.preventDefault();
-    const ownerId = adminMode ? form.institutionId : institutionId;
+    if (adminMode) return;
+    const ownerId = institutionId;
     const sharedLandmarkQr = landmarks.find((landmark) => landmark.id === form.landmarkId)?.poiQrCode || form.qrCode.trim();
     if (!ownerId || !form.landmarkId || !form.name.trim()) {
       setFormError("Select a landmark and enter a POI name.");
@@ -331,6 +377,7 @@ const POIManagement = ({ adminMode = false }) => {
       setFormError(assignmentLimitError);
       return;
     }
+    const normalizedStatus = form.status === "Published" ? "Published" : "Unpublished";
     setSaving(true);
     setFormError("");
     let uploadedImage = null;
@@ -343,13 +390,13 @@ const POIManagement = ({ adminMode = false }) => {
         institutionId: ownerId,
         landmarkId: form.landmarkId,
         name: form.name.trim(),
+        status: normalizedStatus,
+        isPublished: normalizedStatus === "Published",
         qrCode: sharedLandmarkQr,
-        contentIds: adminMode
-          ? selectedContentIds
-          : selectedContentIds.filter((contentId) =>
-            availableContent.some((item) => item.id === contentId) ||
-            (pois.find((poi) => poi.id === selectedPoiId)?.contentIds || []).includes(contentId),
-          ),
+        contentIds: selectedContentIds.filter((contentId) =>
+          availableContent.some((item) => item.id === contentId) ||
+          (pois.find((poi) => poi.id === selectedPoiId)?.contentIds || []).includes(contentId),
+        ),
         updatedAt: serverTimestamp(),
       };
       const imageFields = uploadedImage
@@ -420,11 +467,16 @@ const POIManagement = ({ adminMode = false }) => {
       try {
         await writeAuditLog({
           actorId: getAuth().currentUser?.uid,
-          actorRole: adminMode ? "admin" : "institution",
+          actorRole: "institution",
           action: selectedPoiId ? "poi.updated" : "poi.created",
           entityType: "poi",
           entityId: savedPoiId,
-          metadata: { institutionId: ownerId, landmarkId: form.landmarkId, name: form.name.trim() },
+          metadata: {
+            institutionId: ownerId,
+            landmarkId: form.landmarkId,
+            name: form.name.trim(),
+            status: normalizedStatus,
+          },
           throwOnFailure: true,
         });
       } catch (auditError) {
@@ -462,27 +514,30 @@ const POIManagement = ({ adminMode = false }) => {
     <PageHeader
       eyebrow="Experience design"
       title="POI Management"
-      description="Organize visitor destinations, QR markers, and AR tracking images under their parent landmarks."
+      description={
+        adminMode
+          ? "View visitor destinations, publish statuses, QR markers, and AR tracking images across institutions."
+          : "Organize visitor destinations, QR markers, and AR tracking images under their parent landmarks."
+      }
     />
-{!adminMode && (
-  <SetupFlowBanner
-    hasLandmarkPinAndInfo={landmarks.some(
-      (l) =>
-        typeof l.lat === "number" &&
-        typeof l.lng === "number" &&
-        (l.landmarkName || l.institutionName) &&
-        (l.info?.description || l.description),
+    {!adminMode && (
+      <SetupFlowBanner
+        hasLandmarkPinAndInfo={landmarks.some(
+          (l) =>
+            typeof l.lat === "number" &&
+            typeof l.lng === "number" &&
+            (l.landmarkName || l.institutionName) &&
+            (l.info?.description || l.description),
+        )}
+        hasContentItems={contents.length > 0}
+        hasLinkedLandmarkContent={landmarks.some(
+          (l) => Array.isArray(l.contentIds) && l.contentIds.length > 0,
+        )}
+        hasPoiWithImageAndContent={pois.some(
+          (p) => Boolean(p.imageUrl || p.markerImageUrl) && Array.isArray(p.contentIds) && p.contentIds.length > 0,
+        )}
+      />
     )}
-    hasContentItems={contents.length > 0}
-    hasLinkedLandmarkContent={landmarks.some(
-      (l) => Array.isArray(l.contentIds) && l.contentIds.length > 0,
-    )}
-    hasPoiWithImageAndContent={pois.some(
-      (p) => Boolean(p.imageUrl || p.markerImageUrl) && Array.isArray(p.contentIds) && p.contentIds.length > 0,
-    )}
-  />
-)}
-{formError && <div role="alert" style={{ color: "#fbbf24", margin: "0 0 16px" }}>{formError}</div>}
     {formError && <div role="alert" style={{ color: "#fbbf24", margin: "0 0 16px" }}>{formError}</div>}
     {poiLoadError && <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
       {poiLoadError}{" "}
@@ -497,199 +552,262 @@ const POIManagement = ({ adminMode = false }) => {
         {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name || institution.id}</option>)}
       </select>
     </div>}
-    {adminMode && !institutionId ? <div style={{ color: "#888" }}>Choose an institution to view and manage its POIs.</div> : landmarks.length === 0 ? (!poiLoadError && <div style={{ color: "#fbbf24" }}>Create a landmark before adding a POI.</div>) : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,360px),1fr))", gap: 20, alignItems: "start" }}>
-      <form onSubmit={savePoi} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 12, padding: 22, border: "1px solid #39352c", borderRadius: 14 }}>
-        <h2 style={{ color: "#f3d16f", fontSize: 19, margin: 0 }}>{selectedPoiId ? "Edit POI" : "Add POI"}</h2>
-        <select className={commonStyles.formControl} value={form.landmarkId} onChange={(e) => {
-          const selectedLandmark = landmarks.find((landmark) => landmark.id === e.target.value);
-          updateField("landmarkId", e.target.value);
-          updateField("qrCode", selectedLandmark?.poiQrCode || "");
-        }} required><option value="">Select parent landmark</option>{landmarks.filter((landmark) => !adminMode || landmark.institutionId === form.institutionId).map((landmark) => <option key={landmark.id} value={landmark.id}>{landmark.landmarkName || landmark.institutionName}</option>)}</select>
-        <input className={commonStyles.formControl} placeholder="POI name, e.g. Painting A" value={form.name} onChange={(e) => updateField("name", e.target.value)} required />
-        <label htmlFor="poi-image" style={{ color: "#fff" }}>POI location image (optional)</label>
-        <input
-          ref={imageInputRef}
-          id="poi-image"
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          onChange={(event) => {
-            const selected = event.target.files?.[0] || null;
-            if (selected && !["image/png", "image/jpeg", "image/webp"].includes(selected.type)) {
-              setImageFile(null);
-              setFormError("Choose a PNG, JPG, or WEBP image.");
-              event.target.value = "";
-              return;
-            }
-            if (selected && selected.size > 10 * 1024 * 1024) {
-              setImageFile(null);
-              setFormError("POI images must be 10 MB or smaller.");
-              event.target.value = "";
-              return;
-            }
-            setImageFile(selected);
-            setRemoveImage(false);
-            setFormError("");
-          }}
-          style={{ color: "#ccc" }}
-        />
-        <small style={{ color: "#888" }}>Upload a photo to help visitors recognize where to scan the POI. PNG, JPG, or WEBP, maximum 10 MB.</small>
-        {(imagePreviewUrl || (form.imageUrl && !removeImage)) && (
-          <div>
-            <img src={imagePreviewUrl || form.imageUrl} alt={`Preview of ${form.name || "POI location"}`} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "contain", borderRadius: 6 }} />
-            <button type="button" className={commonStyles.btnCancel} onClick={() => {
-              setImageFile(null);
-              setRemoveImage(true);
-              if (imageInputRef.current) imageInputRef.current.value = "";
-            }}>Remove image</button>
-          </div>
-        )}
-        <label htmlFor="poi-marker-image" style={{ color: "#fff" }}>Plaque image for AR tracking (optional)</label>
-        <input
-          ref={markerImageInputRef}
-          id="poi-marker-image"
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          onChange={(event) => {
-            const selected = event.target.files?.[0] || null;
-            if (selected && !["image/png", "image/jpeg", "image/webp"].includes(selected.type)) {
-              setMarkerImageFile(null);
-              setFormError("Choose a PNG, JPG, or WEBP plaque image.");
-              event.target.value = "";
-              return;
-            }
-            if (selected && selected.size > 10 * 1024 * 1024) {
-              setMarkerImageFile(null);
-              setFormError("Plaque images must be 10 MB or smaller.");
-              event.target.value = "";
-              return;
-            }
-            setMarkerImageFile(selected);
-            setRemoveMarkerImage(false);
-            setFormError("");
-          }}
-          style={{ color: "#ccc" }}
-        />
-        <small style={{ color: "#888" }}>Choose a straight-on, tightly cropped plaque photo. PNG, JPG, or WEBP, maximum 10 MB.</small>
-        <label htmlFor="poi-marker-width" style={{ color: "#fff" }}>Plaque real width (metres)</label>
-        <input
-          id="poi-marker-width"
-          className={commonStyles.formControl}
-          type="number"
-          min="0.001"
-          step="0.001"
-          placeholder="e.g. 0.30"
-          value={form.markerWidthMeters}
-          onChange={(event) => updateField("markerWidthMeters", event.target.value)}
-        />
-        <small style={{ color: "#888" }}>For example, enter 0.30 for a plaque that is 30 cm wide. An image and width are saved together.</small>
-        {(markerImagePreviewUrl || (form.markerImageUrl && !removeMarkerImage)) && (
-          <div>
-            <img src={markerImagePreviewUrl || form.markerImageUrl} alt={`AR plaque preview for ${form.name || "POI"}`} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "contain", borderRadius: 6, background: "#111" }} />
-            {!markerImageFile && form.markerFileName && <small style={{ display: "block", color: "#888", marginTop: 6 }}>Current plaque image: {form.markerFileName}</small>}
-            <button type="button" className={commonStyles.btnCancel} onClick={() => {
-              setMarkerImageFile(null);
-              setRemoveMarkerImage(true);
-              updateField("markerWidthMeters", "");
-              if (markerImageInputRef.current) markerImageInputRef.current.value = "";
-            }}>Remove plaque image</button>
-          </div>
-        )}
-        <label style={{ color: "#fff" }}>Shared Landmark POI QR</label>
-        <small style={{ color: "#888" }}>Each landmark can have one POI QR that can include many POIs or sub-modules under it.</small>
-        <button type="button" className={commonStyles.btnOutline} onClick={generateQrCode}>Generate Shared Landmark QR</button>
-        {form.qrCode.trim() && <div style={{ background: "#fff", padding: 12, width: "fit-content" }}><QRCodeCanvas ref={qrCanvasRef} value={form.qrCode.trim()} size={140} includeMargin /></div>}
-        <div>
-          <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
-            Assign Existing Content
-          </label>
-          <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
-            Assign at most one Information item and one Quiz per POI. Add any number of Fun Facts. VR models cannot be assigned to POIs.
-          </small>
-          {availableContent.length === 0 ? (
-            <small style={{ color: "#888" }}>No reusable POI content found.</small>
-          ) : availableContent.map((item) => {
-            const isSelected = selectedContentIds.includes(item.id);
-            const limitError = isSelected
-              ? ""
-              : getContentAssignmentLimitError(
-                "POI",
-                [...selectedContentIds, item.id],
-                availableContent,
-              );
-            return (
-              <label key={item.id} style={{ display: "flex", gap: 8, padding: "6px 0", color: "#ccc" }}>
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  disabled={Boolean(limitError)}
-                  title={limitError || undefined}
-                  onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}
-                />
-                {item.title} ({item.type})
-              </label>
-            );
-          })}
+    {adminMode && !institutionId ? (
+      <div style={{ color: "#888" }}>Choose an institution to view its POIs.</div>
+    ) : landmarks.length === 0 ? (
+      !poiLoadError && (
+        <div style={{ color: "#fbbf24" }}>
+          {adminMode ? "No landmarks found for this institution." : "Create a landmark before adding a POI."}
         </div>
-        <button className={commonStyles.btnPrimary} disabled={saving}>{saving ? "Saving..." : selectedPoiId ? "Save POI Changes" : "Save POI"}</button>
-        {selectedPoiId && <button type="button" className={commonStyles.btnCancel} onClick={resetForm}>Cancel Edit</button>}
-      </form>
-      <div>{landmarks.filter((landmark) => !adminMode || landmark.institutionId === form.institutionId || !form.institutionId).map((landmark) => {
-        const landmarkPois = pois.filter((poi) => poi.landmarkId === landmark.id);
-        const catalog = createPoiCatalog(institutionId, landmark, landmarkPois, contents);
-        const sharedQr = landmark.poiQrCode || landmarkPois[0]?.qrCode || "";
-        return <div key={landmark.id} style={{ padding: 16, border: "1px solid #333", borderRadius: 10, marginBottom: 16, background: "#111827" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>
+      )
+    ) : (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,360px),1fr))", gap: 20, alignItems: "start" }}>
+        {!adminMode && (
+          <form onSubmit={savePoi} className={commonStyles.contentCard} style={{ display: "flex", flexDirection: "column", gap: 12, padding: 22, border: "1px solid #39352c", borderRadius: 14 }}>
+            <h2 style={{ color: "#f3d16f", fontSize: 19, margin: 0 }}>{selectedPoiId ? "Edit POI" : "Add POI"}</h2>
+            <select
+              className={commonStyles.formControl}
+              value={form.landmarkId}
+              onChange={(e) => {
+                const selectedLandmark = landmarks.find((landmark) => landmark.id === e.target.value);
+                updateField("landmarkId", e.target.value);
+                updateField("qrCode", selectedLandmark?.poiQrCode || "");
+              }}
+              required
+            >
+              <option value="">Select parent landmark</option>
+              {landmarks.map((landmark) => (
+                <option key={landmark.id} value={landmark.id}>
+                  {landmark.landmarkName || landmark.institutionName}
+                </option>
+              ))}
+            </select>
+            <input
+              className={commonStyles.formControl}
+              placeholder="POI name, e.g. Painting A"
+              value={form.name}
+              onChange={(e) => updateField("name", e.target.value)}
+              required
+            />
             <div>
-              <strong style={{ color: "#d4af37" }}>{landmark.landmarkName || landmark.institutionName}</strong>
-              <div style={{ color: "#888", fontSize: 12 }}>Shared POI QR for this landmark</div>
+              <label htmlFor="poi-publish-status" style={{ display: "block", color: "#fff", marginBottom: 6 }}>
+                Publish Status
+              </label>
+              <select
+                id="poi-publish-status"
+                className={commonStyles.formControl}
+                value={form.status}
+                onChange={(e) => updateField("status", e.target.value)}
+              >
+                <option value="Unpublished">Unpublished</option>
+                <option value="Published">Published</option>
+              </select>
             </div>
-            {sharedQr ? <QRCodeCanvas id={`landmark-poi-qr-${landmark.id}`} value={sharedQr} size={72} includeMargin /> : null}
-          </div>
-          {sharedQr ? (
-            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-              <button type="button" className={commonStyles.btnOutline} onClick={() => downloadQrCode(`landmark-poi-qr-${landmark.id}`, `${(landmark.landmarkName || landmark.institutionName || "landmark").replace(/[^a-z0-9-_]/gi, "-")}-poi-qr`)}>Download Shared QR</button>
-              <button type="button" className={commonStyles.btnOutline} onClick={() => printQrCode(`landmark-poi-qr-${landmark.id}`, `${landmark.landmarkName || landmark.institutionName || "Landmark"} POI QR`, sharedQr)}>Print Shared QR</button>
-            </div>
-          ) : (
-            <button type="button" className={commonStyles.btnOutline} onClick={() => generateLandmarkPoiQr(landmark.id)} style={{ marginBottom: 12 }}>Generate Shared Landmark POI QR</button>
-          )}
-          <div style={{ marginBottom: 12 }}>
-            <button type="button" className={commonStyles.btnOutline} disabled={!!poiLoadError || !catalog?.pois.length}
-              onClick={() => exportPoiList(catalog)}>
-              Export POIs for Unity
-            </button>
-            {!poiLoadError && !catalog?.pois.length && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>
-              Link a POI to published Information, Fun Fact, or Quiz content to export it.
-            </div>}
-          </div>
-          {landmarkPois.length === 0 ? (
-            <div style={{ color: "#888", paddingTop: 8 }}>No POIs added under this landmark yet.</div>
-          ) : (
+            <label htmlFor="poi-image" style={{ color: "#fff" }}>POI location image (optional)</label>
+            <input
+              ref={imageInputRef}
+              id="poi-image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => {
+                const selected = event.target.files?.[0] || null;
+                if (selected && !["image/png", "image/jpeg", "image/webp"].includes(selected.type)) {
+                  setImageFile(null);
+                  setFormError("Choose a PNG, JPG, or WEBP image.");
+                  event.target.value = "";
+                  return;
+                }
+                if (selected && selected.size > 10 * 1024 * 1024) {
+                  setImageFile(null);
+                  setFormError("POI images must be 10 MB or smaller.");
+                  event.target.value = "";
+                  return;
+                }
+                setImageFile(selected);
+                setRemoveImage(false);
+                setFormError("");
+              }}
+              style={{ color: "#ccc" }}
+            />
+            <small style={{ color: "#888" }}>Upload a photo to help visitors recognize where to scan the POI. PNG, JPG, or WEBP, maximum 10 MB.</small>
+            {(imagePreviewUrl || (form.imageUrl && !removeImage)) && (
+              <div>
+                <img src={imagePreviewUrl || form.imageUrl} alt={`Preview of ${form.name || "POI location"}`} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "contain", borderRadius: 6 }} />
+                <button type="button" className={commonStyles.btnCancel} onClick={() => {
+                  setImageFile(null);
+                  setRemoveImage(true);
+                  if (imageInputRef.current) imageInputRef.current.value = "";
+                }}>Remove image</button>
+              </div>
+            )}
+            <label htmlFor="poi-marker-image" style={{ color: "#fff" }}>Plaque image for AR tracking (optional)</label>
+            <input
+              ref={markerImageInputRef}
+              id="poi-marker-image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => {
+                const selected = event.target.files?.[0] || null;
+                if (selected && !["image/png", "image/jpeg", "image/webp"].includes(selected.type)) {
+                  setMarkerImageFile(null);
+                  setFormError("Choose a PNG, JPG, or WEBP plaque image.");
+                  event.target.value = "";
+                  return;
+                }
+                if (selected && selected.size > 10 * 1024 * 1024) {
+                  setMarkerImageFile(null);
+                  setFormError("Plaque images must be 10 MB or smaller.");
+                  event.target.value = "";
+                  return;
+                }
+                setMarkerImageFile(selected);
+                setRemoveMarkerImage(false);
+                setFormError("");
+              }}
+              style={{ color: "#ccc" }}
+            />
+            <small style={{ color: "#888" }}>Choose a straight-on, tightly cropped plaque photo. PNG, JPG, or WEBP, maximum 10 MB.</small>
+            <label htmlFor="poi-marker-width" style={{ color: "#fff" }}>Plaque real width (metres)</label>
+            <input
+              id="poi-marker-width"
+              className={commonStyles.formControl}
+              type="number"
+              min="0.001"
+              step="0.001"
+              placeholder="e.g. 0.30"
+              value={form.markerWidthMeters}
+              onChange={(event) => updateField("markerWidthMeters", event.target.value)}
+            />
+            <small style={{ color: "#888" }}>For example, enter 0.30 for a plaque that is 30 cm wide. An image and width are saved together.</small>
+            {(markerImagePreviewUrl || (form.markerImageUrl && !removeMarkerImage)) && (
+              <div>
+                <img src={markerImagePreviewUrl || form.markerImageUrl} alt={`AR plaque preview for ${form.name || "POI"}`} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "contain", borderRadius: 6, background: "#111" }} />
+                {!markerImageFile && form.markerFileName && <small style={{ display: "block", color: "#888", marginTop: 6 }}>Current plaque image: {form.markerFileName}</small>}
+                <button type="button" className={commonStyles.btnCancel} onClick={() => {
+                  setMarkerImageFile(null);
+                  setRemoveMarkerImage(true);
+                  updateField("markerWidthMeters", "");
+                  if (markerImageInputRef.current) markerImageInputRef.current.value = "";
+                }}>Remove plaque image</button>
+              </div>
+            )}
+            <label style={{ color: "#fff" }}>Shared Landmark POI QR</label>
+            <small style={{ color: "#888" }}>Each landmark can have one POI QR that can include many POIs or sub-modules under it.</small>
+            <button type="button" className={commonStyles.btnOutline} onClick={generateQrCode}>Generate Shared Landmark QR</button>
+            {form.qrCode.trim() && <div style={{ background: "#fff", padding: 12, width: "fit-content" }}><QRCodeCanvas ref={qrCanvasRef} value={form.qrCode.trim()} size={140} includeMargin /></div>}
             <div>
-              {landmarkPois.map((poi, index) => {
-                const poiContent = (Array.isArray(poi.contentIds) ? poi.contentIds : [])
-                  .map((contentId) => availableContent.find((content) => content.id === contentId))
-                  .filter(Boolean);
-                return <div key={poi.id} style={{ paddingTop: index === 0 ? 0 : 12, marginTop: index === 0 ? 0 : 12, borderTop: index === 0 ? "none" : "1px solid #333" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                    <div>
-                      <strong>{poi.name}</strong>
-                      {poi.markerImageUrl && Number.isFinite(poi.markerWidthMeters) && <div style={{ color: "#4ade80", fontSize: 12, marginTop: 4 }}>AR plaque configured ({poi.markerWidthMeters} m wide)</div>}
-                      {poiContent.length > 0 && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>{poiContent.map((content) => `${content.title} (${content.type})`).join(" • ")}</div>}
-                      {!poiContent.length && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>No content assigned</div>}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <button type="button" className={commonStyles.btnOutline} onClick={() => editPoi(poi)}>Edit POI</button>
-                      <button type="button" className={commonStyles.btnCancel} onClick={() => removePoi(poi)}>Remove</button>
-                    </div>
-                  </div>
-                </div>;
+              <label style={{ color: "#fff", display: "block", marginBottom: 8 }}>
+                Assign Existing Content
+              </label>
+              <small style={{ display: "block", color: "#888", marginBottom: 6 }}>
+                Assign at most one Information item and one Quiz per POI. Add any number of Fun Facts. VR models cannot be assigned to POIs.
+              </small>
+              {availableContent.length === 0 ? (
+                <small style={{ color: "#888" }}>No reusable POI content found.</small>
+              ) : availableContent.map((item) => {
+                const isSelected = selectedContentIds.includes(item.id);
+                const limitError = isSelected
+                  ? ""
+                  : getContentAssignmentLimitError(
+                    "POI",
+                    [...selectedContentIds, item.id],
+                    availableContent,
+                  );
+                return (
+                  <label key={item.id} style={{ display: "flex", gap: 8, padding: "6px 0", color: "#ccc" }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={Boolean(limitError)}
+                      title={limitError || undefined}
+                      onChange={() => setSelectedContentIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}
+                    />
+                    {item.title} ({item.type})
+                  </label>
+                );
               })}
             </div>
-          )}
-        </div>;
-      })}</div>
-    </div>}
+            <button className={commonStyles.btnPrimary} disabled={saving}>{saving ? "Saving..." : selectedPoiId ? "Save POI Changes" : "Save POI"}</button>
+            {selectedPoiId && <button type="button" className={commonStyles.btnCancel} onClick={resetForm}>Cancel Edit</button>}
+          </form>
+        )}
+        <div>{landmarks.map((landmark) => {
+          const landmarkPois = pois.filter((poi) => poi.landmarkId === landmark.id);
+          const catalog = createPoiCatalog(institutionId, landmark, landmarkPois, contents);
+          const sharedQr = landmark.poiQrCode || landmarkPois[0]?.qrCode || "";
+          return <div key={landmark.id} style={{ padding: 16, border: "1px solid #333", borderRadius: 10, marginBottom: 16, background: "#111827" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <div>
+                <strong style={{ color: "#d4af37" }}>{landmark.landmarkName || landmark.institutionName}</strong>
+                <div style={{ color: "#888", fontSize: 12 }}>Shared POI QR for this landmark</div>
+              </div>
+              {sharedQr ? <QRCodeCanvas id={`landmark-poi-qr-${landmark.id}`} value={sharedQr} size={72} includeMargin /> : null}
+            </div>
+            {sharedQr ? (
+              <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <button type="button" className={commonStyles.btnOutline} onClick={() => downloadQrCode(`landmark-poi-qr-${landmark.id}`, `${(landmark.landmarkName || landmark.institutionName || "landmark").replace(/[^a-z0-9-_]/gi, "-")}-poi-qr`)}>Download Shared QR</button>
+                <button type="button" className={commonStyles.btnOutline} onClick={() => printQrCode(`landmark-poi-qr-${landmark.id}`, `${landmark.landmarkName || landmark.institutionName || "Landmark"} POI QR`, sharedQr)}>Print Shared QR</button>
+              </div>
+            ) : !adminMode ? (
+              <button type="button" className={commonStyles.btnOutline} onClick={() => generateLandmarkPoiQr(landmark.id)} style={{ marginBottom: 12 }}>Generate Shared Landmark POI QR</button>
+            ) : null}
+            <div style={{ marginBottom: 12 }}>
+              <button type="button" className={commonStyles.btnOutline} disabled={!!poiLoadError || !catalog?.pois.length}
+                onClick={() => exportPoiList(catalog)}>
+                Export POIs for Unity
+              </button>
+              {!poiLoadError && !catalog?.pois.length && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>
+                Link a POI to published Information, Fun Fact, or Quiz content to export it.
+              </div>}
+            </div>
+            {landmarkPois.length === 0 ? (
+              <div style={{ color: "#888", paddingTop: 8 }}>No POIs added under this landmark yet.</div>
+            ) : (
+              <div>
+                {landmarkPois.map((poi, index) => {
+                  const poiContent = (Array.isArray(poi.contentIds) ? poi.contentIds : [])
+                    .map((contentId) => availableContent.find((content) => content.id === contentId))
+                    .filter(Boolean);
+                  const poiStatus = getPoiPublishStatus(poi);
+                  const isPublished = poiStatus === "Published";
+                  return <div key={poi.id} style={{ paddingTop: index === 0 ? 0 : 12, marginTop: index === 0 ? 0 : 12, borderTop: index === 0 ? "none" : "1px solid #333" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <strong>{poi.name}</strong>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              background: isPublished ? "rgba(74, 222, 128, 0.14)" : "rgba(251, 191, 36, 0.14)",
+                              color: isPublished ? "#4ade80" : "#fbbf24",
+                              border: `1px solid ${isPublished ? "rgba(74, 222, 128, 0.35)" : "rgba(251, 191, 36, 0.35)"}`,
+                            }}
+                          >
+                            {poiStatus}
+                          </span>
+                        </div>
+                        {poi.markerImageUrl && Number.isFinite(poi.markerWidthMeters) && <div style={{ color: "#4ade80", fontSize: 12, marginTop: 4 }}>AR plaque configured ({poi.markerWidthMeters} m wide)</div>}
+                        {poiContent.length > 0 && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>{poiContent.map((content) => `${content.title} (${content.type})`).join(" • ")}</div>}
+                        {!poiContent.length && <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>No content assigned</div>}
+                      </div>
+                      {!adminMode && (
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <button type="button" className={commonStyles.btnOutline} onClick={() => editPoi(poi)}>Edit POI</button>
+                          <button type="button" className={commonStyles.btnCancel} onClick={() => removePoi(poi)}>Remove</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>;
+                })}
+              </div>
+            )}
+          </div>;
+        })}</div>
+      </div>
+    )}
   </div>;
 };
 

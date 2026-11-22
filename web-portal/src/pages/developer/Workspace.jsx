@@ -410,14 +410,6 @@ const DeveloperWorkspace = () => {
 
       {error && <div role="alert" style={{ marginTop: 16, color: "#fecaca" }}>{error}</div>}
       {notice && <div role="status" style={{ marginTop: 16, color: "#86efac" }}>{notice}</div>}
-      <button
-        type="button"
-        onClick={() => setIsTourUploadOpen(true)}
-        disabled={!institutionId}
-        style={{ marginTop: 16, border: "1px solid #645326", background: "transparent", color: "#f3d16f", borderRadius: 8, padding: "10px 14px", cursor: "pointer" }}
-      >
-        Upload interactive tour ZIP
-      </button>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, .8fr) minmax(0, 1.2fr)", gap: 20, marginTop: 20 }}>
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>
@@ -501,6 +493,33 @@ const DeveloperWorkspace = () => {
                   : "Submit for Curator verification"}
             </button>
           </form>
+
+          <hr style={{ border: 0, borderTop: "1px solid #34312a", margin: "18px 0" }} />
+
+          <div>
+            <p style={{ margin: "0 0 10px", color: "#aaa", fontSize: 13 }}>
+              {selectedLandmarkHasModel
+                ? "GLB model assigned. You can now attach an interactive tour package."
+                : "Upload a GLB model for this landmark first to unlock interactive tour package uploads."}
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsTourUploadOpen(true)}
+              disabled={!institutionId || !selectedLandmarkHasModel}
+              style={{
+                width: "100%",
+                border: "1px solid #645326",
+                background: "transparent",
+                color: selectedLandmarkHasModel ? "#f3d16f" : "#666",
+                borderColor: selectedLandmarkHasModel ? "#645326" : "#34312a",
+                borderRadius: 8,
+                padding: "10px 14px",
+                cursor: selectedLandmarkHasModel ? "pointer" : "not-allowed",
+              }}
+            >
+              Upload interactive tour ZIP
+            </button>
+          </div>
         </section>
 
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>

@@ -27,6 +27,7 @@ const FloorPlan = ({ adminMode = false }) => {
   const [dragStart, setDragStart] = useState(null);
   const [pois, setPois] = useState([]);
   const [landmarks, setLandmarks] = useState([]);
+  const [contents, setContents] = useState([]);
   const [qrMessage, setQrMessage] = useState("");
   const [poiSearch, setPoiSearch] = useState("");
   const [selectedPoiId, setSelectedPoiId] = useState("");
@@ -40,6 +41,7 @@ const FloorPlan = ({ adminMode = false }) => {
       setFloorPlan(null);
       setPois([]);
       setLandmarks([]);
+      setContents([]);
       setMessage("");
       setLoading(false);
       return;
@@ -48,17 +50,19 @@ const FloorPlan = ({ adminMode = false }) => {
     setLoading(true);
     setMessage("");
     try {
-      const [institutionSnapshot, floorPlanSnapshot, poiSnapshot, landmarkSnapshot] = await Promise.all([
+      const [institutionSnapshot, floorPlanSnapshot, poiSnapshot, landmarkSnapshot, contentSnapshot] = await Promise.all([
         getDoc(doc(db, "institutions", id)),
         getDoc(doc(db, "floorPlans", id)),
         getDocs(query(collection(db, "pois"), where("institutionId", "==", id))),
         getDocs(query(collection(db, "landmarks"), where("institutionId", "==", id))),
+        getDocs(query(collection(db, "content"), where("institutionId", "==", id))),
       ]);
       if (!institutionSnapshot.exists()) {
         setInstitutionName("");
         setFloorPlan(null);
         setPois([]);
         setLandmarks([]);
+        setContents([]);
         setMessage("This institution no longer exists.");
         return;
       }
@@ -70,6 +74,7 @@ const FloorPlan = ({ adminMode = false }) => {
         : null);
       setPois(poiSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
       setLandmarks(landmarkSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setContents(contentSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
       setMessage(isInstitutionActive(institution)
         ? ""
         : "This institution is inactive. Its saved floor plan is shown for administrative review.");
@@ -81,6 +86,7 @@ const FloorPlan = ({ adminMode = false }) => {
       setFloorPlan(null);
       setPois([]);
       setLandmarks([]);
+      setContents([]);
     } finally {
       setLoading(false);
     }
@@ -103,6 +109,7 @@ const FloorPlan = ({ adminMode = false }) => {
         setFloorPlan(null);
         setPois([]);
         setLandmarks([]);
+        setContents([]);
         setLoading(false);
         return;
       }
@@ -404,9 +411,7 @@ const FloorPlan = ({ adminMode = false }) => {
         (l.landmarkName || l.institutionName) &&
         (l.info?.description || l.description),
     ),
-    hasContentItems:
-      pois.some((p) => Array.isArray(p.contentIds) && p.contentIds.length > 0) ||
-      Boolean(floorPlan),
+    hasContentItems: contents.length > 0,
     hasLinkedLandmarkContent: landmarks.some(
       (l) => Array.isArray(l.contentIds) && l.contentIds.length > 0,
     ),
