@@ -210,7 +210,7 @@ async function readModelScene(model) {
   } catch {
     throw new Error("model.glb has a damaged scene description.");
   }
-  if (!scene || typeof scene !== "object" ||
+  if (!scene || scene.asset?.version !== "2.0" ||
     (scene.images != null && !Array.isArray(scene.images)) ||
     (scene.buffers != null && !Array.isArray(scene.buffers)) ||
     (scene.extensionsRequired != null && !Array.isArray(scene.extensionsRequired))) {
@@ -220,16 +220,24 @@ async function readModelScene(model) {
     typeof part?.uri === "string" && !part.uri.startsWith("data:"))) {
     throw new Error("model.glb references external files. Export the model with its textures and geometry embedded.");
   }
+  const missingDecoders = (scene.extensionsRequired ?? [])
+    .map((extension) => mobileDecoderExtensions.get(extension)).filter(Boolean);
+  if (missingDecoders.length) {
+    throw new Error(`This model needs ${missingDecoders.join(", ")} decoding on the phone. Export again with that compression disabled.`);
+  }
+  const binaryOffset = 20 + jsonLength;
   const embedded = scene.buffers?.find((buffer) => buffer?.uri == null);
   if (embedded) {
-    const binary = await viewOf(model, 20 + jsonLength, 8);
+    const invalidBinary = "model.glb is missing its embedded geometry or texture data.";
+    if (model.size - binaryOffset < 8) throw new Error(invalidBinary);
+    const binary = await viewOf(model, binaryOffset, 8);
     const binaryLength = binary.getUint32(0, true);
     if (binary.getUint32(4, true) !== 0x004e4942 || !Number.isInteger(embedded.byteLength) ||
-      embedded.byteLength <= 0 || binaryLength < embedded.byteLength || 28 + jsonLength + binaryLength > model.size) {
-      throw new Error("model.glb is missing its embedded geometry or texture data.");
+      embedded.byteLength <= 0 || binaryLength < embedded.byteLength || binaryOffset + 8 + binaryLength > model.size) {
+      throw new Error(invalidBinary);
     }
   }
-  return { scene, binaryOffset: 20 + jsonLength };
+  return { scene, binaryOffset };
 }
 
 export async function inspectTourModel(file) {
@@ -237,11 +245,6 @@ export async function inspectTourModel(file) {
     throw new Error("Choose a GLB model of 1 GB or smaller.");
   }
   const model = await readModelScene(file);
-  const missingDecoders = (model.scene.extensionsRequired ?? [])
-    .map((extension) => mobileDecoderExtensions.get(extension)).filter(Boolean);
-  if (missingDecoders.length) {
-    throw new Error(`This model needs ${missingDecoders.join(", ")} decoding on the phone. Export again with that compression disabled.`);
-  }
   return { ...model, hasSpawn: validateModelAnchors(model.scene, []) };
 }
 

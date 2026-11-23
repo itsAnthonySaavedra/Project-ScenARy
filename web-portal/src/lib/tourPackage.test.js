@@ -10,7 +10,7 @@ bin.writeUInt32LE(36, 0);
 bin.write("BIN\0", 4);
 [0, 0, 0, 1, 0, 0, 0, 0, 1].forEach((value, index) => bin.writeFloatLE(value, 8 + index * 4));
 
-function modelFixture(overrides = {}) {
+function modelFixture(overrides = {}, binary = bin) {
   const scene = {
     asset: { version: "2.0" },
     scene: 0,
@@ -25,9 +25,9 @@ function modelFixture(overrides = {}) {
   const json = Buffer.from(JSON.stringify(scene));
   const padding = Buffer.alloc((4 - json.length % 4) % 4, 32);
   const header = Buffer.alloc(20);
-  [0x46546c67, 2, header.length + json.length + padding.length + bin.length, json.length + padding.length, 0x4e4f534a]
+  [0x46546c67, 2, header.length + json.length + padding.length + binary.length, json.length + padding.length, 0x4e4f534a]
     .forEach((word, index) => header.writeUInt32LE(word, index * 4));
-  return new File([header, json, padding, bin], "Landmark.glb");
+  return new File([header, json, padding, binary], "Landmark.glb");
 }
 
 async function readModel(model) {
@@ -58,6 +58,8 @@ test("accepts a plain GLB with no pre-authored spawn or stop anchors", async () 
 
 test("reports invalid GLBs and required mobile decoders before preview", async () => {
   await assert.rejects(inspectTourModel(new File(["not a model"], "broken.glb")), /incomplete/);
+  await assert.rejects(inspectTourModel(modelFixture({ asset: { version: "1.0" } })), /invalid scene metadata/);
+  await assert.rejects(inspectTourModel(modelFixture({}, Buffer.alloc(0))), /missing its embedded geometry/);
   await assert.rejects(
     inspectTourModel(modelFixture({ extensionsRequired: ["KHR_draco_mesh_compression"] })),
     /Draco decoding on the phone/,

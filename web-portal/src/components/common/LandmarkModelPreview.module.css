@@ -1,0 +1,59 @@
+.preview {
+  min-width: 0;
+}
+
+.viewer {
+  display: block;
+  width: 100%;
+  height: clamp(280px, 52vh, 560px);
+  background: #151310;
+  border-radius: .5rem;
+}
+
+.controls, .exposure {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.controls {
+  margin-block: .625rem;
+  font-size: .85rem;
+}
+
+.controls button {
+  min-height: 44px;
+  padding: .25rem .7rem;
+  border: 1px solid #6a562c;
+  border-radius: .5rem;
+  background: #201c16;
+  color: #f3d16f;
+  font: inherit;
+  cursor: pointer;
+}
+
+.controls button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.exposure input {
+  max-width: 100%;
+  accent-color: #d4af37;
+}
+
+.controls :focus-visible {
+  outline: 2px solid #f3d16f;
+  outline-offset: 2px;
+}
+
+.materialNotice {
+  margin: 0 0 .625rem;
+  padding: .65rem .75rem;
+  border: 1px solid #5f4c2e;
+  border-radius: .5rem;
+  background: #262016;
+  color: #f1d89d;
+  font-size: .875rem;
+}

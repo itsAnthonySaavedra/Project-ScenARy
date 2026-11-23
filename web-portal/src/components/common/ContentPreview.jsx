@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import "@google/model-viewer";
 import { isModelContentType } from "../../lib/contentTypes";
+import LandmarkModelPreview from "./LandmarkModelPreview";
 
 const previewPanelStyle = {
   background: "#0a0a0a",
@@ -72,18 +72,12 @@ const ContentPreview = ({ content, poiNames = {} }) => {
       {isModelContentType(content.type) && (
         modelUrl ? (
           <div>
-            <model-viewer
+            <LandmarkModelPreview
               key={modelUrl}
               src={modelUrl}
-              crossOrigin="anonymous"
               alt={content.title || "VR model"}
-              auto-rotate
-              camera-controls
-              camera-orbit="0deg 75deg auto"
-              shadow-intensity="1"
-              onload={(event) => readPlacedStops(event.currentTarget)}
-              onerror={() => updateModelState("error")}
-              style={{ width: "100%", height: "420px", backgroundColor: "#111", marginBottom: "1rem" }}
+              onLoad={(event) => readPlacedStops(event.currentTarget)}
+              onError={() => updateModelState("error")}
             >
               {(placedStops[modelUrl] ?? []).map(({ anchor, poiId, number, position }) => (
                 <span key={anchor} slot={`hotspot-review-${number}`} data-position={position}
@@ -92,7 +86,7 @@ const ContentPreview = ({ content, poiNames = {} }) => {
                   {number}
                 </span>
               ))}
-            </model-viewer>
+            </LandmarkModelPreview>
             {modelState === "loading" && (
               <p style={{ ...previewPanelStyle, color: "#fbbf24" }}>
                 Loading VR model (uploading can take a while)...

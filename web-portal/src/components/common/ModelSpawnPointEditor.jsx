@@ -1,8 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import "@google/model-viewer";
 import commonStyles from "./Common.module.css";
 import { createDefaultModelSpawnPoint } from "../../lib/modelSpawnPoint";
 import { MAX_TOUR_STOPS } from "../../lib/tourPackage.js";
+import LandmarkModelPreview from "./LandmarkModelPreview";
 
 const axes = ["x", "y", "z"];
 const formatVector = (vector = {}) => axes.map((axis) => `${Number(vector[axis]) || 0}m`).join(" ");
@@ -78,7 +78,7 @@ const ModelSpawnPointEditor = ({
   }, [enabled, modelStatus, spawnPosition, spawnNormal]);
 
   return (
-    <fieldset style={{ border: "1px solid #444", padding: "0.9rem", margin: "1rem 0 0", color: "#ddd" }}>
+    <fieldset style={{ minWidth: 0, border: "1px solid #444", padding: "0.9rem", margin: "1rem 0 0", color: "#ddd" }}>
       <legend style={{ padding: "0 0.35rem", color: "#d4af37" }}>{allowStops ? "Tour stops and player spawn" : "Phone spawn transform"}</legend>
       <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
         <input type="checkbox" checked={enabled} disabled={disabled} onChange={(event) => {
@@ -130,31 +130,22 @@ const ModelSpawnPointEditor = ({
             {placementActive && <button type="button" className={commonStyles.btnOutline}
               onClick={cancelPlacement}>Cancel placement</button>}
           </div>
-          <model-viewer
+          <LandmarkModelPreview
             key={modelUrl}
-            ref={modelViewerRef}
+            viewerRef={modelViewerRef}
             src={modelUrl}
             alt="Landmark model preview"
-            camera-controls={!placementActive}
-            camera-orbit="0deg 65deg 70%"
-            interaction-prompt="none"
-            onload={() => setModelLoad({ url: modelUrl, status: "ready" })}
-            onerror={() => setModelLoad({ url: modelUrl, status: "error" })}
+            placementActive={placementActive}
+            onLoad={() => setModelLoad({ url: modelUrl, status: "ready" })}
+            onError={() => setModelLoad({ url: modelUrl, status: "error" })}
             onClick={handleViewerClick}
-            style={{
-              display: "block",
-              width: "100%",
-              height: "clamp(280px, 55vh, 560px)",
-              background: "#111",
-              borderRadius: 6,
-              cursor: placementActive ? "crosshair" : "grab",
-            }}
           >
             {enabled && <button
               slot="hotspot-spawn"
               type="button"
               aria-label="Current spawn point; click to reposition it"
               title="Spawn point"
+              disabled={disabled || placementActive}
               data-position={spawnPosition}
               data-normal={spawnNormal}
               onPointerDown={(event) => event.stopPropagation()}
@@ -171,6 +162,7 @@ const ModelSpawnPointEditor = ({
                 border: "2px solid #111",
                 borderRadius: "50%",
                 background: "#d4af37",
+                pointerEvents: placementActive ? "none" : "auto",
                 cursor: "pointer",
                 boxShadow: "0 0 0 2px #fff, 0 2px 8px #000",
               }}
@@ -186,7 +178,7 @@ const ModelSpawnPointEditor = ({
                 {index + 1}
               </span>
             ))}
-          </model-viewer>
+          </LandmarkModelPreview>
           <small role="status" style={{ display: "block", minHeight: "1.1rem", marginTop: "0.45rem", color: "#d4af37" }}>
             {modelStatus === "error" ? "This GLB could not be previewed. Check the export and choose the file again."
               : modelStatus === "loading" ? "Loading model preview…"

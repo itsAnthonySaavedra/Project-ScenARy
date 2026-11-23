@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  arrayUnion,
   collection,
   doc,
   getDoc,
@@ -9,19 +8,17 @@ import {
   serverTimestamp,
   updateDoc,
   where,
-  writeBatch,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
-import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 import { hasReadyLandmarkARContent, isContentReady } from "../../lib/contentQuality";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 import { createPoiCatalog } from "../../lib/poiCatalog.js";
 import { createPlacedTour, inspectTourModel } from "../../lib/tourPackage.js";
-import { saveTourDraft } from "../../lib/tourPackageStore.js";
+import { savePlainModelDraft, saveTourDraft } from "../../lib/tourPackageStore.js";
 import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
 import ContentPreview from "../../components/common/ContentPreview";
 import LandmarkDiscussion from "../../components/common/LandmarkDiscussion";
@@ -200,6 +197,10 @@ const ModelerWorkspace = () => {
     assignedInstitutions.find((inst) => inst.id === institutionId)?.name || "Assigned institution";
 
   const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId && item.institutionId === institutionId);
+  const previewTarget = previewContent?.targetId;
+  const previewLandmarkId = previewContent?.data?.landmarkId ||
+    pois.find((poi) => poi.id === previewTarget)?.landmarkId || previewTarget;
+  const previewLandmark = landmarks.find((item) => item.id === previewLandmarkId && item.institutionId === institutionId);
   const arContent = useMemo(
     () => contents.filter((item) => normalizeContentType(item.type) !== MODEL_CONTENT_TYPE),
     [contents],
@@ -305,8 +306,8 @@ const ModelerWorkspace = () => {
       setFormError("Remove stops linked to unavailable POIs before submitting.");
       return;
     }
-    if (stops.length && needsTourSpawn) {
-      setFormError("Place a player spawn before submitting the interactive tour.");
+    if ((stops.length && needsTourSpawn) || (spawnPointEnabled && !spawnPoint.positionChosen)) {
+      setFormError("Place the player spawn in the preview or enter its position before submitting.");
       return;
     }
     if (!file && !modelUrl.trim()) {
@@ -315,7 +316,6 @@ const ModelerWorkspace = () => {
     }
     setUploadProgress(null);
     setSaving(true);
-    let uploaded = null;
     try {
       if (stops.length) {
         const tour = await createPlacedTour(file, selectedLandmark.id, stops,
@@ -329,61 +329,18 @@ const ModelerWorkspace = () => {
         resetModel();
         return;
       }
-      if (file) {
-        uploaded = await uploadStorageFile(
-          file,
-          `content-models/${institutionId}`,
-          setUploadProgress,
-        );
-      }
-      const finalModelUrl = uploaded?.url || modelUrl.trim();
-      const contentRef = doc(collection(db, "content"));
-      const landmarkRef = doc(db, "landmarks", selectedLandmark.id);
-      const batch = writeBatch(db);
-      batch.set(contentRef, {
-        title:
-          title.trim() ||
-          `${selectedLandmark.landmarkName || selectedLandmark.institutionName || "Landmark"} VR model`,
-        type: MODEL_CONTENT_TYPE,
-        scope: "Landmark",
+      const modelTitle = title.trim() ||
+        `${selectedLandmark.landmarkName || selectedLandmark.institutionName || "Landmark"} VR model`;
+      const saved = await savePlainModelDraft({
+        landmarkId: selectedLandmark.id,
         institutionId,
-        targetId: selectedLandmark.id,
-        targetName: selectedLandmark.landmarkName || selectedLandmark.institutionName || "",
-        status: "Awaiting Curator Approval",
-        developerApproved: true,
-        developerApprovedAt: serverTimestamp(),
-        developerApprovedBy: currentUser.uid,
-        curatorApproved: false,
-        data: {
-          modelUrl: finalModelUrl,
-          ...(uploaded
-            ? {
-                modelFileName: uploaded.fileName,
-                modelFileType: uploaded.fileType,
-                modelStoragePath: uploaded.storagePath,
-              }
-            : {}),
-          ...(spawnPointEnabled ? serializeModelSpawnPoint(spawnPoint) : {}),
-        },
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        file,
+        modelUrl: modelUrl.trim(),
+        title: modelTitle,
+        spawn: spawnPointEnabled ? serializeModelSpawnPoint(spawnPoint) : undefined,
+        modelerUid: currentUser.uid,
+        onProgress: setUploadProgress,
       });
-      batch.update(landmarkRef, {
-        contentIds: arrayUnion(contentRef.id),
-        updatedAt: serverTimestamp(),
-      });
-      try {
-        await batch.commit();
-      } catch (saveError) {
-        if (uploaded) {
-          try {
-            await deleteStorageFile(uploaded.storagePath);
-          } catch (cleanupError) {
-            console.error("Failed to clean up an unlinked model upload:", cleanupError);
-          }
-        }
-        throw saveError;
-      }
       let auditWarning = false;
       try {
         await writeAuditLog({
@@ -391,12 +348,12 @@ const ModelerWorkspace = () => {
           actorRole: "3d-modeler",
           action: "content.model-uploaded",
           entityType: "content",
-          entityId: contentRef.id,
+          entityId: saved.id,
           metadata: {
-            title: title.trim() || `${selectedLandmark.landmarkName || "Landmark"} VR model`,
+            title: modelTitle,
             institutionId,
             landmarkId: selectedLandmark.id,
-            fileName: uploaded?.fileName || null,
+            fileName: saved.fileName,
           },
           throwOnFailure: true,
         });
@@ -501,6 +458,15 @@ const ModelerWorkspace = () => {
 
       {error && <div role="alert" style={{ marginTop: 16, color: "#fecaca" }}>{error}</div>}
       {notice && <div role="status" style={{ marginTop: 16, color: "#86efac" }}>{notice}</div>}
+
+      {selectedLandmark && (
+        <LandmarkDiscussion
+          institutionId={institutionId}
+          landmarkId={selectedLandmark.id}
+          landmarkName={selectedLandmark.landmarkName || selectedLandmark.institutionName}
+          suspended={Boolean(previewContent) || isTourUploadOpen}
+        />
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 400px), 1fr))", gap: 20, marginTop: 20 }}>
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>
@@ -740,10 +706,6 @@ const ModelerWorkspace = () => {
         </section>
       )}
 
-      {selectedLandmark && (
-        <LandmarkDiscussion institutionId={institutionId} landmarkId={selectedLandmark.id} />
-      )}
-
       {isTourUploadOpen && (
         <TourPackageUpload
           institutions={assignedInstitutions}
@@ -769,8 +731,9 @@ const ModelerWorkspace = () => {
               {previewContent.status || "Draft"} · {isContentReady(previewContent) ? "Ready" : "Needs attention"}
             </p>
             <ContentPreview content={previewContent} />
-            {previewContent.targetId && (
-              <LandmarkDiscussion institutionId={institutionId} landmarkId={previewContent.targetId} />
+            {previewLandmark && (
+              <LandmarkDiscussion institutionId={institutionId} landmarkId={previewLandmark.id}
+                landmarkName={previewLandmark.landmarkName || previewLandmark.institutionName} />
             )}
           </>
         )}
