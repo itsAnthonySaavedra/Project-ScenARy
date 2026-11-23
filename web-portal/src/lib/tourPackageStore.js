@@ -1,19 +1,115 @@
 import {
-  collection, doc, getDocFromServer, getDocsFromServer, query,
+  arrayUnion, collection, doc, getDocFromServer, getDocsFromServer, query,
   runTransaction, serverTimestamp, where, deleteField,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { isModelContentType, MODEL_CONTENT_TYPE } from "./contentTypes.js";
 import { buildModelEditPatch } from "./contentData.js";
+import { evaluatePoiReadiness } from "./contentQuality.js";
 import { deleteStorageFile, uploadStorageFile } from "./storageUpload.js";
 import {
   isTourDocumentId, readTourManifest, resolveTourLandmarkId, validateTourRecords,
 } from "./tourPackage.js";
 
-const record = (snapshot) => snapshot.exists() ? { ...snapshot.data(), id: snapshot.id } : null;
+const record = (snapshot) => snapshot?.exists() ? { ...snapshot.data(), id: snapshot.id } : null;
 const serverRead = (ref) => getDocFromServer(ref);
 export const isTourPackage = (item) => item?.data?.tourPackageVersion === 2;
 const modelLandmarkId = (item) => item.data?.landmarkId || item.data?.customData?.landmarkId;
+const modelAlreadyAssigned = (message = "This landmark already has a VR model assigned.") => Object.assign(new Error(message), {
+  code: "model-already-assigned",
+});
+
+async function recoverModelDraft(error, contentRef, uploaded) {
+  try {
+    // A rules or assignment rejection cannot have committed the save. On an ambiguous
+    // failure, check the unique draft ID before removing its file.
+    if (!["permission-denied", "firestore/permission-denied", "model-already-assigned"].includes(error?.code)) {
+      const saved = record(await serverRead(contentRef));
+      if (saved && (!uploaded || saved.data?.modelStoragePath === uploaded.storagePath)) return true;
+    }
+    if (uploaded) await deleteStorageFile(uploaded.storagePath);
+  } catch (cleanupError) {
+    console.warn("Unable to verify or clean up the incomplete model submission:", cleanupError);
+  }
+  return false;
+}
+
+export async function savePlainModelDraft({
+  landmarkId, institutionId, file, modelUrl, title, spawn, modelerUid, onProgress,
+}) {
+  const landmarkRef = doc(db, "landmarks", landmarkId);
+  const contentRef = doc(collection(db, "content"));
+  const checkDestination = async (read) => {
+    const landmark = record(await read(landmarkRef));
+    if (landmark?.institutionId !== institutionId) {
+      throw new Error("The landmark is no longer assigned to this institution.");
+    }
+    const linked = Array.isArray(landmark.contentIds) ? landmark.contentIds.filter(isTourDocumentId) : [];
+    // The SDK can retry the transaction. The same draft ID already linked
+    // by this operation means its first attempt finished.
+    if (linked.includes(contentRef.id)) return null;
+    if (landmark.vrDraftContentId || landmark.vrPublishedContentId) {
+      throw modelAlreadyAssigned();
+    }
+    const items = await Promise.all([...new Set(linked)].map((id) => read(doc(db, "content", id))));
+    if (items.some((snapshot) => isModelContentType(record(snapshot)?.type))) {
+      throw modelAlreadyAssigned();
+    }
+    return landmark;
+  };
+
+  let existingUrl;
+  if (!file) {
+    try {
+      const url = new URL(modelUrl);
+      if (["https:", "http:"].includes(url.protocol) && !url.username && !url.password) existingUrl = url.href;
+    } catch {
+      // The same input error covers malformed and unsupported URLs.
+    }
+    if (!existingUrl) throw new Error("Enter a direct HTTP or HTTPS link to the GLB, or upload the file.");
+  }
+  await checkDestination(serverRead);
+  let uploaded;
+  try {
+    if (file) {
+      const namedFile = new File([file], `${contentRef.id}-${file.name}`, { type: "model/gltf-binary" });
+      uploaded = await uploadStorageFile(namedFile, `content-models/${institutionId}`, onProgress);
+    }
+    await runTransaction(db, async (transaction) => {
+      const landmark = await checkDestination((ref) => transaction.get(ref));
+      if (!landmark) return;
+      transaction.set(contentRef, {
+        title,
+        type: MODEL_CONTENT_TYPE,
+        scope: "Landmark",
+        institutionId,
+        targetId: landmarkId,
+        targetName: landmark.landmarkName || landmark.institutionName || "",
+        status: "Awaiting Curator Approval",
+        developerApproved: true,
+        developerApprovedAt: serverTimestamp(),
+        developerApprovedBy: modelerUid,
+        curatorApproved: false,
+        data: {
+          landmarkId,
+          modelUrl: uploaded?.url || existingUrl,
+          ...(uploaded ? {
+            modelFileName: file.name,
+            modelFileType: uploaded.fileType,
+            modelStoragePath: uploaded.storagePath,
+          } : {}),
+          ...spawn,
+        },
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      transaction.update(landmarkRef, { contentIds: arrayUnion(contentRef.id), updatedAt: serverTimestamp() });
+    });
+  } catch (error) {
+    if ((!uploaded && file) || !(await recoverModelDraft(error, contentRef, uploaded))) throw error;
+  }
+  return { id: contentRef.id, institutionId, landmarkId, fileName: file?.name || null };
+}
 
 async function readTourReferences(manifest, read, { includeDrafts = false } = {}) {
   const poiIds = [...new Set(manifest.exhibits.map(({ poiId }) => poiId))];
@@ -33,23 +129,30 @@ async function readTourReferences(manifest, read, { includeDrafts = false } = {}
   )).map(record).filter(Boolean);
   return {
     ...validateTourRecords(manifest, landmark, pois, contentItems, { includeDrafts }),
+    pois,
     contentItems,
   };
 }
 
-async function assertDraftSlot(landmark, read) {
+async function assertDraftSlot(landmark, read, contentItems = []) {
+  if (contentItems.some((item) => isModelContentType(item.type) && !isTourPackage(item) &&
+    item.status === "Awaiting Curator Approval" && modelLandmarkId(item) === landmark.id &&
+    item.institutionId === landmark.institutionId &&
+    Array.isArray(landmark.contentIds) && landmark.contentIds.includes(item.id))) {
+    throw modelAlreadyAssigned("A GLB for this landmark is already awaiting Curator review.");
+  }
   if (!isTourDocumentId(landmark.vrDraftContentId)) return;
   const draft = record(await read(doc(db, "content", landmark.vrDraftContentId)));
   if (draft && isTourPackage(draft) && modelLandmarkId(draft) === landmark.id &&
     !["Archived", "Published", "Rejected"].includes(draft.status)) {
-    throw new Error("A ZIP is already awaiting review for this landmark. Complete its review or remove that draft before uploading another.");
+    throw modelAlreadyAssigned("An interactive tour is already awaiting review for this landmark.");
   }
   return draft?.status === "Rejected" && isTourPackage(draft) && modelLandmarkId(draft) === landmark.id ? draft.id : null;
 }
 
 export async function inspectTourTarget(manifest, options) {
   const target = await readTourReferences(manifest, serverRead, options);
-  await assertDraftSlot(target.landmark, serverRead);
+  await assertDraftSlot(target.landmark, serverRead, target.contentItems);
   return target;
 }
 
@@ -62,7 +165,7 @@ export async function saveTourDraft(
 ) {
   const target = await inspectTourTarget(tour.manifest, { includeDrafts: true });
   if (target.landmark.id !== expected.landmark.id || target.institutionId !== expected.institutionId) {
-    throw new Error("The ZIP destination changed. Select the file again to review its landmark.");
+    throw new Error("The tour destination changed. Choose the landmark again before submitting.");
   }
   if (allowedInstitutionId && target.institutionId !== allowedInstitutionId) {
     throw new Error("This 3D Modeler account can only upload tours for its assigned institution.");
@@ -70,7 +173,7 @@ export async function saveTourDraft(
 
   const contentRef = doc(collection(db, "content"));
   const landmarkRef = doc(db, "landmarks", target.landmark.id);
-  const fileName = tour.name.replace(/\.zip$/i, "") + ".glb";
+  const fileName = tour.name.replace(/\.(zip|glb)$/i, "") + ".glb";
   const result = { id: contentRef.id, institutionId: target.institutionId, landmarkId: target.landmark.id, fileName };
   const file = new File([tour.model], `${contentRef.id}-${fileName}`, { type: "model/gltf-binary" });
   let uploaded;
@@ -80,7 +183,8 @@ export async function saveTourDraft(
       const read = (ref) => transaction.get(ref);
       const current = await readTourReferences(target.manifest, read, { includeDrafts: true });
       if (current.institutionId !== target.institutionId) throw new Error("The landmark changed institution during upload.");
-      const rejected = await assertDraftSlot(current.landmark, read);
+      if (current.landmark.vrDraftContentId === contentRef.id) return;
+      const rejected = await assertDraftSlot(current.landmark, read, current.contentItems);
       transaction.set(contentRef, {
         title: title.trim(),
         type: MODEL_CONTENT_TYPE,
@@ -112,15 +216,7 @@ export async function saveTourDraft(
       if (rejected) transaction.update(doc(db, "content", rejected), { status: "Archived", updatedAt: serverTimestamp() });
     });
   } catch (error) {
-    if (uploaded) {
-      try {
-        const saved = record(await serverRead(contentRef));
-        if (saved?.data?.modelStoragePath === uploaded.storagePath) return result;
-        await deleteStorageFile(uploaded.storagePath);
-      } catch (cleanupError) {
-        console.warn("Unable to verify the incomplete upload for cleanup:", cleanupError);
-      }
-    }
+    if (uploaded && await recoverModelDraft(error, contentRef, uploaded)) return result;
     throw error;
   }
   return result;
@@ -162,11 +258,23 @@ export async function approveTourForInstitution(item, uid) {
     const previousSnapshot = isTourDocumentId(previousId) && previousId !== draft.id
       ? await read(doc(db, "content", previousId))
       : null;
-    const previous = record(previousSnapshot);
-    if (previous && isTourPackage(previous) && previous.status === "Published" &&
-      previous.institutionId === target.institutionId &&
-      modelLandmarkId(previous) === target.landmark.id) {
-      transaction.update(doc(db, "content", previous.id), {
+    const previousModels = [record(previousSnapshot), ...target.contentItems].filter((model) =>
+      model && model.id !== draft.id && isModelContentType(model.type) && model.status === "Published" &&
+      model.institutionId === target.institutionId && modelLandmarkId(model) === target.landmark.id);
+    const archivedIds = new Set(previousModels.map(({ id }) => id));
+    const poisToRelease = target.pois.filter((poi) => poi.status !== "Published" || poi.isPublished !== true);
+    const institutionContent = target.contentItems.filter((content) => content.institutionId === target.institutionId);
+    for (const poi of poisToRelease) {
+      const readiness = evaluatePoiReadiness(poi.contentIds, institutionContent);
+      if (!readiness.canPublish) {
+        throw new Error(`Cannot publish "${poi.name || poi.id}" yet: ${readiness.reasons.join("; ")}.`);
+      }
+    }
+    if (target.pairedARContentIds.length + poisToRelease.length + archivedIds.size + 2 > 500) {
+      throw new Error("This tour has too many linked records to publish together.");
+    }
+    for (const id of archivedIds) {
+      transaction.update(doc(db, "content", id), {
         status: "Archived",
         updatedAt: serverTimestamp(),
       });
@@ -175,6 +283,13 @@ export async function approveTourForInstitution(item, uid) {
       transaction.update(doc(db, "content", contentId), {
         status: "Published",
         releasedWithModelId: draft.id,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    poisToRelease.forEach((poi) => {
+      transaction.update(doc(db, "pois", poi.id), {
+        status: "Published",
+        isPublished: true,
         updatedAt: serverTimestamp(),
       });
     });

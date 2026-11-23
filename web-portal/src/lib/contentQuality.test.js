@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  evaluatePoiReadiness,
   hasPublishedInstitutionARContent,
   hasPublishedLandmarkARContent,
   hasReadyLandmarkARContent,
@@ -13,6 +14,21 @@ const readyInformation = {
   status: "Published",
   data: { description: "A detailed introduction to the gallery." },
 };
+
+test("requires complete POI-area Information, Quiz, and Fun Fact before release", () => {
+  const items = [
+    { ...readyInformation, id: "info", scope: "POI", status: "Awaiting Content" },
+    { id: "quiz", title: "Quiz", scope: "POI", type: "Quiz", status: "Awaiting Content",
+      data: { quizzes: [{ question: "Is this a fort?", correctAnswer: "True" }] } },
+    { id: "fact", title: "Fact", scope: "POI", type: "Fun Fact", status: "Awaiting Content",
+      data: { facts: ["This site had a fort."] } },
+  ];
+  const ids = items.map(({ id }) => id);
+  assert.equal(evaluatePoiReadiness(ids, items).canPublish, true);
+  assert.deepEqual(evaluatePoiReadiness(ids, items.slice(0, 1)).missingTypes, ["Quiz", "Fun Fact"]);
+  assert.deepEqual(evaluatePoiReadiness(ids, [items[0], items[1], { ...items[2], scope: "Landmark" }]).missingTypes, ["Fun Fact"]);
+  assert.equal(evaluatePoiReadiness(ids, [items[0], items[1], { ...items[2], needsAttention: true }]).canPublish, false);
+});
 
 test("requires complete published AR content, not a model or draft", () => {
   assert.equal(hasPublishedInstitutionARContent([]), false);

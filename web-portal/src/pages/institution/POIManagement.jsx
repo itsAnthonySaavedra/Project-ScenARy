@@ -11,7 +11,7 @@ import {
   MODEL_CONTENT_TYPE,
   normalizeContentType,
 } from "../../lib/contentTypes";
-import { isContentReady } from "../../lib/contentQuality";
+import { evaluatePoiReadiness, isContentReady } from "../../lib/contentQuality";
 import { writeAuditLog } from "../../lib/auditLog";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { createPoiCatalog, downloadPoiCatalog } from "../../lib/poiCatalog";
@@ -28,38 +28,6 @@ const hasValidCoords = (item) =>
   Number.isFinite(item.lat) &&
   typeof item?.lng === "number" &&
   Number.isFinite(item.lng);
-
-const evaluatePoiReadiness = (contentIds = [], contents = []) => {
-  const assignedItems = (Array.isArray(contentIds) ? contentIds : [])
-    .map((id) => contents.find((item) => item.id === id))
-    .filter((item) => item && getContentScope(item) === "POI");
-
-  const readyItems = assignedItems.filter((item) => isContentReady(item));
-  const notReadyItems = assignedItems.filter((item) => !isContentReady(item));
-  const types = new Set(readyItems.map((item) => normalizeContentType(item.type)));
-
-  const missingTypes = [];
-  if (!types.has("Information")) missingTypes.push("Information");
-  if (!types.has("Quiz")) missingTypes.push("Quiz");
-  if (!types.has("Fun Fact")) missingTypes.push("Fun Fact");
-
-  const reasons = [];
-  if (missingTypes.length > 0) {
-    reasons.push(`missing POI-area content: ${missingTypes.join(", ")}`);
-  }
-  if (notReadyItems.length > 0) {
-    reasons.push(
-      `content needing attention: ${notReadyItems.map((i) => i.title || i.type).join(", ")}`,
-    );
-  }
-
-  return {
-    canPublish: reasons.length === 0,
-    missingTypes,
-    notReadyItems,
-    reasons,
-  };
-};
 
 const isPoiContentComplete = (poi, contents = []) =>
   evaluatePoiReadiness(poi?.contentIds, contents).canPublish;
@@ -981,7 +949,7 @@ const POIManagement = ({ adminMode = false }) => {
         )}
         <div>{landmarks.map((landmark) => {
           const landmarkPois = pois.filter((poi) => poi.landmarkId === landmark.id);
-          const catalog = createPoiCatalog(institutionId, landmark, landmarkPois, contents);
+          const catalog = createPoiCatalog(institutionId, landmark, landmarkPois, contents, { includeDrafts: true });
           const sharedQr = landmark.poiQrCode || landmarkPois[0]?.qrCode || "";
           return <div key={landmark.id} style={{ padding: 16, border: "1px solid #333", borderRadius: 10, marginBottom: 16, background: "#111827" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>

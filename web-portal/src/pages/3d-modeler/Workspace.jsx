@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  arrayUnion,
   collection,
   doc,
   getDoc,
@@ -9,16 +8,17 @@ import {
   serverTimestamp,
   updateDoc,
   where,
-  writeBatch,
 } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
 import { writeAuditLog } from "../../lib/auditLog";
-import { deleteStorageFile, inspectGlbTextures, MAX_GLB_FILE_SIZE_BYTES, uploadStorageFile } from "../../lib/storageUpload";
 import { MODEL_CONTENT_TYPE, normalizeContentType } from "../../lib/contentTypes";
 import { hasReadyLandmarkARContent, isContentReady } from "../../lib/contentQuality";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
-import { createDefaultModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
+import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
+import { createPoiCatalog } from "../../lib/poiCatalog.js";
+import { createPlacedTour, inspectTourModel } from "../../lib/tourPackage.js";
+import { savePlainModelDraft, saveTourDraft } from "../../lib/tourPackageStore.js";
 import ModelSpawnPointEditor from "../../components/common/ModelSpawnPointEditor";
 import ContentPreview from "../../components/common/ContentPreview";
 import LandmarkDiscussion from "../../components/common/LandmarkDiscussion";
@@ -59,17 +59,27 @@ const ModelerWorkspace = () => {
   const [selectedLandmarkId, setSelectedLandmarkId] = useState("");
   const [title, setTitle] = useState("");
   const [file, setFile] = useState(null);
+  const [filePreviewUrl, setFilePreviewUrl] = useState("");
+  const [hasEmbeddedSpawn, setHasEmbeddedSpawn] = useState(false);
+  const [stops, setStops] = useState([]);
+  const fileInputRef = useRef(null);
   const [modelUrl, setModelUrl] = useState("");
   const [spawnPoint, setSpawnPoint] = useState(createDefaultModelSpawnPoint);
   const [spawnPointEnabled, setSpawnPointEnabled] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState(null);
+  const [checkingModel, setCheckingModel] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const [previewContent, setPreviewContent] = useState(null);
   const [approvingModelId, setApprovingModelId] = useState("");
   const [isTourUploadOpen, setIsTourUploadOpen] = useState(false);
+
+  useEffect(() => () => {
+    if (filePreviewUrl) URL.revokeObjectURL(filePreviewUrl);
+  }, [filePreviewUrl]);
 
   // Load assigned institutions for the developer
   useEffect(() => {
@@ -145,7 +155,6 @@ const ModelerWorkspace = () => {
             type: normalizeContentType(item.data().type),
           })),
         );
-        setError("");
       },
       (snapshotError) => {
         console.error("Unable to load 3D Modeler content:", snapshotError);
@@ -187,7 +196,11 @@ const ModelerWorkspace = () => {
   const activeInstitutionName =
     assignedInstitutions.find((inst) => inst.id === institutionId)?.name || "Assigned institution";
 
-  const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId);
+  const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId && item.institutionId === institutionId);
+  const previewTarget = previewContent?.targetId;
+  const previewLandmarkId = previewContent?.data?.landmarkId ||
+    pois.find((poi) => poi.id === previewTarget)?.landmarkId || previewTarget;
+  const previewLandmark = landmarks.find((item) => item.id === previewLandmarkId && item.institutionId === institutionId);
   const arContent = useMemo(
     () => contents.filter((item) => normalizeContentType(item.type) !== MODEL_CONTENT_TYPE),
     [contents],
@@ -205,93 +218,129 @@ const ModelerWorkspace = () => {
         normalizeContentType(item.type) === MODEL_CONTENT_TYPE,
     ) || Boolean(selectedLandmark?.vrDraftContentId || selectedLandmark?.vrPublishedContentId);
   const hasAR = hasReadyARForLandmark(selectedLandmark, pois, contents);
+  const poiOptions = useMemo(
+    () => createPoiCatalog(institutionId, selectedLandmark, pois, contents, { includeDrafts: true })?.pois || [],
+    [institutionId, selectedLandmark, pois, contents],
+  );
+  const hasUnavailableStop = stops.some((stop) => !poiOptions.some((poi) => poi.id === stop.poiId));
+  const needsTourSpawn = Boolean(file && (spawnPointEnabled ? !spawnPoint.positionChosen : !hasEmbeddedSpawn));
+
+  const chooseModel = async (event) => {
+    const input = event.currentTarget;
+    const selected = input.files?.[0];
+    setFormError("");
+    setFile(null);
+    setFilePreviewUrl("");
+    setHasEmbeddedSpawn(false);
+    setStops([]);
+    setSpawnPoint(createDefaultModelSpawnPoint());
+    setSpawnPointEnabled(false);
+    if (!selected) return;
+    setCheckingModel(true);
+    try {
+      const model = await inspectTourModel(selected);
+      setFile(selected);
+      setFilePreviewUrl(URL.createObjectURL(selected));
+      setHasEmbeddedSpawn(model.hasSpawn);
+    } catch (error) {
+      input.value = "";
+      setFormError(error.message || "This GLB could not be opened. Export it again and retry.");
+    } finally {
+      setCheckingModel(false);
+    }
+  };
+
+  const resetModel = () => {
+    setTitle("");
+    setFile(null);
+    setFilePreviewUrl("");
+    setHasEmbeddedSpawn(false);
+    setModelUrl("");
+    setStops([]);
+    setSpawnPoint(createDefaultModelSpawnPoint());
+    setSpawnPointEnabled(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const reportSavedTour = async (saved) => {
+    try {
+      await writeAuditLog({
+        actorId: currentUser?.uid || null,
+        actorRole: "3d-modeler",
+        action: "content.model-uploaded",
+        entityType: "content",
+        entityId: saved.id,
+        metadata: {
+          institutionId: saved.institutionId,
+          landmarkId: saved.landmarkId,
+          fileName: saved.fileName,
+          tourPackage: true,
+        },
+        throwOnFailure: true,
+      });
+      setNotice("Interactive tour submitted for Curator verification.");
+    } catch (auditError) {
+      console.error("Interactive tour was uploaded, but its audit record could not be written:", auditError);
+      setNotice("Interactive tour uploaded; its activity record could not be saved.");
+    }
+  };
 
   const handleUpload = async (event) => {
     event.preventDefault();
-    setError("");
+    if (checkingModel || saving) return;
+    setFormError("");
     setNotice("");
     if (!institutionId || !currentUser || !selectedLandmark) {
-      setError("Choose an institution and landmark before uploading a model.");
+      setFormError("Choose an institution and landmark before uploading a model.");
       return;
     }
     if (!hasAR) {
-      setError("Add complete AR content to this landmark before uploading its paired VR model.");
+      setFormError("Ask the Curator to add complete AR content to this landmark before submitting.");
       return;
     }
-    if (selectedLandmarkHasModel) {
-      setError("This landmark already has a VR model assigned.");
+    if (!stops.length && selectedLandmarkHasModel) {
+      setFormError("This landmark already has a VR model assigned.");
+      return;
+    }
+    if (hasUnavailableStop) {
+      setFormError("Remove stops linked to unavailable POIs before submitting.");
+      return;
+    }
+    if ((stops.length && needsTourSpawn) || (spawnPointEnabled && !spawnPoint.positionChosen)) {
+      setFormError("Place the player spawn in the preview or enter its position before submitting.");
       return;
     }
     if (!file && !modelUrl.trim()) {
-      setError("Upload a GLB model or provide a model URL.");
+      setFormError("Upload a GLB model or provide a model URL.");
       return;
     }
-    if (file && file.size > MAX_GLB_FILE_SIZE_BYTES) {
-      setError("VR models must be 1 GB or smaller.");
-      return;
-    }
+    setUploadProgress(null);
     setSaving(true);
-    let uploaded = null;
     try {
-      if (file) {
-        const textureInfo = await inspectGlbTextures(file);
-        if (textureInfo.externalImageUris.length) {
-          throw new Error("This GLB references external textures. Export it with textures embedded.");
-        }
-        uploaded = await uploadStorageFile(
-          file,
-          `content-models/${institutionId}`,
-          setUploadProgress,
-        );
+      if (stops.length) {
+        const tour = await createPlacedTour(file, selectedLandmark.id, stops,
+          spawnPointEnabled ? normalizeModelSpawnPoint(spawnPoint) : null);
+        const tourTitle = title.trim() || `${selectedLandmark.landmarkName || selectedLandmark.institutionName || "Landmark"} virtual tour`;
+        const saved = await saveTourDraft(tour, { landmark: selectedLandmark, institutionId }, tourTitle, setUploadProgress, {
+          modelerUid: currentUser.uid,
+          allowedInstitutionId: institutionId,
+        });
+        await reportSavedTour(saved);
+        resetModel();
+        return;
       }
-      const finalModelUrl = uploaded?.url || modelUrl.trim();
-      const contentRef = doc(collection(db, "content"));
-      const landmarkRef = doc(db, "landmarks", selectedLandmark.id);
-      const batch = writeBatch(db);
-      batch.set(contentRef, {
-        title:
-          title.trim() ||
-          `${selectedLandmark.landmarkName || selectedLandmark.institutionName || "Landmark"} VR model`,
-        type: MODEL_CONTENT_TYPE,
-        scope: "Landmark",
+      const modelTitle = title.trim() ||
+        `${selectedLandmark.landmarkName || selectedLandmark.institutionName || "Landmark"} VR model`;
+      const saved = await savePlainModelDraft({
+        landmarkId: selectedLandmark.id,
         institutionId,
-        targetId: selectedLandmark.id,
-        targetName: selectedLandmark.landmarkName || selectedLandmark.institutionName || "",
-        status: "Awaiting Curator Approval",
-        developerApproved: true,
-        developerApprovedAt: serverTimestamp(),
-        developerApprovedBy: currentUser.uid,
-        curatorApproved: false,
-        data: {
-          modelUrl: finalModelUrl,
-          ...(uploaded
-            ? {
-                modelFileName: uploaded.fileName,
-                modelFileType: uploaded.fileType,
-                modelStoragePath: uploaded.storagePath,
-              }
-            : {}),
-          ...(spawnPointEnabled ? serializeModelSpawnPoint(spawnPoint) : {}),
-        },
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        file,
+        modelUrl: modelUrl.trim(),
+        title: modelTitle,
+        spawn: spawnPointEnabled ? serializeModelSpawnPoint(spawnPoint) : undefined,
+        modelerUid: currentUser.uid,
+        onProgress: setUploadProgress,
       });
-      batch.update(landmarkRef, {
-        contentIds: arrayUnion(contentRef.id),
-        updatedAt: serverTimestamp(),
-      });
-      try {
-        await batch.commit();
-      } catch (saveError) {
-        if (uploaded) {
-          try {
-            await deleteStorageFile(uploaded.storagePath);
-          } catch (cleanupError) {
-            console.error("Failed to clean up an unlinked model upload:", cleanupError);
-          }
-        }
-        throw saveError;
-      }
       let auditWarning = false;
       try {
         await writeAuditLog({
@@ -299,12 +348,12 @@ const ModelerWorkspace = () => {
           actorRole: "3d-modeler",
           action: "content.model-uploaded",
           entityType: "content",
-          entityId: contentRef.id,
+          entityId: saved.id,
           metadata: {
-            title: title.trim() || `${selectedLandmark.landmarkName || "Landmark"} VR model`,
+            title: modelTitle,
             institutionId,
             landmarkId: selectedLandmark.id,
-            fileName: uploaded?.fileName || null,
+            fileName: saved.fileName,
           },
           throwOnFailure: true,
         });
@@ -314,17 +363,13 @@ const ModelerWorkspace = () => {
         auditWarning = true;
       }
       if (!auditWarning) setNotice("Model uploaded and sent to the Curator for verification.");
-      setTitle("");
-      setFile(null);
-      setModelUrl("");
-      setSpawnPoint(createDefaultModelSpawnPoint());
-      setSpawnPointEnabled(false);
+      resetModel();
     } catch (uploadError) {
       console.error("Unable to upload 3D Modeler VR model:", uploadError);
-      setError(getFirebaseErrorMessage(uploadError, uploadError.message || "Unable to upload the VR model."));
+      setFormError(getFirebaseErrorMessage(uploadError, uploadError.message || "Unable to upload the VR model."));
     } finally {
       setSaving(false);
-      setUploadProgress(0);
+      setUploadProgress(null);
     }
   };
 
@@ -393,8 +438,11 @@ const ModelerWorkspace = () => {
           <select
             id="modeler-institution-select"
             value={institutionId}
+            disabled={saving}
             onChange={(event) => {
               setInstitutionId(event.target.value);
+              setStops([]);
+              setFormError("");
               setNotice("");
             }}
             style={{ padding: "8px 12px", borderRadius: 8, background: "#151515", color: "#eee", border: "1px solid #45413a" }}
@@ -411,20 +459,34 @@ const ModelerWorkspace = () => {
       {error && <div role="alert" style={{ marginTop: 16, color: "#fecaca" }}>{error}</div>}
       {notice && <div role="status" style={{ marginTop: 16, color: "#86efac" }}>{notice}</div>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, .8fr) minmax(0, 1.2fr)", gap: 20, marginTop: 20 }}>
+      {selectedLandmark && (
+        <LandmarkDiscussion
+          institutionId={institutionId}
+          landmarkId={selectedLandmark.id}
+          landmarkName={selectedLandmark.landmarkName || selectedLandmark.institutionName}
+          suspended={Boolean(previewContent) || isTourUploadOpen}
+        />
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 400px), 1fr))", gap: 20, marginTop: 20 }}>
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>
-          <h2 style={{ marginTop: 0, color: "#f3d16f" }}>Upload VR model</h2>
+          <h2 style={{ marginTop: 0, color: "#f3d16f" }}>Prepare VR tour</h2>
           <p style={{ color: "#aaa", fontSize: 14 }}>
             {hasAR
               ? "Complete AR references are available for this landmark."
-              : "Add a complete AR item to this landmark before creating the paired VR model."}
+              : "Ask the Curator to add complete AR content to this landmark before submitting a VR model."}
           </p>
           <form onSubmit={handleUpload} style={{ display: "grid", gap: 12 }}>
             <label>
               Landmark
               <select
                 value={selectedLandmarkId}
-                onChange={(event) => setSelectedLandmarkId(event.target.value)}
+                onChange={(event) => {
+                  setSelectedLandmarkId(event.target.value);
+                  setStops([]);
+                  setFormError("");
+                }}
+                disabled={saving}
                 required
                 style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }}
               >
@@ -440,6 +502,7 @@ const ModelerWorkspace = () => {
               Model title (optional)
               <input
                 value={title}
+                disabled={saving}
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Landmark VR model"
                 style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }}
@@ -448,34 +511,53 @@ const ModelerWorkspace = () => {
             <label>
               Upload GLB
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".glb,model/gltf-binary"
-                onChange={(event) => setFile(event.target.files?.[0] || null)}
+                disabled={saving || checkingModel}
+                onChange={chooseModel}
                 style={{ display: "block", marginTop: 6 }}
               />
             </label>
+            {checkingModel && <p role="status">Checking the GLB…</p>}
             <label>
               Or use an existing model URL
               <input
                 value={modelUrl}
+                disabled={saving || Boolean(file)}
                 onChange={(event) => setModelUrl(event.target.value)}
                 placeholder="https://.../model.glb"
                 style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }}
               />
             </label>
             <ModelSpawnPointEditor
+              key={`${institutionId}/${selectedLandmarkId}/${filePreviewUrl}`}
               enabled={spawnPointEnabled}
               onEnabledChange={setSpawnPointEnabled}
               value={spawnPoint}
               onChange={setSpawnPoint}
-              modelUrl={modelUrl}
+              modelUrl={filePreviewUrl || modelUrl.trim()}
+              poiOptions={poiOptions}
+              stops={stops}
+              onStopsChange={file && selectedLandmark ? setStops : undefined}
+              disabled={saving}
             />
+            {needsTourSpawn && <p>
+              Use <strong>Set a spawn point</strong> and <strong>Place spawn</strong> to mark where visitors start before submitting an interactive tour.
+            </p>}
+            {formError && <p role="alert" style={{ color: "#fecaca" }}>{formError}</p>}
             {saving && (
-              <progress max="100" value={uploadProgress} aria-label="Model upload progress" style={{ width: "100%" }} />
+              <div role="status">
+                <p>{uploadProgress === null ? "Checking the model and linked POIs…"
+                  : uploadProgress >= 100 ? "Saving for Curator review…"
+                    : `Uploading model… ${Math.floor(uploadProgress)}%`}</p>
+                <progress max="100" value={uploadProgress ?? undefined} aria-label="Model upload progress" style={{ width: "100%" }} />
+              </div>
             )}
             <button
               type="submit"
-              disabled={saving || !hasAR || selectedLandmarkHasModel}
+              disabled={saving || checkingModel || !hasAR || hasUnavailableStop || (!file && !modelUrl.trim()) ||
+                (!stops.length && selectedLandmarkHasModel)}
               style={{
                 border: 0,
                 borderRadius: 8,
@@ -488,36 +570,31 @@ const ModelerWorkspace = () => {
             >
               {saving
                 ? "Uploading..."
-                : selectedLandmarkHasModel
-                  ? "Model already assigned"
-                  : "Submit for Curator verification"}
+                : stops.length ? "Submit interactive tour for review"
+                  : selectedLandmarkHasModel ? "Add VR stops to submit a new interactive tour"
+                    : "Submit model without stops"}
             </button>
           </form>
 
           <hr style={{ border: 0, borderTop: "1px solid #34312a", margin: "18px 0" }} />
 
           <div>
-            <p style={{ margin: "0 0 10px", color: "#aaa", fontSize: 13 }}>
-              {selectedLandmarkHasModel
-                ? "GLB model assigned. You can now attach an interactive tour package."
-                : "Upload a GLB model for this landmark first to unlock interactive tour package uploads."}
-            </p>
             <button
               type="button"
               onClick={() => setIsTourUploadOpen(true)}
-              disabled={!institutionId || !selectedLandmarkHasModel}
+              disabled={!institutionId || saving}
               style={{
                 width: "100%",
                 border: "1px solid #645326",
                 background: "transparent",
-                color: selectedLandmarkHasModel ? "#f3d16f" : "#666",
+                color: "#f3d16f",
                 borderColor: selectedLandmarkHasModel ? "#645326" : "#34312a",
                 borderRadius: 8,
                 padding: "10px 14px",
-                cursor: selectedLandmarkHasModel ? "pointer" : "not-allowed",
+                cursor: institutionId && !saving ? "pointer" : "not-allowed",
               }}
             >
-              Upload interactive tour ZIP
+              Import Unity tour ZIP
             </button>
           </div>
         </section>
@@ -629,10 +706,6 @@ const ModelerWorkspace = () => {
         </section>
       )}
 
-      {selectedLandmark && (
-        <LandmarkDiscussion institutionId={institutionId} landmarkId={selectedLandmark.id} />
-      )}
-
       {isTourUploadOpen && (
         <TourPackageUpload
           institutions={assignedInstitutions}
@@ -641,26 +714,7 @@ const ModelerWorkspace = () => {
           onClose={() => setIsTourUploadOpen(false)}
           onSaved={async (saved) => {
             setIsTourUploadOpen(false);
-            try {
-              await writeAuditLog({
-                actorId: currentUser?.uid || null,
-                actorRole: "3d-modeler",
-                action: "content.model-uploaded",
-                entityType: "content",
-                entityId: saved.id,
-                metadata: {
-                  institutionId,
-                  landmarkId: saved.landmarkId,
-                  fileName: saved.fileName,
-                  tourPackage: true,
-                },
-                throwOnFailure: true,
-              });
-              setNotice("Interactive tour submitted for Curator verification.");
-            } catch (auditError) {
-              console.error("Interactive tour was uploaded, but its audit record could not be written:", auditError);
-              setNotice("Interactive tour uploaded; its activity record could not be saved.");
-            }
+            await reportSavedTour(saved);
           }}
         />
       )}
@@ -677,8 +731,9 @@ const ModelerWorkspace = () => {
               {previewContent.status || "Draft"} · {isContentReady(previewContent) ? "Ready" : "Needs attention"}
             </p>
             <ContentPreview content={previewContent} />
-            {previewContent.targetId && (
-              <LandmarkDiscussion institutionId={institutionId} landmarkId={previewContent.targetId} />
+            {previewLandmark && (
+              <LandmarkDiscussion institutionId={institutionId} landmarkId={previewLandmark.id}
+                landmarkName={previewLandmark.landmarkName || previewLandmark.institutionName} />
             )}
           </>
         )}

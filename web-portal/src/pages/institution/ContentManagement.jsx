@@ -790,6 +790,9 @@ const InstituteContentManagement = () => {
   const hasPublishedPoi = institutionPois.some(
     (p) => p?.status === "Published" || p?.isPublished === true,
   );
+  const previewTarget = assignmentTargets.find((item) => item.id === currentContent?.targetId);
+  const previewLandmarkId = currentContent?.data?.landmarkId || previewTarget?.landmarkId || currentContent?.targetId;
+  const previewLandmark = institutionLandmarks.find((item) => item.id === previewLandmarkId);
 
   if (isAuthChecking) {
     return (
@@ -860,6 +863,33 @@ const InstituteContentManagement = () => {
         <div role="alert" style={{ color: "#fbbf24", marginBottom: 16 }}>
           {saveWarning}
         </div>
+      )}
+
+      {userInstitutionId && institutionLandmarks.length > 0 && (
+        <section aria-label="Landmark discussion" style={{ marginBottom: "1rem" }}>
+          <label htmlFor="content-discussion-landmark">Chat landmark</label>
+          <select
+            id="content-discussion-landmark"
+            className={commonStyles.formControl}
+            value={discussionLandmarkId}
+            onChange={(event) => setDiscussionLandmarkId(event.target.value)}
+            style={{ maxWidth: 320 }}
+          >
+            {institutionLandmarks.map((landmark) => (
+              <option key={landmark.id} value={landmark.id}>
+                {landmark.landmarkName || landmark.institutionName || "Unnamed landmark"}
+              </option>
+            ))}
+          </select>
+          {activeDiscussionLandmark && (
+            <LandmarkDiscussion
+              institutionId={userInstitutionId}
+              landmarkId={activeDiscussionLandmark.id}
+              landmarkName={activeDiscussionLandmark.landmarkName || activeDiscussionLandmark.institutionName}
+              suspended={isViewModalOpen}
+            />
+          )}
+        </section>
       )}
 
       {/* CONTROLS */}
@@ -1116,7 +1146,8 @@ const InstituteContentManagement = () => {
                                   : "Verify and approve this model"
                             }
                           >
-                            {approvingContentId === item.id ? "Approving..." : "Verify and approve"}
+                            {approvingContentId === item.id ? "Publishing..." :
+                              isTourPackage(item) ? "Publish AR and VR" : "Verify and approve"}
                           </button>
                         )}
                       {item.type === MODEL_CONTENT_TYPE && item.status === "Awaiting Curator Approval" && (
@@ -1143,73 +1174,6 @@ const InstituteContentManagement = () => {
           </tbody>
         </table>
       </div>
-
-      {/* CURATOR <-> 3D MODELLER COMMUNICATION THREAD */}
-      {userInstitutionId && (
-        <section
-          aria-label="Communicate with 3D modeller"
-          style={{
-            marginTop: "2rem",
-            padding: "1.25rem",
-            borderRadius: 12,
-            background: "#151515",
-            border: "1px solid #34312a",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "0.75rem",
-              marginBottom: "0.75rem",
-            }}
-          >
-            <div>
-              <h2 style={{ margin: 0, color: "#f3d16f", fontSize: "1.15rem" }}>
-                Communicate with 3D Modeller
-              </h2>
-              <p style={{ margin: "0.25rem 0 0", color: "#a8a29e", fontSize: "0.85rem" }}>
-                Coordinate with your assigned 3D modeller on landmark models, spawn orientation, textures, or AR references.
-              </p>
-            </div>
-            {institutionLandmarks.length > 0 && (
-              <select
-                aria-label="Select landmark thread for 3D modeller communication"
-                className={commonStyles.formControl}
-                value={discussionLandmarkId}
-                onChange={(e) => setDiscussionLandmarkId(e.target.value)}
-                style={{ maxWidth: 320 }}
-              >
-                {institutionLandmarks.map((landmark) => (
-                  <option key={landmark.id} value={landmark.id}>
-                    {landmark.landmarkName || landmark.institutionName || "Unnamed landmark"}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {institutionLandmarks.length === 0 ? (
-            <p style={{ color: "#888", margin: 0 }}>
-              No landmarks are assigned to your institution yet. Once a landmark is created, you can message your 3D modeller here.
-            </p>
-          ) : (
-            discussionLandmarkId && (
-              <LandmarkDiscussion
-                institutionId={userInstitutionId}
-                landmarkId={discussionLandmarkId}
-                title={`Modeller Thread · ${
-                  activeDiscussionLandmark?.landmarkName ||
-                  activeDiscussionLandmark?.institutionName ||
-                  "Landmark"
-                }`}
-              />
-            )
-          )}
-        </section>
-      )}
 
       {/* MODAL: INPUT FIELDS CONFIGURATION WORKSPACE CONTAINER */}
       <Modal
@@ -1565,11 +1529,15 @@ const InstituteContentManagement = () => {
       >
         {currentContent && (
           <>
-            <ContentPreview content={currentContent} />
-            {currentContent.targetId && (
+            <ContentPreview content={currentContent} poiNames={Object.fromEntries(
+              assignmentTargets.filter((target) => target.collectionName === "pois")
+                .map((target) => [target.id, target.name]),
+            )} />
+            {previewLandmark && (
               <LandmarkDiscussion
                 institutionId={userInstitutionId}
-                landmarkId={currentContent.targetId}
+                landmarkId={previewLandmark.id}
+                landmarkName={previewLandmark.landmarkName || previewLandmark.institutionName}
               />
             )}
           </>

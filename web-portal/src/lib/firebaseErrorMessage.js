@@ -15,7 +15,13 @@ const firebaseErrorMessages = {
   unauthenticated: "Your session has expired. Sign in again and retry.",
   unavailable: "Firebase is temporarily unavailable. Check your connection and retry.",
   "deadline-exceeded": "The request took too long. Check your connection and retry.",
+  aborted: "Another change interrupted this save. Try again.",
+  "storage/unauthenticated": "Your session has expired. Sign in again and retry.",
   "storage/unauthorized": "You do not have permission to upload this file.",
+  "storage/retry-limit-exceeded": "The file transfer timed out. Check your connection and retry.",
+  "storage/invalid-checksum": "The file transfer was incomplete. Retry the upload.",
+  "storage/quota-exceeded": "File storage is full or over its quota. Contact an administrator.",
+  "storage/bucket-not-found": "File storage is unavailable. Contact an administrator.",
 };
 
 export const getFirebaseErrorMessage = (error, fallback) => {

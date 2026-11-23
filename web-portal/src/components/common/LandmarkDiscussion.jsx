@@ -1,199 +1,305 @@
-import React, { useEffect, useState } from "react";
-import {
-  addDoc,
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  doc,
-  getDoc,
-} from "firebase/firestore";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { collection, doc, getDoc, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
 import { writeAuditLog } from "../../lib/auditLog";
 import { useAuth } from "../../context/AuthContext";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
+import {
+  DISCUSSION_ATTACHMENT_TYPES,
+  DISCUSSION_PAGE_SIZE,
+  discussionAttachmentError,
+  discussionAttachmentUrl,
+  sendLandmarkMessage,
+} from "../../lib/landmarkMessages";
+import styles from "./LandmarkDiscussion.module.css";
 
-const formatMessageTime = (value) => {
-  const date = value?.toDate?.();
+const formatMessageTime = (message) => {
+  if (message.pending) return "Sending";
+  const date = message.createdAt?.toDate?.();
   return date instanceof Date ? date.toLocaleString() : "Just now";
 };
 
-const LandmarkDiscussion = ({ institutionId, landmarkId }) => {
-  const { currentRole, currentUser } = useAuth();
-  const [messages, setMessages] = useState([]);
+const roleLabels = new Map([
+  ["3d-modeler", "3D Modeler"],
+  ["curator", "Curator"],
+  ["institution", "Curator"],
+]);
+
+const DiscussionTimeline = memo(function DiscussionTimeline({ thread, timelineRef, onScroll }) {
+  return (
+    <div
+      className={styles.timeline}
+      ref={timelineRef}
+      role="log"
+      aria-label="Discussion messages"
+      tabIndex={thread.messages.length ? 0 : undefined}
+      onScroll={onScroll}
+    >
+      {thread.messages.length === 0 && !thread.error && (
+        <p className={styles.muted}>{thread.loading ? "Loading messages…" : "No messages yet."}</p>
+      )}
+      {thread.messages.map((message) => {
+        const url = discussionAttachmentUrl(message.attachment?.url);
+        return (
+          <article className={styles.message} key={message.id}>
+            <div className={styles.messageHeader}>
+              <span><strong>{message.senderName || "User"}</strong> <span className={styles.role}>{roleLabels.get(message.senderRole) || "Member"}</span></span>
+              <small>{formatMessageTime(message)}</small>
+            </div>
+            {message.text && <p>{message.text}</p>}
+            {url && <a href={url} target="_blank" rel="noopener noreferrer">
+              {message.attachment.name || "Open attachment"}
+            </a>}
+          </article>
+        );
+      })}
+    </div>
+  );
+});
+
+function LandmarkDiscussionThread({ institutionId, landmarkId, landmarkName, suspended, currentRole, currentUser }) {
+  const headingId = useId();
+  const regionId = useId();
+  const inputId = useId();
+  const attachmentHintId = useId();
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState(DISCUSSION_PAGE_SIZE);
+  const [reload, setReload] = useState(0);
+  const [thread, setThread] = useState({ messages: [], hasEarlier: false, loading: true, error: "", cached: false });
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(null);
+  const [sendError, setSendError] = useState("");
+  const sendingRef = useRef(false);
+  const senderNameRef = useRef("");
+  const attemptRef = useRef(null);
+  const timelineRef = useRef(null);
+  const followLatest = useRef(true);
+  const previousScroll = useRef(null);
+  const messageCollection = useMemo(
+    () => collection(db, "institutions", institutionId, "landmarkChannels", landmarkId, "messages"),
+    [institutionId, landmarkId],
+  );
+  const visible = open && !suspended;
+  const handleTimelineScroll = useCallback((event) => {
+    const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
+    followLatest.current = scrollHeight - scrollTop - clientHeight < 48;
+  }, []);
 
   useEffect(() => {
-    if (!institutionId || !landmarkId) return undefined;
-    const messageQuery = query(
-      collection(db, "institutions", institutionId, "landmarkChannels", landmarkId, "messages"),
-      orderBy("createdAt", "asc"),
-    );
-    return onSnapshot(
-      messageQuery,
-      (snapshot) => {
-        setMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-        setError("");
-      },
-      (snapshotError) => {
-        console.error("Unable to load landmark discussion:", snapshotError);
-        setError(getFirebaseErrorMessage(snapshotError, "Unable to load this discussion."));
-      },
-    );
-  }, [institutionId, landmarkId]);
+    if (!visible) return undefined;
+    const recent = query(messageCollection, orderBy("createdAt", "desc"), limit(count + 1));
+    return onSnapshot(recent, { includeMetadataChanges: true }, (snapshot) => {
+      setThread({
+        messages: snapshot.docs.slice(0, count).reverse().map((item) => ({
+          ...item.data(),
+          id: item.id,
+          pending: item.metadata.hasPendingWrites,
+        })),
+        hasEarlier: snapshot.size > count,
+        loading: snapshot.empty && snapshot.metadata.fromCache,
+        error: "",
+        cached: snapshot.metadata.fromCache,
+      });
+    }, (error) => {
+      console.error("Unable to load landmark discussion:", error);
+      setThread((previous) => ({
+        ...previous,
+        loading: false,
+        error: getFirebaseErrorMessage(error, "Unable to load this discussion."),
+      }));
+    });
+  }, [visible, messageCollection, count, reload]);
+
+  useLayoutEffect(() => {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+    const previous = previousScroll.current;
+    if (previous && (thread.messages.length > previous.count || !thread.cached)) {
+      timeline.scrollTop = previous.top + timeline.scrollHeight - previous.height;
+      previousScroll.current = null;
+    } else if (followLatest.current) {
+      timeline.scrollTop = timeline.scrollHeight;
+    }
+  }, [visible, thread.messages, thread.cached]);
+
+  const refresh = () => {
+    setThread((previous) => ({ ...previous, loading: true, error: "" }));
+    setReload((value) => value + 1);
+  };
+
+  const loadEarlier = () => {
+    const timeline = timelineRef.current;
+    if (timeline) previousScroll.current = {
+      top: timeline.scrollTop,
+      height: timeline.scrollHeight,
+      count: thread.messages.length,
+    };
+    followLatest.current = false;
+    setThread((previous) => ({ ...previous, loading: true }));
+    setCount((value) => value + DISCUSSION_PAGE_SIZE);
+  };
 
   const handleSend = async (event) => {
     event.preventDefault();
     const messageText = text.trim();
-    if (!messageText && !file) {
-      setError("Enter a message or attach a reference file.");
+    if (!visible || sendingRef.current || (!messageText && !file)) return;
+    if (!navigator.onLine) {
+      setSendError("You’re offline. Reconnect and try again. Your draft is still here.");
       return;
     }
-    if (!institutionId || !landmarkId || !currentUser || !currentRole) {
-      setError("Your account is not ready to send messages.");
+    const selectedError = discussionAttachmentError(file);
+    if (selectedError) {
+      setSendError(selectedError);
       return;
     }
-    setLoading(true);
-    setError("");
-    let uploadedFile = null;
+    sendingRef.current = true;
+    followLatest.current = true;
+    setSending(true);
+    setSendError("");
+    setUploadPercent(null);
+
+    let attempt = attemptRef.current;
+    if (attempt?.text !== messageText || attempt?.file !== file) {
+      attempt = { ref: doc(messageCollection), text: messageText, file };
+      attemptRef.current = attempt;
+    }
+
+    const role = currentRole === "institution" ? "curator" : currentRole;
     try {
-      if (file) {
-        uploadedFile = await uploadStorageFile(
-          file,
-          `collaboration-files/${institutionId}/${landmarkId}`,
-        );
-      }
-      const profile = await getDoc(doc(db, "users", currentUser.uid));
-      const senderName = profile.exists()
-        ? profile.data().name || currentUser.email || "User"
-        : currentUser.email || "User";
-      await addDoc(
-        collection(db, "institutions", institutionId, "landmarkChannels", landmarkId, "messages"),
-        {
-          text: messageText,
-          attachment: uploadedFile
-            ? {
-                name: uploadedFile.fileName,
-                url: uploadedFile.url,
-                storagePath: uploadedFile.storagePath,
-                fileType: uploadedFile.fileType,
-              }
-            : null,
-          senderId: currentUser.uid,
-          senderName,
-          senderRole: currentRole === "institution" ? "curator" : currentRole,
-          createdAt: serverTimestamp(),
-        },
-      );
-      setText("");
-      setFile(null);
-      try {
-        await writeAuditLog({
-          actorId: currentUser.uid,
-          actorName: senderName,
-          actorRole: currentRole === "institution" ? "curator" : currentRole,
-          action: "collaboration.message.created",
-          entityType: "landmark-channel",
-          entityId: landmarkId,
-          metadata: {
-            institutionId,
-            attachmentName: uploadedFile?.fileName || null,
-          },
-          throwOnFailure: true,
-        });
-      } catch (auditError) {
-        console.error("Message was sent, but its audit record could not be written:", auditError);
-        setError("Your message was sent, but its activity record could not be saved.");
-      }
-    } catch (sendError) {
-      if (uploadedFile?.storagePath) {
+      if (!senderNameRef.current) {
+        const fallback = currentUser.displayName || currentUser.email?.split("@")[0] || "User";
         try {
-          await deleteStorageFile(uploadedFile.storagePath);
-        } catch (cleanupError) {
-          console.error("Unable to clean up an unlinked collaboration attachment:", cleanupError);
+          const profile = await getDoc(doc(db, "users", currentUser.uid));
+          senderNameRef.current = profile.data()?.name || fallback;
+        } catch {
+          // A missing profile must not prevent an authenticated user from sending.
+          senderNameRef.current = fallback;
         }
       }
-      console.error("Unable to send landmark discussion message:", sendError);
-      setError(getFirebaseErrorMessage(sendError, "Unable to send your message. Please try again."));
+      const name = senderNameRef.current;
+      await sendLandmarkMessage(attempt, {
+        sender: { id: currentUser.uid, name, role },
+        folder: `collaboration-files/${institutionId}/${landmarkId}`,
+        onProgress: setUploadPercent,
+      });
+      attemptRef.current = null;
+      setText("");
+      setFile(null);
+      void writeAuditLog({
+        actorId: currentUser.uid,
+        actorName: name,
+        actorRole: role,
+        action: "collaboration.message.created",
+        entityType: "landmark-channel",
+        entityId: landmarkId,
+        metadata: { institutionId, attachmentName: file?.name || null },
+      });
+    } catch (error) {
+      console.error("Unable to send landmark discussion message:", error);
+      setSendError(getFirebaseErrorMessage(error, "Unable to send your message. Your draft is still here. Try again."));
     } finally {
-      setLoading(false);
+      sendingRef.current = false;
+      setSending(false);
     }
   };
 
-  if (!["institution", "3d-modeler"].includes(currentRole || "")) return null;
-
   return (
-    <section style={{ marginTop: 24, padding: 18, border: "1px solid #3b3528", borderRadius: 12, background: "#11100d" }}>
-      <h3 style={{ margin: "0 0 6px", color: "#f5d477" }}>3D Modeler / Curator discussion</h3>
-      <p style={{ margin: "0 0 14px", color: "#aaa", fontSize: 13 }}>
-        Share model references, feedback, and contract documents for this landmark.
-      </p>
-      {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}
-      <div style={{ display: "grid", gap: 10, maxHeight: 260, overflowY: "auto", marginBottom: 14 }}>
-        {messages.length === 0 ? (
-          <p style={{ color: "#888" }}>No discussion yet. Send the first reference or note.</p>
-        ) : messages.map((message) => (
-          <article key={message.id} style={{ padding: 12, borderRadius: 8, background: "#1b1915" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-              <strong style={{ color: "#eee" }}>{message.senderName || "User"} · {message.senderRole || "member"}</strong>
-              <small style={{ color: "#888" }}>{formatMessageTime(message.createdAt)}</small>
-            </div>
-            {message.text && <p style={{ margin: "8px 0 0", whiteSpace: "pre-wrap" }}>{message.text}</p>}
-            {message.attachment?.url && (
-              <a href={message.attachment.url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, color: "#f5d477" }}>
-                <i className="fa-solid fa-paperclip" aria-hidden="true" /> {message.attachment.name || "Open attachment"}
-              </a>
-            )}
-          </article>
-        ))}
-      </div>
-      <form onSubmit={handleSend} style={{ display: "grid", gap: 10 }}>
-        <textarea
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder="Add a note or request..."
-          rows={3}
-          disabled={loading}
-          style={{ width: "100%", resize: "vertical", background: "#090909", color: "#eee", border: "1px solid #45413a", borderRadius: 8, padding: 10 }}
-        />
-        <label style={{ color: "#bbb", fontSize: 13 }}>
-          Reference or contract file (image or PDF, up to 10 MB)
-          <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp,application/pdf"
-            disabled={loading}
-            onChange={(event) => {
-              const nextFile = event.target.files?.[0] || null;
-              if (nextFile && nextFile.size > 10 * 1024 * 1024) {
-                setError("Attachments must be 10 MB or smaller.");
-                event.target.value = "";
-                setFile(null);
-                return;
-              }
-              if (nextFile && !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(nextFile.type)) {
-                setError("Choose a PNG, JPG, WEBP, or PDF attachment.");
-                event.target.value = "";
-                setFile(null);
-                return;
-              }
-              setError("");
-              setFile(nextFile);
-            }}
-            style={{ display: "block", marginTop: 6 }}
-          />
-        </label>
-        {file && <small style={{ color: "#aaa" }}>Selected: {file.name}</small>}
-        <button type="submit" disabled={loading} style={{ justifySelf: "start", border: 0, borderRadius: 8, padding: "10px 16px", background: "#d4af37", color: "#16130b", fontWeight: 700, cursor: "pointer" }}>
-          {loading ? "Sending..." : "Send message"}
+    <section className={styles.discussion} aria-labelledby={headingId}>
+      <div className={styles.header}>
+        <div className={styles.heading}>
+          <h3 id={headingId}>Modeler–Curator discussion</h3>
+          {landmarkName && <p>{landmarkName}</p>}
+        </div>
+        <button
+          type="button"
+          className={styles.secondary}
+          aria-expanded={visible}
+          aria-controls={regionId}
+          disabled={suspended}
+          onClick={() => {
+            if (!open) {
+              followLatest.current = true;
+              previousScroll.current = null;
+            }
+            setOpen(!open);
+          }}
+        >
+          {open ? "Close chat" : "Open chat"}
         </button>
-      </form>
+      </div>
+      <div id={regionId} hidden={!visible}>
+        {visible && (
+          <>
+            {thread.error && <div className={styles.status}>
+              <p role="alert">{thread.error}</p>
+              <button type="button" className={styles.secondary} onClick={refresh}>Retry loading</button>
+            </div>}
+            {thread.cached && !thread.error && <p role="status" className={styles.muted}>Checking for the latest messages.</p>}
+            {thread.hasEarlier && <button type="button" className={styles.earlier} onClick={loadEarlier}
+              disabled={thread.loading || Boolean(thread.error)}>Load earlier messages</button>}
+            <DiscussionTimeline thread={thread} timelineRef={timelineRef} onScroll={handleTimelineScroll} />
+            <form className={styles.composer} onSubmit={handleSend}>
+              <label htmlFor={inputId}>Message</label>
+              <textarea
+                id={inputId}
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                rows={3}
+                disabled={sending}
+                placeholder="Write a message…"
+              />
+              {sendError && <p role="alert" className={styles.error}>{sendError}</p>}
+              {file && <div className={styles.file}>
+                <span>{file.name}</span>
+                <button type="button" className={styles.secondary} onClick={() => { setFile(null); setSendError(""); }}
+                  disabled={sending}>Remove</button>
+              </div>}
+              <div className={styles.actions}>
+                <label className={styles.attach}>
+                  Attach file
+                  <input
+                    type="file"
+                    aria-label="Attach a file"
+                    aria-describedby={attachmentHintId}
+                    accept={DISCUSSION_ATTACHMENT_TYPES.join(",")}
+                    disabled={sending}
+                    onChange={(event) => {
+                      const nextFile = event.target.files?.[0];
+                      event.target.value = "";
+                      if (!nextFile) return;
+                      const error = discussionAttachmentError(nextFile);
+                      setSendError(error);
+                      if (!error) setFile(nextFile);
+                    }}
+                  />
+                </label>
+                <button type="submit" className={styles.primary} disabled={sending || (!file && !text.trim())}>
+                  {sending ? "Sending…" : "Send message"}
+                </button>
+              </div>
+              <small id={attachmentHintId} className={styles.muted}>PNG, JPG, WebP, or PDF. Up to 10 MB.</small>
+              {sending && <p role="status" className={styles.muted}>
+                {file && uploadPercent !== null && uploadPercent < 100
+                  ? `Uploading attachment. ${Math.floor(uploadPercent)}%.`
+                  : "Waiting for the send to finish."}
+              </p>}
+            </form>
+          </>
+        )}
+      </div>
     </section>
   );
-};
+}
 
-export default LandmarkDiscussion;
+export default function LandmarkDiscussion({ institutionId, landmarkId, landmarkName, suspended = false }) {
+  const { currentRole, currentUser } = useAuth();
+  if (!institutionId || !landmarkId || !currentUser ||
+    !["institution", "3d-modeler"].includes(currentRole)) return null;
+
+  return <LandmarkDiscussionThread
+    key={`${currentUser.uid}/${currentRole}/${institutionId}/${landmarkId}`}
+    {...{ institutionId, landmarkId, landmarkName, suspended, currentRole, currentUser }}
+  />;
+}

@@ -1,3 +1,4 @@
+import { getContentScope } from "./contentScope.js";
 import {
   MODEL_CONTENT_TYPE,
   normalizeContentType,
@@ -71,6 +72,29 @@ export const getContentQualityIssues = (item) => {
 
 export const isContentReady = (item) =>
   !item?.needsAttention && getContentQualityIssues(item).length === 0;
+
+export const evaluatePoiReadiness = (contentIds = [], contents = []) => {
+  const assignedItems = (Array.isArray(contentIds) ? contentIds : [])
+    .map((id) => contents.find((item) => item.id === id))
+    .filter((item) => item && getContentScope(item) === "POI");
+
+  const readyItems = assignedItems.filter((item) => isContentReady(item));
+  const notReadyItems = assignedItems.filter((item) => !isContentReady(item));
+  const types = new Set(readyItems.map((item) => normalizeContentType(item.type)));
+
+  const missingTypes = ["Information", "Quiz", "Fun Fact"].filter((type) => !types.has(type));
+  const reasons = [];
+  if (missingTypes.length > 0) {
+    reasons.push(`missing POI-area content: ${missingTypes.join(", ")}`);
+  }
+  if (notReadyItems.length > 0) {
+    reasons.push(
+      `content needing attention: ${notReadyItems.map((i) => i.title || i.type).join(", ")}`,
+    );
+  }
+
+  return { canPublish: reasons.length === 0, missingTypes, notReadyItems, reasons };
+};
 
 export const hasPublishedInstitutionARContent = (items = []) =>
   items.some(

@@ -1255,7 +1255,7 @@ const LandmarkManagement = () => {
                     <LandmarkDiscussion
                       institutionId={institutionId}
                       landmarkId={landmark.id}
-                      title={`Discussion: ${landmark.landmarkName || landmark.institutionName}`}
+                      landmarkName={landmark.landmarkName || landmark.institutionName}
                     />
                   </div>
                 )}
