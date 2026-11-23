@@ -5,7 +5,7 @@ import {
 import { db } from "./firebase";
 import { isModelContentType, MODEL_CONTENT_TYPE } from "./contentTypes.js";
 import { buildModelEditPatch } from "./contentData.js";
-import { evaluatePoiReadiness } from "./contentQuality.js";
+import { evaluatePoiReadiness, isContentReady, isReadyARContent } from "./contentQuality.js";
 import { deleteStorageFile, uploadStorageFile } from "./storageUpload.js";
 import {
   isTourDocumentId, readTourManifest, resolveTourLandmarkId, validateTourRecords,
@@ -14,7 +14,7 @@ import {
 const record = (snapshot) => snapshot?.exists() ? { ...snapshot.data(), id: snapshot.id } : null;
 const serverRead = (ref) => getDocFromServer(ref);
 export const isTourPackage = (item) => item?.data?.tourPackageVersion === 2;
-const modelLandmarkId = (item) => item.data?.landmarkId || item.data?.customData?.landmarkId;
+const modelLandmarkId = (item) => item.data?.landmarkId || item.data?.customData?.landmarkId || item.targetId;
 const modelAlreadyAssigned = (message = "This landmark already has a VR model assigned.") => Object.assign(new Error(message), {
   code: "model-already-assigned",
 });
@@ -240,13 +240,68 @@ export async function editTourMetadata(item, title, model, status) {
   });
 }
 
+const curatorApproval = (uid) => ({
+  curatorApproved: true,
+  curatorApprovedAt: serverTimestamp(),
+  curatorApprovedBy: uid,
+  institutionApproved: true,
+  institutionApprovedAt: serverTimestamp(),
+  institutionApprovedBy: uid,
+  status: "Published",
+  updatedAt: serverTimestamp(),
+});
+
+export async function approvePlainModelForInstitution(item, uid, poiIds) {
+  const draftRef = doc(db, "content", item.id);
+  return runTransaction(db, async (transaction) => {
+    const draft = record(await transaction.get(draftRef));
+    if (!draft || isTourPackage(draft) || !isModelContentType(draft.type) || !isContentReady(draft) ||
+      draft.status !== "Awaiting Curator Approval" || draft.developerApproved !== true ||
+      draft.targetId !== item.targetId || draft.institutionId !== item.institutionId) {
+      throw new Error("This model changed while you were reviewing it. Refresh Content Management and try again.");
+    }
+
+    const landmark = record(await transaction.get(doc(db, "landmarks", draft.targetId)));
+    if (landmark?.institutionId !== draft.institutionId ||
+      (landmark.vrPublishedContentId && landmark.vrPublishedContentId !== draft.id)) {
+      throw new Error("This landmark changed or already has a different published tour. Refresh before approving this model.");
+    }
+
+    const readAll = async (collectionName, ids) => (await Promise.all(
+      [...new Set(ids.filter(isTourDocumentId))].map((id) => transaction.get(doc(db, collectionName, id))),
+    )).map(record).filter(Boolean);
+    const pois = (await readAll("pois", poiIds)).filter((poi) =>
+      poi.landmarkId === landmark.id && poi.institutionId === draft.institutionId,
+    );
+    const content = await readAll("content", [landmark, ...pois].flatMap(({ contentIds }) =>
+      Array.isArray(contentIds) ? contentIds : [],
+    ));
+    const arContent = content.filter((entry) =>
+      entry.institutionId === draft.institutionId && isReadyARContent(entry),
+    );
+    if (!arContent.some(({ status }) => status === "Published" || status === "Awaiting Content")) {
+      throw new Error("Complete AR content must be assigned to this landmark before approving its VR model.");
+    }
+    const releasing = arContent.filter(({ status }) => status === "Awaiting Content");
+    if (releasing.length >= 500) throw new Error("This landmark has too many AR items to release with its VR model.");
+
+    transaction.update(draftRef, curatorApproval(uid));
+    for (const entry of releasing) {
+      transaction.update(doc(db, "content", entry.id), {
+        status: "Published", releasedWithModelId: draft.id, updatedAt: serverTimestamp(),
+      });
+    }
+    return releasing.map(({ id }) => id);
+  });
+}
+
 export async function approveTourForInstitution(item, uid) {
   const draftRef = doc(db, "content", item.id);
-  await runTransaction(db, async (transaction) => {
+  return runTransaction(db, async (transaction) => {
     const read = (ref) => transaction.get(ref);
     const draft = record(await read(draftRef));
     if (!isTourPackage(draft) || draft.status !== "Awaiting Curator Approval" ||
-      draft.developerApproved !== true || draft.institutionId !== item.institutionId) {
+      draft.developerApproved !== true || draft.institutionId !== item.institutionId || !isContentReady(draft)) {
       throw new Error("This tour changed while you were reviewing it. Refresh Content Management and try again.");
     }
     const manifest = readTourManifest({ version: 2, landmarkId: draft.data.landmarkId, exhibits: draft.data.exhibits });
@@ -264,8 +319,11 @@ export async function approveTourForInstitution(item, uid) {
     const archivedIds = new Set(previousModels.map(({ id }) => id));
     const poisToRelease = target.pois.filter((poi) => poi.status !== "Published" || poi.isPublished !== true);
     const institutionContent = target.contentItems.filter((content) => content.institutionId === target.institutionId);
+    const releasing = new Set(target.pairedARContentIds);
     for (const poi of poisToRelease) {
-      const readiness = evaluatePoiReadiness(poi.contentIds, institutionContent);
+      const readiness = evaluatePoiReadiness(poi.contentIds, institutionContent, (content) =>
+        content.status === "Published" || releasing.has(content.id),
+      );
       if (!readiness.canPublish) {
         throw new Error(`Cannot publish "${poi.name || poi.id}" yet: ${readiness.reasons.join("; ")}.`);
       }
@@ -293,20 +351,12 @@ export async function approveTourForInstitution(item, uid) {
         updatedAt: serverTimestamp(),
       });
     });
-    transaction.update(draftRef, {
-      curatorApproved: true,
-      curatorApprovedAt: serverTimestamp(),
-      curatorApprovedBy: uid,
-      institutionApproved: true,
-      institutionApprovedAt: serverTimestamp(),
-      institutionApprovedBy: uid,
-      status: "Published",
-      updatedAt: serverTimestamp(),
-    });
+    transaction.update(draftRef, curatorApproval(uid));
     transaction.update(doc(db, "landmarks", target.landmark.id), {
       vrPublishedContentId: draft.id,
       vrDraftContentId: deleteField(),
     });
+    return target.pairedARContentIds;
   });
 }
 

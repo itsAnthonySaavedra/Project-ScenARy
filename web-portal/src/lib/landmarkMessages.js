@@ -24,6 +24,10 @@ export function discussionAttachmentUrl(raw) {
 
 export async function sendLandmarkMessage(attempt, { sender, folder, onProgress }) {
   const { ref, file, text } = attempt;
+  const hasAttemptedWrite = attempt.hasAttemptedWrite;
+  // An earlier send may have committed despite a lost reply. Reuse that message and its original timestamp.
+  if (hasAttemptedWrite && (await getDocFromServer(ref)).exists()) return;
+
   if (file && !attempt.attachment) {
     const namedFile = new File([file], `${ref.id}-${file.name}`, { type: file.type });
     const uploaded = await uploadStorageFile(namedFile, folder, onProgress);
@@ -35,7 +39,6 @@ export async function sendLandmarkMessage(attempt, { sender, folder, onProgress 
     };
   }
 
-  const hasAttemptedWrite = attempt.hasAttemptedWrite;
   attempt.hasAttemptedWrite = true;
   try {
     await setDoc(ref, {

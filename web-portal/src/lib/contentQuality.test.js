@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  evaluateLandmarkReadiness,
   evaluatePoiReadiness,
   hasPublishedInstitutionARContent,
   hasPublishedLandmarkARContent,
@@ -28,6 +29,25 @@ test("requires complete POI-area Information, Quiz, and Fun Fact before release"
   assert.deepEqual(evaluatePoiReadiness(ids, items.slice(0, 1)).missingTypes, ["Quiz", "Fun Fact"]);
   assert.deepEqual(evaluatePoiReadiness(ids, [items[0], items[1], { ...items[2], scope: "Landmark" }]).missingTypes, ["Fun Fact"]);
   assert.equal(evaluatePoiReadiness(ids, [items[0], items[1], { ...items[2], needsAttention: true }]).canPublish, false);
+  assert.deepEqual(evaluatePoiReadiness(ids, items, (item) => item.id !== "quiz").missingTypes, ["Quiz"]);
+});
+
+test("landmark publication requires saved coordinates and a published POI", () => {
+  const landmark = { id: "fort", landmarkName: "Fort", description: "Landmark history", contentIds: ["info", "quiz", "fact", "vr"] };
+  const contents = [
+    { ...readyInformation, id: "info" },
+    { ...readyInformation, id: "quiz", type: "Quiz", data: { quizzes: [{ question: "Is this a fort?", correctAnswer: "True" }] } },
+    { ...readyInformation, id: "fact", type: "Fun Fact", data: { facts: ["This site had a fort."] } },
+    { ...readyInformation, id: "vr", type: "VR Model", data: { modelUrl: "https://scenary.test/fort.glb" } },
+  ];
+  const poiContent = contents.slice(0, 3).map((item) => ({ ...item, id: `poi-${item.id}`, scope: "POI" }));
+  const poi = { landmarkId: "fort", contentIds: poiContent.map(({ id }) => id), status: "Published" };
+  const options = { contents: [...contents, ...poiContent], pois: [poi] };
+  const coords = { lat: 10.3, lng: 123.9 };
+  assert.equal(evaluateLandmarkReadiness(landmark, options).canPublish, false);
+  assert.equal(evaluateLandmarkReadiness(landmark, { ...options, overrideCoords: coords }).canPublish, true);
+  assert.equal(evaluateLandmarkReadiness({ ...landmark, ...coords }, options).canPublish, true);
+  assert.equal(evaluateLandmarkReadiness({ ...landmark, ...coords }, { ...options, pois: [{ ...poi, status: "Unpublished" }] }).canPublish, false);
 });
 
 test("requires complete published AR content, not a model or draft", () => {

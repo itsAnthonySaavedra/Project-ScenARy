@@ -73,13 +73,19 @@ export const getContentQualityIssues = (item) => {
 export const isContentReady = (item) =>
   !item?.needsAttention && getContentQualityIssues(item).length === 0;
 
-export const evaluatePoiReadiness = (contentIds = [], contents = []) => {
+export const isReadyARContent = (item) =>
+  ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item?.type)) && isContentReady(item);
+
+export const evaluatePoiReadiness = (contentIds = [], contents = [], isAvailable = () => true) => {
   const assignedItems = (Array.isArray(contentIds) ? contentIds : [])
     .map((id) => contents.find((item) => item.id === id))
     .filter((item) => item && getContentScope(item) === "POI");
 
-  const readyItems = assignedItems.filter((item) => isContentReady(item));
-  const notReadyItems = assignedItems.filter((item) => !isContentReady(item));
+  const readyItems = [];
+  const notReadyItems = [];
+  for (const item of assignedItems) {
+    (isContentReady(item) && isAvailable(item) ? readyItems : notReadyItems).push(item);
+  }
   const types = new Set(readyItems.map((item) => normalizeContentType(item.type)));
 
   const missingTypes = ["Information", "Quiz", "Fun Fact"].filter((type) => !types.has(type));
@@ -96,13 +102,52 @@ export const evaluatePoiReadiness = (contentIds = [], contents = []) => {
   return { canPublish: reasons.length === 0, missingTypes, notReadyItems, reasons };
 };
 
-export const hasPublishedInstitutionARContent = (items = []) =>
-  items.some(
-    (item) =>
-      item.status === "Published" &&
-      ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type)) &&
-      isContentReady(item),
+export const hasValidCoords = (item) => Number.isFinite(item?.lat) && Number.isFinite(item?.lng);
+
+export const isPoiPublished = (poi) => poi?.status === "Published" || poi?.isPublished === true;
+
+export function evaluateLandmarkReadiness(landmark, {
+  contents = [], pois = [], overrideLandmarkContentIds, overrideName, overrideDescription, overrideCoords,
+} = {}) {
+  const name = overrideName ?? landmark?.landmarkName ?? landmark?.institutionName;
+  const description = overrideDescription ?? landmark?.info?.description ?? landmark?.description;
+  const hasInfo = typeof name === "string" && Boolean(name.trim()) &&
+    typeof description === "string" && Boolean(description.trim()) &&
+    hasValidCoords(overrideCoords ?? landmark);
+
+  const assignedIds = overrideLandmarkContentIds ?? landmark?.contentIds;
+  const ids = new Set(Array.isArray(assignedIds) ? assignedIds : []);
+  const types = new Set();
+  if (landmark) {
+    for (const item of contents) {
+      if (getContentScope(item) !== "Landmark" ||
+        !(ids.has(item.id) || item.targetId === landmark.id) || !isContentReady(item)) continue;
+      const type = normalizeContentType(item.type);
+      if (type !== MODEL_CONTENT_TYPE || item.status === "Published") types.add(type);
+    }
+  }
+
+  const hasLandmarkInformation = types.has("Information");
+  const hasLandmarkQuiz = types.has("Quiz");
+  const hasLandmarkFunFact = types.has("Fun Fact");
+  const hasLandmarkVR = types.has(MODEL_CONTENT_TYPE);
+  const hasCompletePoi = Boolean(landmark) && pois.some((poi) =>
+    poi.landmarkId === landmark.id && isPoiPublished(poi) && evaluatePoiReadiness(poi.contentIds, contents).canPublish,
   );
+  const missingTypes = ["Information", "Quiz", "Fun Fact", MODEL_CONTENT_TYPE].filter((type) => !types.has(type));
+  const missing = [];
+  if (!hasInfo) missing.push("landmark name, description, and coordinates");
+  if (missingTypes.length) missing.push(`Landmark area missing: ${missingTypes.join(", ")}`);
+  if (!hasCompletePoi) missing.push("POI area needs at least one published POI with Information, Quiz, and Fun Fact");
+
+  return {
+    canPublish: missing.length === 0, hasInfo, hasLandmarkInformation, hasLandmarkQuiz,
+    hasLandmarkFunFact, hasLandmarkVR, hasCompletePoi, missing,
+  };
+}
+
+export const hasPublishedInstitutionARContent = (items = []) =>
+  items.some((item) => item.status === "Published" && isReadyARContent(item));
 
 export const hasPublishedLandmarkARContent = (landmark, items = []) => {
   const contentIds = new Set(
@@ -112,8 +157,7 @@ export const hasPublishedLandmarkARContent = (landmark, items = []) => {
     (item) =>
       contentIds.has(item.id) &&
       item.status === "Published" &&
-      ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type)) &&
-      isContentReady(item),
+      isReadyARContent(item),
   );
 };
 
@@ -125,8 +169,7 @@ export const hasReadyLandmarkARContent = (landmark, items = []) => {
     (item) =>
       contentIds.has(item.id) &&
       ["Awaiting Content", "Published"].includes(item.status) &&
-      ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(item.type)) &&
-      isContentReady(item),
+      isReadyARContent(item),
   );
 };
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
 import { deleteStorageFile, uploadStorageFile } from "../../lib/storageUpload";
@@ -11,12 +11,8 @@ import PageHeader from "../../components/common/PageHeader";
 import SetupFlowBanner from "../../components/common/SetupFlowBanner";
 import LandmarkDiscussion from "../../components/common/LandmarkDiscussion";
 import { getContentScope } from "../../lib/contentScope";
-import {
-  getContentAssignmentLimitError,
-  MODEL_CONTENT_TYPE,
-  normalizeContentType,
-} from "../../lib/contentTypes";
-import { isContentReady } from "../../lib/contentQuality";
+import { getContentAssignmentLimitError } from "../../lib/contentTypes";
+import { evaluateLandmarkReadiness, evaluatePoiReadiness, hasValidCoords, isPoiPublished } from "../../lib/contentQuality";
 import { writeAuditLog } from "../../lib/auditLog";
 import { syncGeneratedInstitutionTour } from "../../lib/generatedTours";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
@@ -40,147 +36,11 @@ const CEBU_BOUNDS = [
   [11.35, 124.1],
 ];
 
-const hasValidCoords = (item) =>
-  typeof item?.lat === "number" &&
-  Number.isFinite(item.lat) &&
-  typeof item?.lng === "number" &&
-  Number.isFinite(item.lng);
-
 const formatErrorDetail = (error, fallback) => {
   const base = getFirebaseErrorMessage(error, fallback);
   const code = error?.code ? `[${error.code}] ` : "";
   const detail = error?.message && !base.includes(error.message) ? ` (${error.message})` : "";
   return `${code}${base}${detail}`;
-};
-
-const isPoiPublished = (poi) => poi?.status === "Published" || poi?.isPublished === true;
-
-const getPoiContentTypeSet = (poi, contents = []) => {
-  const ids = Array.isArray(poi?.contentIds) ? poi.contentIds : [];
-  const types = new Set();
-  for (const item of contents) {
-    if (ids.includes(item.id) && getContentScope(item) === "POI" && isContentReady(item)) {
-      types.add(normalizeContentType(item.type));
-    }
-  }
-  return types;
-};
-
-const isPoiContentComplete = (poi, contents = []) => {
-  const types = getPoiContentTypeSet(poi, contents);
-  return types.has("Information") && types.has("Quiz") && types.has("Fun Fact");
-};
-
-/**
- * Evaluates landmark readiness requiring:
- * 1. Complete landmark info (name, description, coordinates)
- * 2. Landmark-scoped (Area: "Landmark") Information, Quiz, Fun Fact, and published VR model
- * 3. At least 1 published POI under the landmark with POI-scoped (Area: "POI") Information, Quiz, and Fun Fact
- */
-const evaluateLandmarkReadiness = (
-  landmark,
-  {
-    contents = [],
-    pois = [],
-    overrideLandmarkContentIds = null,
-    overrideName = null,
-    overrideDescription = null,
-    overrideCoords = null,
-  } = {},
-) => {
-  if (!landmark) {
-    return {
-      canPublish: false,
-      hasInfo: false,
-      hasLandmarkInformation: false,
-      hasLandmarkQuiz: false,
-      hasLandmarkFunFact: false,
-      hasLandmarkVR: false,
-      hasCompletePoi: false,
-      missingLandmarkTypes: ["Information", "Quiz", "Fun Fact", "VR model"],
-      missingPoiSummary: "at least 1 published POI with POI-area Information, Quiz, and Fun Fact",
-      missing: [
-        "landmark name, description, and coordinates",
-        "Landmark area missing: Information, Quiz, Fun Fact, VR model",
-        "POI area missing: at least 1 published POI with POI-area Information, Quiz, and Fun Fact",
-      ],
-    };
-  }
-
-  const name = (overrideName ?? landmark.landmarkName ?? landmark.institutionName ?? "").trim();
-  const description = (overrideDescription ?? landmark.info?.description ?? landmark.description ?? "").trim();
-  const coordsOk = overrideCoords
-    ? Number.isFinite(Number(overrideCoords.lat)) && Number.isFinite(Number(overrideCoords.lng))
-    : hasValidCoords(landmark);
-  const hasInfo = Boolean(name && description && coordsOk);
-
-  const landmarkContentIds = new Set(
-    Array.isArray(overrideLandmarkContentIds)
-      ? overrideLandmarkContentIds
-      : Array.isArray(landmark.contentIds)
-        ? landmark.contentIds
-        : [],
-  );
-
-  const landmarkScopedItems = contents.filter(
-    (item) =>
-      getContentScope(item) === "Landmark" &&
-      (landmarkContentIds.has(item.id) || item.targetId === landmark.id),
-  );
-
-  const hasLandmarkInformation = landmarkScopedItems.some(
-    (item) => normalizeContentType(item.type) === "Information" && isContentReady(item),
-  );
-  const hasLandmarkQuiz = landmarkScopedItems.some(
-    (item) => normalizeContentType(item.type) === "Quiz" && isContentReady(item),
-  );
-  const hasLandmarkFunFact = landmarkScopedItems.some(
-    (item) => normalizeContentType(item.type) === "Fun Fact" && isContentReady(item),
-  );
-  const hasLandmarkVR = landmarkScopedItems.some(
-    (item) =>
-      normalizeContentType(item.type) === MODEL_CONTENT_TYPE &&
-      item.status === "Published" &&
-      isContentReady(item),
-  );
-
-  const missingLandmarkTypes = [];
-  if (!hasLandmarkInformation) missingLandmarkTypes.push("Information");
-  if (!hasLandmarkQuiz) missingLandmarkTypes.push("Quiz");
-  if (!hasLandmarkFunFact) missingLandmarkTypes.push("Fun Fact");
-  if (!hasLandmarkVR) missingLandmarkTypes.push("VR model");
-
-  const linkedPois = pois.filter((poi) => poi.landmarkId === landmark.id);
-  const hasCompletePoi = linkedPois.some(
-    (poi) => isPoiPublished(poi) && isPoiContentComplete(poi, contents),
-  );
-
-  const missingPoiSummary =
-    linkedPois.length === 0
-      ? "at least 1 published POI with POI-area Information, Quiz, and Fun Fact"
-      : "at least 1 published POI having POI-area Information, Quiz, and Fun Fact";
-
-  const missing = [];
-  if (!hasInfo) missing.push("landmark name, description, and coordinates");
-  if (missingLandmarkTypes.length > 0) {
-    missing.push(`Landmark area missing: ${missingLandmarkTypes.join(", ")}`);
-  }
-  if (!hasCompletePoi) {
-    missing.push(`POI area missing: ${missingPoiSummary}`);
-  }
-
-  return {
-    canPublish: hasInfo && missingLandmarkTypes.length === 0 && hasCompletePoi,
-    hasInfo,
-    hasLandmarkInformation,
-    hasLandmarkQuiz,
-    hasLandmarkFunFact,
-    hasLandmarkVR,
-    hasCompletePoi,
-    missingLandmarkTypes,
-    missingPoiSummary,
-    missing,
-  };
 };
 
 const PinPlacementEvents = ({ enabled, onPickCoords }) => {
@@ -307,7 +167,7 @@ const LandmarkManagement = () => {
       setDraftCoords(
         hasValidCoords(landmark)
           ? { lat: landmark.lat, lng: landmark.lng }
-          : { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1] },
+          : null,
       );
       setPageNotice("");
       setPageError("");
@@ -332,6 +192,7 @@ const LandmarkManagement = () => {
   const selectedLandmark = landmarks.find((item) => item.id === selectedLandmarkId);
   const targetLandmark = selectedLandmark || landmarks[0];
 
+  const savedReadiness = evaluateLandmarkReadiness(targetLandmark, { contents: allContent, pois });
   const readiness = evaluateLandmarkReadiness(targetLandmark, {
     contents: allContent,
     pois,
@@ -351,11 +212,10 @@ const LandmarkManagement = () => {
 
     const normalizedNext = nextStatus === "Published" ? "Published" : "Unpublished";
 
-    if (normalizedNext === "Published" && !readiness.canPublish) {
+    if (normalizedNext === "Published" && !savedReadiness.canPublish) {
       setPageError(
-        `Cannot publish landmark yet. Missing: ${readiness.missing.join("; ")}.`,
+        `Cannot publish landmark yet. Missing: ${savedReadiness.missing.join("; ")}.`,
       );
-      setFormStatus("Unpublished");
       return;
     }
 
@@ -364,11 +224,35 @@ const LandmarkManagement = () => {
     setPageNotice("");
     try {
       const isPublished = normalizedNext === "Published";
-      await updateDoc(doc(db, "landmarks", selectedLandmark.id), {
-        status: normalizedNext,
-        isPublished,
-        publishedAt: isPublished ? serverTimestamp() : null,
-        updatedAt: serverTimestamp(),
+      const landmarkRef = doc(db, "landmarks", selectedLandmark.id);
+      await runTransaction(db, async (transaction) => {
+        const current = await transaction.get(landmarkRef);
+        if (!current.exists() || current.data().institutionId !== institutionId) {
+          throw new Error("This landmark changed. Refresh before updating its status.");
+        }
+        if (isPublished) {
+          const landmark = { ...current.data(), id: current.id };
+          const readRecords = async (collectionName, ids) => (await Promise.all(
+            [...new Set(ids)].map((id) => transaction.get(doc(db, collectionName, id))),
+          )).filter((snapshot) => snapshot.exists()).map((snapshot) => ({ ...snapshot.data(), id: snapshot.id }));
+          const freshPois = (await readRecords("pois", pois.filter((poi) => poi.landmarkId === landmark.id)
+            .map(({ id }) => id))).filter((poi) => poi.institutionId === institutionId);
+          const contentIds = [
+            ...[landmark, ...freshPois].flatMap(({ contentIds }) => Array.isArray(contentIds) ? contentIds : []),
+            ...allContent.filter((item) => item.targetId === landmark.id).map(({ id }) => id),
+          ].filter((id) => typeof id === "string" && id && !id.includes("/"));
+          const contents = (await readRecords("content", contentIds)).filter((item) => item.institutionId === institutionId);
+          const currentReadiness = evaluateLandmarkReadiness(landmark, { contents, pois: freshPois });
+          if (!currentReadiness.canPublish) {
+            throw new Error(`Cannot publish landmark yet. Missing: ${currentReadiness.missing.join("; ")}.`);
+          }
+        }
+        transaction.update(landmarkRef, {
+          status: normalizedNext,
+          isPublished,
+          publishedAt: isPublished ? serverTimestamp() : null,
+          updatedAt: serverTimestamp(),
+        });
       });
 
       setFormStatus(normalizedNext);
@@ -633,11 +517,7 @@ const LandmarkManagement = () => {
     (item) => item.status === "Published",
   ).length;
 
-  const currentEffectiveStatus = selectedLandmarkId
-    ? formStatus
-    : targetLandmark?.status === "Published"
-      ? "Published"
-      : "Unpublished";
+  const currentEffectiveStatus = targetLandmark?.status === "Published" ? "Published" : "Unpublished";
 
   const hasPublishedPoi = pois.some(isPoiPublished);
 
@@ -721,30 +601,30 @@ const LandmarkManagement = () => {
             </div>
 
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
-              <span style={{ color: readiness.hasInfo ? "#4ade80" : "#f87171" }}>
-                {readiness.hasInfo ? "✓ Landmark Info & Pin" : "✕ Missing: Landmark Name, Description & Pin"}
+              <span style={{ color: savedReadiness.hasInfo ? "#4ade80" : "#f87171" }}>
+                {savedReadiness.hasInfo ? "✓ Landmark Info & Pin" : "✕ Missing: Landmark Name, Description & Pin"}
               </span>
-              <span style={{ color: readiness.hasLandmarkInformation ? "#4ade80" : "#f87171" }}>
-                {readiness.hasLandmarkInformation ? "✓ Landmark Information" : "✕ Landmark Area Missing: Information"}
+              <span style={{ color: savedReadiness.hasLandmarkInformation ? "#4ade80" : "#f87171" }}>
+                {savedReadiness.hasLandmarkInformation ? "✓ Landmark Information" : "✕ Landmark Area Missing: Information"}
               </span>
-              <span style={{ color: readiness.hasLandmarkQuiz ? "#4ade80" : "#f87171" }}>
-                {readiness.hasLandmarkQuiz ? "✓ Landmark Quiz" : "✕ Landmark Area Missing: Quiz"}
+              <span style={{ color: savedReadiness.hasLandmarkQuiz ? "#4ade80" : "#f87171" }}>
+                {savedReadiness.hasLandmarkQuiz ? "✓ Landmark Quiz" : "✕ Landmark Area Missing: Quiz"}
               </span>
-              <span style={{ color: readiness.hasLandmarkFunFact ? "#4ade80" : "#f87171" }}>
-                {readiness.hasLandmarkFunFact ? "✓ Landmark Fun Fact" : "✕ Landmark Area Missing: Fun Fact"}
+              <span style={{ color: savedReadiness.hasLandmarkFunFact ? "#4ade80" : "#f87171" }}>
+                {savedReadiness.hasLandmarkFunFact ? "✓ Landmark Fun Fact" : "✕ Landmark Area Missing: Fun Fact"}
               </span>
-              <span style={{ color: readiness.hasLandmarkVR ? "#4ade80" : "#f87171" }}>
-                {readiness.hasLandmarkVR ? "✓ Landmark VR Model" : "✕ Landmark Area Missing: VR Model"}
+              <span style={{ color: savedReadiness.hasLandmarkVR ? "#4ade80" : "#f87171" }}>
+                {savedReadiness.hasLandmarkVR ? "✓ Landmark VR Model" : "✕ Landmark Area Missing: VR Model"}
               </span>
-              <span style={{ color: readiness.hasCompletePoi ? "#4ade80" : "#f87171" }}>
-                {readiness.hasCompletePoi ? "✓ POI Area (Published POI with Info, Quiz & Fun Fact)" : "✕ POI Area Missing: 1 Published POI with Info, Quiz & Fun Fact"}
+              <span style={{ color: savedReadiness.hasCompletePoi ? "#4ade80" : "#f87171" }}>
+                {savedReadiness.hasCompletePoi ? "✓ POI Area (Published POI with Info, Quiz & Fun Fact)" : "✕ POI Area Missing: 1 Published POI with Info, Quiz & Fun Fact"}
               </span>
             </div>
 
-            {!readiness.canPublish && (
+            {!savedReadiness.canPublish && (
               <small style={{ color: "#fbbf24", fontSize: 12.5 }}>
                 Publishing requires complete landmark info, Landmark-area Information + Quiz + Fun Fact + published VR model, and at least 1 published POI with POI-area Information + Quiz + Fun Fact. Missing:{" "}
-                {readiness.missing.join("; ")}.
+                {savedReadiness.missing.join("; ")}.
               </small>
             )}
           </div>
@@ -759,8 +639,8 @@ const LandmarkManagement = () => {
               style={{ minWidth: 210, fontWeight: 600 }}
             >
               <option value="Unpublished">Unpublished (Hide)</option>
-              <option value="Published" disabled={!readiness.canPublish}>
-                Published {readiness.canPublish ? "" : "(Incomplete)"}
+              <option value="Published" disabled={!savedReadiness.canPublish}>
+                Published {savedReadiness.canPublish ? "" : "(Incomplete)"}
               </option>
             </select>
 
@@ -777,12 +657,12 @@ const LandmarkManagement = () => {
               <button
                 type="button"
                 className={commonStyles.btnPrimary}
-                disabled={!selectedLandmarkId || updatingStatus || saving || !readiness.canPublish}
+                disabled={!selectedLandmarkId || updatingStatus || saving || !savedReadiness.canPublish}
                 onClick={() => applyLandmarkPublishStatus("Published")}
                 title={
-                  readiness.canPublish
+                  savedReadiness.canPublish
                     ? "Publish this landmark to Firestore"
-                    : `Missing: ${readiness.missing.join("; ")}`
+                    : `Missing: ${savedReadiness.missing.join("; ")}`
                 }
               >
                 {updatingStatus ? "Publishing..." : "Publish Landmark"}
@@ -1146,7 +1026,7 @@ const LandmarkManagement = () => {
                 ) : (
                   <ul style={{ margin: 0, paddingLeft: 18, color: "#d6d3d1", fontSize: 13, lineHeight: 1.6 }}>
                     {landmarkPois.map((poi) => {
-                      const poiComplete = isPoiContentComplete(poi, allContent);
+                      const poiComplete = evaluatePoiReadiness(poi.contentIds, allContent).canPublish;
                       return (
                         <li key={poi.id}>
                           <strong style={{ color: "#fff" }}>{poi.name || "Unnamed POI"}</strong>

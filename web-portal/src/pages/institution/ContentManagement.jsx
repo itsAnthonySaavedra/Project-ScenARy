@@ -11,7 +11,6 @@ import {
   getDoc,
   serverTimestamp,
   arrayUnion,
-  writeBatch,
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../../lib/firebase";
@@ -40,10 +39,11 @@ import {
   hasPublishedInstitutionARContent,
   hasReadyLandmarkARContent,
   isContentReady,
+  isPoiPublished,
 } from "../../lib/contentQuality";
 import { createDefaultModelSpawnPoint, normalizeModelSpawnPoint, serializeModelSpawnPoint } from "../../lib/modelSpawnPoint";
 import { getFirebaseErrorMessage } from "../../lib/firebaseErrorMessage";
-import { approveTourForInstitution, isTourPackage } from "../../lib/tourPackageStore.js";
+import { approvePlainModelForInstitution, approveTourForInstitution, isTourPackage } from "../../lib/tourPackageStore.js";
 import { useAuth } from "../../context/AuthContext";
 import LandmarkDiscussion from "../../components/common/LandmarkDiscussion";
 
@@ -669,64 +669,19 @@ const InstituteContentManagement = () => {
       return;
     }
 
-    const modelLandmark = item.targetId
-      ? assignmentTargets.find(
-          (target) => target.id === item.targetId && target.collectionName === "landmarks",
-        )
-      : null;
-    const relatedContentIds = new Set([
-      ...(Array.isArray(modelLandmark?.contentIds) ? modelLandmark.contentIds : []),
-      ...assignmentTargets
-        .filter((target) => target.collectionName === "pois" && target.landmarkId === item.targetId)
-        .flatMap((target) => (Array.isArray(target.contentIds) ? target.contentIds : [])),
-    ]);
-    const pairedARContent = modelLandmark
-      ? contents.filter(
-          (content) =>
-            relatedContentIds.has(content.id) &&
-            ["Information", "Fun Fact", "Quiz"].includes(normalizeContentType(content.type)) &&
-            content.status === "Awaiting Content" &&
-            isContentReady(content),
-        )
-      : [];
-    if (pairedARContent.length >= 500) {
-      setApprovalError(
-        "This landmark has too many AR items to release atomically with its VR model. Reduce the number of assigned items and retry.",
-      );
-      return;
-    }
-
     setApprovalError("");
     setApprovingContentId(item.id);
     try {
-      if (isTourPackage(item)) {
-        await approveTourForInstitution(item, getAuth().currentUser?.uid || null);
-      } else {
-        const now = serverTimestamp();
-        const curatorId = getAuth().currentUser?.uid || null;
-        const releaseBatch = writeBatch(db);
-        releaseBatch.update(doc(db, "content", item.id), {
-          curatorApproved: true,
-          curatorApprovedAt: now,
-          curatorApprovedBy: curatorId,
-          institutionApproved: true,
-          institutionApprovedAt: now,
-          institutionApprovedBy: curatorId,
-          status: "Published",
-          updatedAt: now,
-        });
-        pairedARContent.forEach((content) => {
-          releaseBatch.update(doc(db, "content", content.id), {
-            status: "Published",
-            releasedWithModelId: item.id,
-            updatedAt: now,
-          });
-        });
-        await releaseBatch.commit();
-      }
+      const curatorId = getAuth().currentUser?.uid || null;
+      const poiIds = assignmentTargets.filter((target) =>
+        target.collectionName === "pois" && target.landmarkId === item.targetId,
+      ).map(({ id }) => id);
+      const pairedARContentIds = isTourPackage(item)
+        ? await approveTourForInstitution(item, curatorId)
+        : await approvePlainModelForInstitution(item, curatorId, poiIds);
       try {
         await writeAuditLog({
-          actorId: getAuth().currentUser?.uid,
+          actorId: curatorId,
           actorRole: "institution",
           action: "content.curator-approved",
           entityType: "content",
@@ -735,7 +690,7 @@ const InstituteContentManagement = () => {
             institutionId: userInstitutionId,
             title: item.title,
             developerApproved: true,
-            pairedARContentIds: pairedARContent.map((content) => content.id),
+            pairedARContentIds,
           },
           throwOnFailure: true,
         });
@@ -748,7 +703,7 @@ const InstituteContentManagement = () => {
       setApprovalError(
         getFirebaseErrorMessage(
           error,
-          isTourPackage(item) ? error.message : "Unable to approve the VR model. Please try again.",
+          error.code ? "Unable to approve the VR model. Please try again." : error.message,
         ),
       );
     } finally {
@@ -787,9 +742,7 @@ const InstituteContentManagement = () => {
   const incompleteCount = contents.filter((item) => !isContentReady(item)).length;
   const siteReadiness = getInstitutionContentReadiness(contents);
   const activeDiscussionLandmark = institutionLandmarks.find((item) => item.id === discussionLandmarkId);
-  const hasPublishedPoi = institutionPois.some(
-    (p) => p?.status === "Published" || p?.isPublished === true,
-  );
+  const hasPublishedPoi = institutionPois.some(isPoiPublished);
   const previewTarget = assignmentTargets.find((item) => item.id === currentContent?.targetId);
   const previewLandmarkId = currentContent?.data?.landmarkId || previewTarget?.landmarkId || currentContent?.targetId;
   const previewLandmark = institutionLandmarks.find((item) => item.id === previewLandmarkId);

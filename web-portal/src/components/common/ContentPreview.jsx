@@ -17,25 +17,29 @@ const ContentPreview = ({ content, poiNames = {} }) => {
 
   const data = content.data || {};
   const modelUrl = data.modelUrl || data.modelPath;
+  const previewKey = `${content.id || ""}:${modelUrl || ""}`;
   const facts = Array.isArray(data.facts) && data.facts.length
     ? data.facts
     : data.fact ? [data.fact] : [];
-  const modelState = modelStates[modelUrl] || "loading";
-  const updateModelState = (state) => setModelStates((current) => ({ ...current, [modelUrl]: state }));
-  const exhibits = data.tourPackageVersion === 2 && Array.isArray(data.exhibits) ? data.exhibits : [];
+  const modelState = modelStates[previewKey] || "loading";
+  const updateModelState = (state) => setModelStates((current) => ({ ...current, [previewKey]: state }));
+  const exhibits = data.tourPackageVersion === 2 && Array.isArray(data.exhibits)
+    ? data.exhibits.filter((entry) => typeof entry?.anchor === "string" && typeof entry.poiId === "string") : [];
   const readPlacedStops = (viewer) => {
     updateModelState("loaded");
     if (!exhibits.length) return;
     const gltf = viewer.originalGltfJson;
-    const roots = gltf?.scenes?.[gltf.scene]?.nodes ?? [];
-    const nodes = new Map(roots.map((index) => gltf.nodes[index]).filter(Boolean)
+    const roots = gltf?.scenes?.[gltf.scene]?.nodes;
+    if (!Array.isArray(roots)) return;
+    const nodes = new Map(roots.map((index) => gltf?.nodes?.[index]).filter(Boolean)
       .map((node) => [node.name, node]));
     const pins = exhibits.flatMap(({ anchor, poiId }, index) => {
       const node = nodes.get(anchor);
-      if (!anchor.startsWith("ScenARy_Stop_") || node?.mesh != null || node?.translation?.length !== 3) return [];
+      if (!anchor.startsWith("ScenARy_Stop_") || node?.mesh != null || !Array.isArray(node?.translation) ||
+        node.translation.length !== 3 || !node.translation.every(Number.isFinite)) return [];
       return [{ anchor, poiId, number: index + 1, position: node.translation.map((value) => `${value}m`).join(" ") }];
     });
-    setPlacedStops((current) => ({ ...current, [modelUrl]: pins }));
+    setPlacedStops((current) => ({ ...current, [previewKey]: pins }));
   };
 
   return (
@@ -73,13 +77,13 @@ const ContentPreview = ({ content, poiNames = {} }) => {
         modelUrl ? (
           <div>
             <LandmarkModelPreview
-              key={modelUrl}
+              key={previewKey}
               src={modelUrl}
               alt={content.title || "VR model"}
               onLoad={(event) => readPlacedStops(event.currentTarget)}
               onError={() => updateModelState("error")}
             >
-              {(placedStops[modelUrl] ?? []).map(({ anchor, poiId, number, position }) => (
+              {(placedStops[previewKey] ?? []).map(({ anchor, poiId, number, position }) => (
                 <span key={anchor} slot={`hotspot-review-${number}`} data-position={position}
                   title={poiNames[poiId] || poiId}
                   style={{ borderRadius: "50%", padding: "4px 9px", background: "#d4af37", color: "#111", fontWeight: 700 }}>
