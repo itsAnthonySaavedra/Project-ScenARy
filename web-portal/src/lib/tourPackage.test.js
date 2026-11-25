@@ -66,6 +66,17 @@ test("reports invalid GLBs and required mobile decoders before preview", async (
   );
 });
 
+test("flags default white material while accepting deliberate colors", async () => {
+  const meshes = [{ primitives: [{ material: 0, attributes: { POSITION: 0 } }] }];
+  const defaultMaterial = await inspectTourModel(modelFixture({ meshes, materials: [{}] }));
+  const whiteMaterial = await inspectTourModel(modelFixture({
+    meshes,
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1] } }],
+  }));
+  assert.equal(defaultMaterial.usesDefaultColor, true);
+  assert.equal(whiteMaterial.usesDefaultColor, false);
+});
+
 test("replaces the active spawn with a single browser-authored spawn", async () => {
   const spawn = { position: { x: 3, y: 0, z: -2 }, rotation: { y: 90 } };
   const result = await createPlacedTour(modelFixture(), "landmark-1", [stop], spawn);

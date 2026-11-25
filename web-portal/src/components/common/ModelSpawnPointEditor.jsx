@@ -11,7 +11,8 @@ const readVector = (vector) => axes.every((axis) => Number.isFinite(vector?.[axi
   : null;
 
 const ModelSpawnPointEditor = ({
-  enabled, onEnabledChange, value, onChange, modelUrl, poiOptions = [], stops = [], onStopsChange, disabled = false,
+  enabled, onEnabledChange, value, onChange, modelUrl, poiOptions = [], stops = [], onStopsChange,
+  onPreviewStatus, showMaterialNotice = true, disabled = false,
 }) => {
   const spawnPoint = value || createDefaultModelSpawnPoint();
   const modelViewerRef = useRef(null);
@@ -67,6 +68,11 @@ const ModelSpawnPointEditor = ({
   const spawnPosition = formatVector(spawnPoint.position);
   const spawnNormal = formatVector(spawnPoint.surfaceNormal);
 
+  const reportModelStatus = (status) => {
+    setModelLoad({ url: modelUrl, status });
+    onPreviewStatus?.(status);
+  };
+
   useEffect(() => {
     const modelViewer = modelViewerRef.current;
     if (!enabled || modelStatus !== "ready" || typeof modelViewer?.updateHotspot !== "function") return;
@@ -108,7 +114,7 @@ const ModelSpawnPointEditor = ({
           </div>
         ))}
       </div>}
-      {(enabled || allowStops) && modelUrl && (
+      {(enabled || allowStops || onPreviewStatus) && modelUrl && (
         <div style={{ marginTop: "0.9rem", border: "1px solid #444", borderRadius: 8, padding: "0.75rem", background: "#151515" }}>
           {allowStops && <div className={commonStyles.formGroup}>
             <label htmlFor={poiFieldId}>POI for the next stop</label>
@@ -136,8 +142,9 @@ const ModelSpawnPointEditor = ({
             src={modelUrl}
             alt="Landmark model preview"
             placementActive={placementActive}
-            onLoad={() => setModelLoad({ url: modelUrl, status: "ready" })}
-            onError={() => setModelLoad({ url: modelUrl, status: "error" })}
+            showMaterialNotice={showMaterialNotice}
+            onLoad={() => reportModelStatus("ready")}
+            onError={() => reportModelStatus("error")}
             onClick={handleViewerClick}
           >
             {enabled && <button

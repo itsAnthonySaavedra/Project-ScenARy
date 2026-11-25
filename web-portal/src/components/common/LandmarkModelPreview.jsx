@@ -18,7 +18,7 @@ function hasMostlyWhiteMaterials(scene) {
 }
 
 export default function LandmarkModelPreview({
-  src, alt, viewerRef, onLoad, onError, onClick, placementActive = false, children,
+  src, alt, viewerRef, onLoad, onError, onClick, placementActive = false, showMaterialNotice = true, children,
 }) {
   const internalRef = useRef(null);
   const ref = viewerRef ?? internalRef;
@@ -51,7 +51,7 @@ export default function LandmarkModelPreview({
 
   return (
     <div className={styles.preview}>
-      {materialNotice && (
+      {showMaterialNotice && materialNotice && (
         <p className={styles.materialNotice}>
           This GLB has mostly white materials and no image textures. If it looks different in Blender, check that the
           intended base colors or baked textures are included in the export.

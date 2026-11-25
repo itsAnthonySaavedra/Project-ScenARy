@@ -245,7 +245,16 @@ export async function inspectTourModel(file) {
     throw new Error("Choose a GLB model of 1 GB or smaller.");
   }
   const model = await readModelScene(file);
-  return { ...model, hasSpawn: validateModelAnchors(model.scene, []) };
+  const { scene } = model;
+  const hasSpawn = validateModelAnchors(scene, []);
+  const usesDefaultColor = !scene.images?.length && Array.isArray(scene.meshes) && scene.meshes.some((mesh) =>
+    Array.isArray(mesh?.primitives) && mesh.primitives.some((primitive) => {
+      const material = scene.materials?.[primitive?.material];
+      return material && !material.pbrMetallicRoughness?.baseColorFactor &&
+        !material.pbrMetallicRoughness?.baseColorTexture &&
+        !Number.isInteger(primitive.attributes?.COLOR_0);
+    }));
+  return { ...model, hasSpawn, usesDefaultColor };
 }
 
 function validateModelAnchors(scene, exhibits) {

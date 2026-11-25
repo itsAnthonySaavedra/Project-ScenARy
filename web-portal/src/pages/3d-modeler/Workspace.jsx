@@ -61,9 +61,13 @@ const ModelerWorkspace = () => {
   const [file, setFile] = useState(null);
   const [filePreviewUrl, setFilePreviewUrl] = useState("");
   const [hasEmbeddedSpawn, setHasEmbeddedSpawn] = useState(false);
+  const [usesDefaultColor, setUsesDefaultColor] = useState(false);
   const [stops, setStops] = useState([]);
   const fileInputRef = useRef(null);
   const [modelUrl, setModelUrl] = useState("");
+  const [previewedUrl, setPreviewedUrl] = useState("");
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const [previewReview, setPreviewReview] = useState(null);
   const [spawnPoint, setSpawnPoint] = useState(createDefaultModelSpawnPoint);
   const [spawnPointEnabled, setSpawnPointEnabled] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -224,6 +228,29 @@ const ModelerWorkspace = () => {
   );
   const hasUnavailableStop = stops.some((stop) => !poiOptions.some((poi) => poi.id === stop.poiId));
   const needsTourSpawn = Boolean(file && (spawnPointEnabled ? !spawnPoint.positionChosen : !hasEmbeddedSpawn));
+  const modelSource = filePreviewUrl || (previewedUrl === modelUrl.trim() ? previewedUrl : "");
+  const previewReady = Boolean(modelSource && previewReview?.source === modelSource && previewReview.status === "ready");
+  const previewConfirmed = previewReady && previewReview.confirmed;
+  const previewFailed = previewReview?.source === modelSource && previewReview?.status === "error";
+
+  const retryPreview = () => {
+    setPreviewReview(null);
+    setPreviewAttempt((attempt) => attempt + 1);
+  };
+
+  const loadModelUrl = () => {
+    const candidate = modelUrl.trim();
+    try {
+      const url = new URL(candidate);
+      if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) throw new Error();
+    } catch {
+      setFormError("Enter a direct HTTP or HTTPS link to the GLB.");
+      return;
+    }
+    setFormError("");
+    setPreviewedUrl(candidate);
+    retryPreview();
+  };
 
   const chooseModel = async (event) => {
     const input = event.currentTarget;
@@ -231,7 +258,10 @@ const ModelerWorkspace = () => {
     setFormError("");
     setFile(null);
     setFilePreviewUrl("");
+    setPreviewReview(null);
+    setPreviewedUrl("");
     setHasEmbeddedSpawn(false);
+    setUsesDefaultColor(false);
     setStops([]);
     setSpawnPoint(createDefaultModelSpawnPoint());
     setSpawnPointEnabled(false);
@@ -242,6 +272,7 @@ const ModelerWorkspace = () => {
       setFile(selected);
       setFilePreviewUrl(URL.createObjectURL(selected));
       setHasEmbeddedSpawn(model.hasSpawn);
+      setUsesDefaultColor(model.usesDefaultColor);
     } catch (error) {
       input.value = "";
       setFormError(error.message || "This GLB could not be opened. Export it again and retry.");
@@ -255,7 +286,10 @@ const ModelerWorkspace = () => {
     setFile(null);
     setFilePreviewUrl("");
     setHasEmbeddedSpawn(false);
+    setUsesDefaultColor(false);
     setModelUrl("");
+    setPreviewedUrl("");
+    setPreviewReview(null);
     setStops([]);
     setSpawnPoint(createDefaultModelSpawnPoint());
     setSpawnPointEnabled(false);
@@ -312,6 +346,10 @@ const ModelerWorkspace = () => {
     }
     if (!file && !modelUrl.trim()) {
       setFormError("Upload a GLB model or provide a model URL.");
+      return;
+    }
+    if (!previewConfirmed) {
+      setFormError("Load the model preview and confirm its appearance before submitting.");
       return;
     }
     setUploadProgress(null);
@@ -442,6 +480,7 @@ const ModelerWorkspace = () => {
             onChange={(event) => {
               setInstitutionId(event.target.value);
               setStops([]);
+              setPreviewReview(null);
               setFormError("");
               setNotice("");
             }}
@@ -471,6 +510,51 @@ const ModelerWorkspace = () => {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 400px), 1fr))", gap: 20, marginTop: 20 }}>
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>
           <h2 style={{ marginTop: 0, color: "#f3d16f" }}>Prepare VR tour</h2>
+          <details id="modeler-export-guide" style={{ marginBottom: 16, lineHeight: 1.6 }}>
+            <summary style={{ cursor: "pointer", color: "#f3d16f", fontWeight: 600 }}>How to export and submit a tour</summary>
+            <ol style={{ paddingInlineStart: 22 }}>
+              <li>
+                In Blender, use <strong>File → Export → glTF 2.0</strong> and choose <strong>glTF Binary (.glb)</strong>.
+                Export the materials and images with the model, and leave Draco compression off for phone compatibility.
+              </li>
+              <li>
+                Upload the GLB here. Orbit the preview and check that the main surfaces, colors, and textures match
+                your intended model. The preview can have different lighting from Blender.
+              </li>
+              <li>
+                Choose a point of interest (POI), select <strong>Add VR stop</strong>, and click where the visitor
+                should approach it. The stop uses the same information and quiz the Curator attached to that POI.
+              </li>
+              <li>
+                Enable <strong>Set a spawn point for this model</strong>, choose <strong>Place spawn</strong>, and click
+                open ground where visitors should start. Confirm the preview and submit the tour for Curator review.
+                The app gets the tour after the Curator publishes it.
+              </li>
+            </ol>
+            <strong>White surfaces or missing textures?</strong>
+            <p style={{ marginBlock: 6 }}>
+              Blender’s procedural nodes, such as Noise Texture, Color Ramp, and Bump, may look correct in Blender
+              but leave their colors or surface detail out of the GLB. Use Cycles baking to turn those materials
+              into image textures.
+            </p>
+            <ol style={{ paddingInlineStart: 22 }}>
+              <li>UV unwrap the surfaces. Create an image and select its Image Texture node as the bake target.</li>
+              <li>
+                Bake the color with <strong>Diffuse</strong> and only <strong>Color</strong> enabled. For surface detail,
+                bake a separate tangent-space <strong>Normal</strong> map.
+              </li>
+              <li>
+                Save the images. Connect the color image to the Principled BSDF’s <strong>Base Color</strong>.
+                Set the normal image to <strong>Non-Color</strong> and connect it through a <strong>Normal Map</strong> node.
+                Export the GLB again and preview the new file here.
+              </li>
+            </ol>
+            <p>
+              <a href="https://docs.blender.org/manual/en/latest/render/cycles/baking.html" target="_blank" rel="noreferrer">Blender baking guide</a>
+              {" · "}
+              <a href="https://docs.blender.org/manual/en/latest/addons/scene_gltf2.html" target="_blank" rel="noreferrer">Blender glTF export guide</a>
+            </p>
+          </details>
           <p style={{ color: "#aaa", fontSize: 14 }}>
             {hasAR
               ? "Complete AR references are available for this landmark."
@@ -484,6 +568,7 @@ const ModelerWorkspace = () => {
                 onChange={(event) => {
                   setSelectedLandmarkId(event.target.value);
                   setStops([]);
+                  setPreviewReview(null);
                   setFormError("");
                 }}
                 disabled={saving}
@@ -518,6 +603,7 @@ const ModelerWorkspace = () => {
                 onChange={chooseModel}
                 style={{ display: "block", marginTop: 6 }}
               />
+              <small>Upload a local GLB to place VR stops in the preview.</small>
             </label>
             {checkingModel && <p role="status">Checking the GLB…</p>}
             <label>
@@ -525,24 +611,47 @@ const ModelerWorkspace = () => {
               <input
                 value={modelUrl}
                 disabled={saving || Boolean(file)}
-                onChange={(event) => setModelUrl(event.target.value)}
+                onChange={(event) => {
+                  setModelUrl(event.target.value);
+                  setPreviewedUrl("");
+                  setPreviewReview(null);
+                  setFormError("");
+                }}
                 placeholder="https://.../model.glb"
                 style={{ display: "block", width: "100%", marginTop: 6, padding: 10 }}
               />
             </label>
+            {!file && <button type="button" onClick={loadModelUrl} disabled={saving || checkingModel || !modelUrl.trim()}>
+              Load URL preview
+            </button>}
             <ModelSpawnPointEditor
-              key={`${institutionId}/${selectedLandmarkId}/${filePreviewUrl}`}
+              key={`${institutionId}/${selectedLandmarkId}/${modelSource}/${previewAttempt}`}
               enabled={spawnPointEnabled}
               onEnabledChange={setSpawnPointEnabled}
               value={spawnPoint}
               onChange={setSpawnPoint}
-              modelUrl={filePreviewUrl || modelUrl.trim()}
+              modelUrl={modelSource}
               poiOptions={poiOptions}
               stops={stops}
               onStopsChange={file && selectedLandmark ? setStops : undefined}
+              onPreviewStatus={(status) => setPreviewReview({ source: modelSource, status, confirmed: false })}
+              showMaterialNotice={!usesDefaultColor}
               disabled={saving}
             />
-            {needsTourSpawn && <p>
+            {file && usesDefaultColor && <p role="status" style={{ color: "#f3d16f" }}>
+              This GLB has no image textures, and some surfaces use the default white material color.
+              Check whether that is intended. If colors or detail are missing, follow the baking steps in the guide above.
+            </p>}
+            {previewFailed && <div>
+              <p>If the preview still fails, re-export the GLB. For a model URL, upload the file directly if the host blocks browser access.</p>
+              <button type="button" onClick={retryPreview} disabled={saving}>Retry preview</button>
+            </div>}
+            {previewReady && <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <input type="checkbox" checked={previewConfirmed} disabled={saving}
+                onChange={(event) => setPreviewReview({ source: modelSource, status: "ready", confirmed: event.target.checked })} />
+              I checked that this model’s geometry, colors, and textures look as intended.
+            </label>}
+            {((stops.length > 0 && needsTourSpawn) || (spawnPointEnabled && !spawnPoint.positionChosen)) && <p>
               Use <strong>Set a spawn point</strong> and <strong>Place spawn</strong> to mark where visitors start before submitting an interactive tour.
             </p>}
             {formError && <p role="alert" style={{ color: "#fecaca" }}>{formError}</p>}
@@ -556,7 +665,8 @@ const ModelerWorkspace = () => {
             )}
             <button
               type="submit"
-              disabled={saving || checkingModel || !hasAR || hasUnavailableStop || (!file && !modelUrl.trim()) ||
+              disabled={saving || checkingModel || !hasAR || hasUnavailableStop || !previewConfirmed ||
+                (needsTourSpawn && stops.length > 0) || (spawnPointEnabled && !spawnPoint.positionChosen) ||
                 (!stops.length && selectedLandmarkHasModel)}
               style={{
                 border: 0,
@@ -578,7 +688,8 @@ const ModelerWorkspace = () => {
 
           <hr style={{ border: 0, borderTop: "1px solid #34312a", margin: "18px 0" }} />
 
-          <div>
+          <details>
+            <summary style={{ cursor: "pointer", color: "#f3d16f", marginBottom: 10 }}>Already have a tour ZIP?</summary>
             <button
               type="button"
               onClick={() => setIsTourUploadOpen(true)}
@@ -594,9 +705,9 @@ const ModelerWorkspace = () => {
                 cursor: institutionId && !saving ? "pointer" : "not-allowed",
               }}
             >
-              Import Unity tour ZIP
+              Import tour ZIP
             </button>
-          </div>
+          </details>
         </section>
 
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>
