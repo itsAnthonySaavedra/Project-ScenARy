@@ -3,9 +3,9 @@ import styles from './Layout.module.css';
 
 const Header = () => (
     <div className={styles.dashboardHeader}>
-        <div className={styles.headerLogo} style={{ color: '#C19A4B' }} aria-label="ScenARy portal">
-            <i className="fa-solid fa-landmark" aria-hidden="true"></i>
-            <span style={{ fontWeight: 700, letterSpacing: '1px' }}>ScenARy</span>
+        <div className={styles.headerLogo}>
+            <img className={styles.headerMark} src="/assets/images/scenary-mark.png" alt="" width="36" height="36" />
+            <span>ScenARy</span>
         </div>
     </div>
 );

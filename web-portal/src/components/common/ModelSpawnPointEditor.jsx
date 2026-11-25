@@ -85,7 +85,7 @@ const ModelSpawnPointEditor = ({
 
   return (
     <fieldset style={{ minWidth: 0, border: "1px solid #444", padding: "0.9rem", margin: "1rem 0 0", color: "#ddd" }}>
-      <legend style={{ padding: "0 0.35rem", color: "#d4af37" }}>{allowStops ? "Tour stops and player spawn" : "Phone spawn transform"}</legend>
+      <legend style={{ padding: "0 0.35rem", color: "#d4af37" }}>{allowStops ? "POI triggers and visitor starting point" : "Visitor starting point"}</legend>
       <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
         <input type="checkbox" checked={enabled} disabled={disabled} onChange={(event) => {
           cancelPlacement();
@@ -117,13 +117,15 @@ const ModelSpawnPointEditor = ({
       {(enabled || allowStops || onPreviewStatus) && modelUrl && (
         <div style={{ marginTop: "0.9rem", border: "1px solid #444", borderRadius: 8, padding: "0.75rem", background: "#151515" }}>
           {allowStops && <div className={commonStyles.formGroup}>
-            <label htmlFor={poiFieldId}>POI for the next stop</label>
+            <label htmlFor={poiFieldId}>Point of interest (POI)</label>
             <select id={poiFieldId} className={commonStyles.formControl} value={selectedPoi?.id || ""} disabled={disabled}
               onChange={(event) => { cancelPlacement(); setPoiId(event.target.value); }}>
               <option value="">Choose a POI</option>
               {poiOptions.map((poi) => <option key={poi.id} value={poi.id}>{poi.name}</option>)}
             </select>
-            {!poiOptions.length && <small>Ask the Curator to attach complete AR content to a POI at this landmark.</small>}
+            <small>{poiOptions.length
+              ? "Choose a POI, select Add VR stop, then click the model where visitors should approach it."
+              : "No POIs are available for this landmark. Ask the Curator to add a POI and complete its AR content."}</small>
             {selectedPoi && <small>{selectedPoi.contentTypes.join(", ")}</small>}
           </div>}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>

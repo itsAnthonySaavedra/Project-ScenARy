@@ -498,39 +498,34 @@ const ModelerWorkspace = () => {
       {error && <div role="alert" style={{ marginTop: 16, color: "#fecaca" }}>{error}</div>}
       {notice && <div role="status" style={{ marginTop: 16, color: "#86efac" }}>{notice}</div>}
 
-      {selectedLandmark && (
-        <LandmarkDiscussion
-          institutionId={institutionId}
-          landmarkId={selectedLandmark.id}
-          landmarkName={selectedLandmark.landmarkName || selectedLandmark.institutionName}
-          suspended={Boolean(previewContent) || isTourUploadOpen}
-        />
-      )}
+      <section aria-labelledby="modeler-guide-title" style={{ marginTop: 20, padding: 20, borderRadius: 14, background: "#1d1a14", border: "1px solid #645326" }}>
+        <h2 id="modeler-guide-title" style={{ marginTop: 0, color: "#f3d16f" }}>From Blender to a VR tour</h2>
+        <ol style={{ marginBottom: 0, paddingInlineStart: 22, lineHeight: 1.6 }}>
+          <li>
+            The <strong>model creator</strong> exports a textured <strong>glTF Binary (.glb)</strong> from Blender
+            with the default settings, checks the preview, and hands off the file and landmark name.
+          </li>
+          <li>
+            The <strong>ScenARy team</strong> selects the institution and landmark, uploads the GLB, and checks the preview.
+            To link a point of interest (POI), choose it, select <strong>Add VR stop</strong>, and click where visitors
+            should approach it. Use <strong>Place spawn</strong> to choose where visitors start.
+          </li>
+          <li>
+            Submit the tour for the <strong>Curator</strong> to review and publish. In ScenARy Mobile, walk up
+            to a stop to check that its linked POI content opens.
+          </li>
+        </ol>
+      </section>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 400px), 1fr))", gap: 20, marginTop: 20 }}>
         <section style={{ padding: 20, borderRadius: 14, background: "#151515", border: "1px solid #34312a" }}>
           <h2 style={{ marginTop: 0, color: "#f3d16f" }}>Prepare VR tour</h2>
           <details id="modeler-export-guide" style={{ marginBottom: 16, lineHeight: 1.6 }}>
-            <summary style={{ cursor: "pointer", color: "#f3d16f", fontWeight: 600 }}>How to export and submit a tour</summary>
-            <ol style={{ paddingInlineStart: 22 }}>
-              <li>
-                In Blender, use <strong>File → Export → glTF 2.0</strong> and choose <strong>glTF Binary (.glb)</strong>.
-                Export the materials and images with the model, and leave Draco compression off for phone compatibility.
-              </li>
-              <li>
-                Upload the GLB here. Orbit the preview and check that the main surfaces, colors, and textures match
-                your intended model. The preview can have different lighting from Blender.
-              </li>
-              <li>
-                Choose a point of interest (POI), select <strong>Add VR stop</strong>, and click where the visitor
-                should approach it. The stop uses the same information and quiz the Curator attached to that POI.
-              </li>
-              <li>
-                Enable <strong>Set a spawn point for this model</strong>, choose <strong>Place spawn</strong>, and click
-                open ground where visitors should start. Confirm the preview and submit the tour for Curator review.
-                The app gets the tour after the Curator publishes it.
-              </li>
-            </ol>
+            <summary style={{ cursor: "pointer", color: "#f3d16f", fontWeight: 600 }}>Blender export and missing textures</summary>
+            <p>
+              In Blender, choose <strong>File → Export → glTF 2.0</strong> and set the format to <strong>glTF Binary (.glb)</strong>.
+              Orbit the exported model in the preview and check the main surfaces, colors, and textures.
+            </p>
             <strong>White surfaces or missing textures?</strong>
             <p style={{ marginBlock: 6 }}>
               Blender’s procedural nodes, such as Noise Texture, Color Ramp, and Bump, may look correct in Blender
@@ -603,7 +598,6 @@ const ModelerWorkspace = () => {
                 onChange={chooseModel}
                 style={{ display: "block", marginTop: 6 }}
               />
-              <small>Upload a local GLB to place VR stops in the preview.</small>
             </label>
             {checkingModel && <p role="status">Checking the GLB…</p>}
             <label>
@@ -624,6 +618,15 @@ const ModelerWorkspace = () => {
             {!file && <button type="button" onClick={loadModelUrl} disabled={saving || checkingModel || !modelUrl.trim()}>
               Load URL preview
             </button>}
+            {(!file || !selectedLandmark) && (
+              <div style={{ padding: 12, borderRadius: 8, background: "#1d1a14" }}>
+                <strong style={{ color: "#f3d16f" }}>Link POI triggers to the model</strong>
+                <p style={{ margin: "4px 0 0" }}>
+                  Select a landmark and upload a GLB to place stops in its preview. Each stop opens content
+                  from an existing POI for that landmark.
+                </p>
+              </div>
+            )}
             <ModelSpawnPointEditor
               key={`${institutionId}/${selectedLandmarkId}/${modelSource}/${previewAttempt}`}
               enabled={spawnPointEnabled}
@@ -815,6 +818,15 @@ const ModelerWorkspace = () => {
             ))}
           </div>
         </section>
+      )}
+
+      {selectedLandmark && (
+        <LandmarkDiscussion
+          institutionId={institutionId}
+          landmarkId={selectedLandmark.id}
+          landmarkName={selectedLandmark.landmarkName || selectedLandmark.institutionName}
+          suspended={Boolean(previewContent) || isTourUploadOpen}
+        />
       )}
 
       {isTourUploadOpen && (
